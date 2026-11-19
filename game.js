@@ -269,27 +269,108 @@ function near(n, a, b) { // can people walk/sail from region a to region b?
 }
 
 let sampler = null;
-function samplePoint(ri, nearPt) {
+function samplePoint(ri, nearPt, owner = -1) {
   const s = W.regions[ri], [x0, y0, x1, y1] = s.bb;
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
   const others = setsIn(ri);
+  const checkCells = owner >= 0 && CELL;
   let best = null, bd = 1e9;
   for (let i = 0; i < 80; i++) {
     const x = x0 + rnd() * (x1 - x0), y = y0 + rnd() * (y1 - y0);
     if (!sampler.isPointInPath(s.path, x, y, "evenodd")) continue;
     let gap = 9; for (const o of others) gap = Math.min(gap, Math.hypot(o.x - x, o.y - y));
     if (i < 70 && gap < 2.4) continue;
+    if (checkCells) { const c = CELL[cellOf(x, y)]; if (c >= 0 && c !== owner) continue; } // can't settle inside another people's borders
     // stay near home but keep a comfortable distance from other settlements
     const d = (nearPt ? Math.hypot(nearPt.x - x, nearPt.y - y) : Math.hypot(s.lx - x, s.ly - y) * .5) + rnd() * 5 - Math.min(gap, 6) * 1.6;
     if (d < bd) { bd = d; best = [x, y]; }
   }
-  return best || [s.lx + (rnd() - .5) * 4, s.ly + (rnd() - .5) * 4];
+  if (best || owner >= 0 && G.sets.length) return best;
+  return [s.lx + (rnd() - .5) * 4, s.ly + (rnd() - .5) * 4];
 }
 function addSettlement(nid, ri, pop, from, name, tier = 0) {
-  const [x, y] = samplePoint(ri, from);
-  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || genName(8), x, y, c: nid, u: 0, q: 0, f: G.turn };
+  const pt = samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
+  if (!pt && from) return null;
+  const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
+  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || genName(8), x, y, c: nid, u: 0, q: 0, f: G.turn, rad: .8, hp: 1 };
   G.sets.push(s); G.sv++; return s;
 }
+// ---- borders: land is a grid of small square cells; each people claims cells outward from its settlements ----
+const HP = [1, 2, 3];
+const CS = 1.5, GW = Math.ceil(W.w / CS), GH = Math.ceil(W.h / CS);
+let LAND = null, CELL = null;
+let landPath = null;
+function getLandPath() {
+  if (!landPath) { landPath = new Path2D(); for (const poly of W.land) for (const rg of poly) { landPath.moveTo(rg[0][0], rg[0][1]); for (let i = 1; i < rg.length; i++) landPath.lineTo(rg[i][0], rg[i][1]); landPath.closePath(); } }
+  return landPath;
+}
+function initLand() {
+  if (LAND) return;
+  const c = document.createElement("canvas"); c.width = GW; c.height = GH; const x = c.getContext("2d");
+  x.scale(1 / CS, 1 / CS); x.fill(getLandPath(), "evenodd");
+  const d = x.getImageData(0, 0, GW, GH).data; LAND = new Uint8Array(GW * GH);
+  for (let i = 0; i < GW * GH; i++) LAND[i] = d[i * 4 + 3] > 100 ? 1 : 0;
+}
+function resetCells() { initLand(); CELL = new Int16Array(GW * GH).fill(-1); }
+const cellOf = (x, y) => clamp(y / CS | 0, 0, GH - 1) * GW + clamp(x / CS | 0, 0, GW - 1);
+const RAD = s => s.t === 0 ? 3 : s.t === 1 ? 4.5 + Math.min(1.5, s.pop / 3000) : 6 + Math.min(4, s.pop / 40000);
+function claimAround(s) {
+  const n = s.o, cx = s.x / CS | 0, cy = s.y / CS | 0, R = s.rad / CS, Ri = Math.ceil(R);
+  const c0 = cellOf(s.x, s.y); if (CELL[c0] < 0) CELL[c0] = n;
+  for (let dy = -Ri; dy <= Ri; dy++) for (let dx = -Ri; dx <= Ri; dx++) {
+    if (dx * dx + dy * dy > R * R) continue;
+    const x = cx + dx, y = cy + dy; if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) continue;
+    const i = y * GW + x; if (!LAND[i] || CELL[i] >= 0) continue;
+    if (CELL[i - 1] === n || CELL[i + 1] === n || CELL[i - GW] === n || CELL[i + GW] === n) CELL[i] = n; // borders grow outward, never jump
+  }
+}
+function growBorders() {
+  if (!CELL) resetCells();
+  for (const s of G.sets) { if (s.hp == null) s.hp = HP[s.t];
+    if (s.hp < HP[s.t] && G.turn - (s.hit || 0) > 3) s.hp++;
+    s.rad = Math.min(RAD(s), (s.rad || .8) + .35); }
+  for (const s of G.sets.slice().sort(() => rnd() - .5)) claimAround(s);
+  G.sv++;
+}
+// flip `rings` layers of the defender's cells near settlement s that touch the attacker's land
+function chip(att, s, rings, extra = 0) {
+  const d = s.o, cx = s.x / CS | 0, cy = s.y / CS | 0, R = (RAD(s) + 2.5 + extra) / CS, Ri = Math.ceil(R);
+  for (let r = 0; r < rings; r++) {
+    const flip = [];
+    for (let dy = -Ri; dy <= Ri; dy++) for (let dx = -Ri; dx <= Ri; dx++) {
+      if (dx * dx + dy * dy > R * R) continue; const x = cx + dx, y = cy + dy; if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) continue;
+      const i = y * GW + x; if (CELL[i] !== d) continue;
+      if (CELL[i - 1] === att || CELL[i + 1] === att || CELL[i - GW] === att || CELL[i + GW] === att) flip.push(i);
+    }
+    flip.forEach(i => CELL[i] = att);
+  }
+  G.sv++;
+}
+function giveLand(s, to, radius) { // hand the land right around a settlement to its new owner
+  const from = s.o, cx = s.x / CS | 0, cy = s.y / CS | 0, R = radius / CS, Ri = Math.ceil(R);
+  for (let dy = -Ri; dy <= Ri; dy++) for (let dx = -Ri; dx <= Ri; dx++) { if (dx * dx + dy * dy > R * R) continue;
+    const x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; const i = y * GW + x; if (CELL[i] === from || i === cellOf(s.x, s.y)) CELL[i] = to; }
+  G.sv++;
+}
+let touchKey = null, touchPairs = new Set();
+function computeTouch() {
+  const key = G.sv + ":" + G.turn; if (touchKey === key && CELL) return; touchKey = key; touchPairs = new Set(); if (!CELL) return;
+  for (let y = 0; y < GH - 1; y++) for (let x = 0; x < GW - 1; x++) {
+    const i = y * GW + x, a = CELL[i]; if (a < 0) continue;
+    const b = CELL[i + 1], c = CELL[i + GW];
+    if (b >= 0 && b !== a) touchPairs.add(pk(a, b)); if (c >= 0 && c !== a) touchPairs.add(pk(a, c));
+  }
+}
+function bordersTouch(a, b) { computeTouch(); return touchPairs.has(pk(a.id, b.id)); }
+function touchesSet(n, s) { // is enemy settlement s on n's front line?
+  if (!CELL) return false;
+  const cx = s.x / CS | 0, cy = s.y / CS | 0, R = (RAD(s) + 2.5) / CS, Ri = Math.ceil(R);
+  for (let dy = -Ri; dy <= Ri; dy++) for (let dx = -Ri; dx <= Ri; dx++) { if (dx * dx + dy * dy > R * R) continue;
+    const x = cx + dx, y = cy + dy; if (x < 0 || y < 0 || x >= GW || y >= GH) continue; if (CELL[y * GW + x] === n.id) return true; }
+  return false;
+}
+function rle() { if (!CELL) return null; let out = [], cur = CELL[0], len = 0; for (let i = 0; i < CELL.length; i++) { if (CELL[i] === cur) len++; else { out.push(cur + ":" + len); cur = CELL[i]; len = 1; } } out.push(cur + ":" + len); return out.join(","); }
+function unrle(str) { resetCells(); if (!str) return false; let i = 0; for (const part of str.split(",")) { const [v, l] = part.split(":").map(Number); CELL.fill(v, i, i + l); i += l; } return true; }
 function recomputeControl(ri) {
   const cnt = {};
   for (const s of G.sets) if (s.r === ri && s.t >= 1) cnt[s.o] = (cnt[s.o] || 0) + 1;
@@ -325,7 +406,7 @@ function newNation(name, color, ri, ai, pers) {
   return n;
 }
 function newGame(opts) {
-  reachCache.clear();
+  reachCache.clear(); resetCells();
   G = { v: 2, turn: 1, year: -4000, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
   for (let i = 0; i < NR; i++) G.regions.push({ i, ctrl: -1 });
   const start = RID[opts.start];
@@ -346,6 +427,7 @@ function newGame(opts) {
     addTribe(r);
   }
   G.exp = new Array(NR).fill(0);
+  for (let i = 0; i < 3; i++) growBorders();
   updateContacts(); updateExplore();
   log(`The ${nm(P())} is born: a single village of ${START_POP} people in ${W.regions[start].n}.`, "🔥");
 }
@@ -377,9 +459,10 @@ function foundCheck(n, ri) {
   return { ok: true, donor: d, c };
 }
 function foundVillage(n, ri, donor) {
+  const s = addSettlement(n.id, ri, MOVERS, donor);
+  if (!s) return null;
   const c = villageCost(n); n.gold -= c.g; n.mat -= c.m;
   donor.pop -= MOVERS;
-  const s = addSettlement(n.id, ri, MOVERS, donor);
   if (!n.ai) log(`Settlers from ${donor.name} founded the village of ${s.name} in ${W.regions[ri].n}.`, "🛖");
   return s;
 }
@@ -665,7 +748,9 @@ function processNation(n) {
     const ri = bestVillageSpot(n, s.r);
     if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
     s.crowd = false;
-    born.push([addSettlement(n.id, ri, Math.min(s.ov, 25), s), s]); s.ov = 0;
+    const nv = addSettlement(n.id, ri, Math.min(s.ov, 25), s);
+    if (!nv) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
+    born.push([nv, s]); s.ov = 0;
   }
   if (!n.ai) {
     if (born.length === 1) log(`People from ${born[0][1].name} moved out and formed the village of ${born[0][0].name} in ${W.regions[born[0][0].r].n}.`, "🛖");
@@ -741,13 +826,13 @@ function revolt(n, s) {
   const back = G.nations[s.c];
   const ri = s.r;
   if (back && back.alive && back.id !== n.id && rnd() < .7) {
-    s.o = back.id; s.u = 20; s.q = 0; G.sv++;
+    giveLand(s, back.id, 2.5); s.o = back.id; s.u = 20; s.q = 0; G.sv++;
     if (n.id === G.player || back.id === G.player) log(`${s.name} rose up and rejoined the ${nm(back)}!`, "✊");
   } else {
     const used = new Set(G.nations.map(x => x.color));
     const col = COLORS.find(c => !used.has(c)) || `hsl(${Math.floor(rnd() * 360)},65%,55%)`;
     const rb = newNation(s.name, col, -1, true, pick(Object.keys(PERS)));
-    s.o = rb.id; s.c = rb.id; s.u = 0; s.q = 0; rb.cap = s.id; G.sv++;
+    giveLand(s, rb.id, 3); s.o = rb.id; s.c = rb.id; s.u = 0; s.q = 0; rb.cap = s.id; G.sv++;
     rb.gold = 15 * (n.era + 1); rb.techs = n.techs.slice(); rb.era = n.era; rb.army = Math.max(1, Math.round(n.army * .15)); rb.gov = n.gov === "tribe" ? "tribe" : "chiefdom"; rb.research = chooseResearch(rb);
     n.army = Math.max(0, n.army - Math.round(n.army * .1));
     const d = dip(n.id, rb.id); d.met = true; d.war = true; d.rel = -60; d.wt = G.turn;
@@ -789,9 +874,16 @@ function attack(n, s, units) {
   n.army -= aLoss; n.used += units;
   const dLoss = Math.min(dn.army, Math.round(D.units * clamp(att / def * .5, .1, 1) + (win ? .5 : 0))); dn.army -= dLoss;
   const res = { win, aLoss, dLoss, name: s.name, def: dn };
-  if (win) {
+  if (win && (s.hp == null ? HP[s.t] : s.hp) > 1) {
+    // push their border back; the settlement holds out a little longer
+    s.hp = (s.hp == null ? HP[s.t] : s.hp) - 1; s.hit = G.turn; s.pop *= .92; s.u = Math.min(100, s.u + 15);
+    chip(n.id, s, 2);
+    addWs(n.id, dn.id, 3); dn.ww += 1;
+    res.push = true; res.left = s.hp;
+  } else if (win) {
     addWs(n.id, dn.id, s.id === dn.cap ? 15 : 5 + s.t * 3);
-    s.o = n.id; s.pop *= .85; s.u = 35; s.q = 30; G.sv++;
+    chip(n.id, s, 2); giveLand(s, n.id, 2.2);
+    s.o = n.id; s.pop *= .85; s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.turn; G.sv++;
     dn.ww += 3;
     if (!setsOf(dn).some(x => x.r === ri)) { if (G.bld[ri]) delete G.bld[ri][dn.id]; setCons(dn.id, ri, null); }
     if (s.id === dn.cap) { const rest = setsOf(dn); if (rest.length) { dn.cap = rest.sort((a, b) => b.pop - a.pop)[0].id; dn.facMods.push({ k: "commoners", v: -15, why: "Capital lost", t: 5 }); } }
@@ -799,12 +891,14 @@ function attack(n, s, units) {
     if (!setsOf(dn).length) eliminate(dn, n);
   } else addWs(n.id, dn.id, -3);
   const involved = n.id === G.player || dn.id === G.player;
-  if (win && (involved || dip(dn.id, G.player).met)) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} captured the ${TIERS[s.t].name.toLowerCase()} of ${s.name} in ${W.regions[ri].n}${dn.id === G.player ? " from you" : n.id === G.player ? "" : " from the " + nm(dn)}!`, n.id === G.player ? "🚩" : dn.id === G.player ? "🔥" : "⚔️", involved ? null : -1);
+  if (res.push && involved) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} pushed back the border around ${s.name}. ${res.left} more victor${res.left === 1 ? "y" : "ies"} to take it.`, n.id === G.player ? "⚔️" : "🔥");
+  else if (win && !res.push && (involved || dip(dn.id, G.player).met)) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} captured the ${TIERS[s.t].name.toLowerCase()} of ${s.name} in ${W.regions[ri].n}${dn.id === G.player ? " from you" : n.id === G.player ? "" : " from the " + nm(dn)}!`, n.id === G.player ? "🚩" : dn.id === G.player ? "🔥" : "⚔️", involved ? null : -1);
   else if (!win && involved) log(`${n.id === G.player ? "Your attack on" : "The " + nm(n) + " attacked"} ${s.name}, but ${n.id === G.player ? "was" : "they were"} driven back. (${aLoss} attacker${aLoss === 1 ? "" : "s"} lost)`, "🛡️");
   return res;
 }
 function eliminate(dn, by) {
   dn.alive = false; dn.army = 0;
+  if (CELL) { for (let i = 0; i < CELL.length; i++) if (CELL[i] === dn.id) CELL[i] = -1; G.sv++; }
   for (const o of G.nations) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   if (dn.id === G.player) { log("Your last settlement has fallen.", "☠️"); defeat(); }
   else if (dip(dn.id, G.player).met) log(`The ${nm(dn)} has been wiped from the map by the ${nm(by)}.`, "☠️", -1);
@@ -922,7 +1016,7 @@ function aiTurn(n) {
     } else if (!d.ally && d.truce <= 0 && wars.length === 0 && n.anarchy === 0 && sizeOf(n) < adminCap(n) * 1.4) {
       const ratioP = power(n) / Math.max(1, power(o));
       const hostile = d.rel < (n.pers === "aggressive" ? -10 : -45);
-      const border = setsOf(o).some(s => canReach(n, s.r));
+      const border = bordersTouch(n, o);
       const chance = { aggressive: .15, zealot: .08, builder: .04, trader: .03 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1);
       const grace = (o.id === G.player && G.turn < [60, 35, 20][G.diff]) || G.turn < 12;
       if (!grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.25 : 1.8) && rnd() < chance) declareWar(n, o);
@@ -934,7 +1028,7 @@ function aiTurn(n) {
     let tries = o.id === G.player ? (n.era < 4 ? 1 : 2) : 1 + Math.floor(n.era / 3);
     while (tries-- > 0) {
       const avail = n.army - n.used; if (avail < 1) break;
-      const targets = setsOf(o).filter(s => canReach(n, s.r));
+      const targets = setsOf(o).filter(s => touchesSet(n, s));
       if (!targets.length) break;
       let best = null, bp = 0, bu = 0;
       for (const s of targets) { const D = defenseOf(s).power; const need = Math.ceil(D * 1.35 / unitPower(n)); if (need <= avail * .75) { const u = Math.max(1, Math.min(avail, need)); const p = winChance(n, s, u); const val = p + s.t * .08; if (val > bp) { bp = val; best = s; bu = u; } } }
@@ -1131,6 +1225,7 @@ function endTurn() {
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
   driftRelations();
+  growBorders();
   updateContacts(); updateExplore();
   G.turn++;
   { const e = Math.max(worldEra(), P().alive ? P().era - 1 : 0); G.year = Math.max(ERA_YEAR[e], Math.min(G.year + YEARS_PER_TURN[e], ERA_YEAR[e + 1] - (e === 7 ? 0 : 1))); }
@@ -1152,7 +1247,8 @@ function defeat() { G.over = true; G.outcome = { win: false, why: "Your nation h
 
 // ================= SAVE =================
 const SAVE_KEY = "cradle-cosmos-save-v2";
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch (e) {} }
+function save() { try { G.cells = rle(); localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch (e) {} }
+function restoreCells() { if (!unrle(G.cells)) { for (const x of G.sets) x.rad = .8; for (let i = 0; i < 8; i++) growBorders(); } }
 function loadSave() { try { const s = localStorage.getItem(SAVE_KEY); const g = s ? JSON.parse(s) : null; return g && g.v === 2 ? g : null; } catch (e) { return null; } }
 
 // ================= MAP RENDERING =================
@@ -1174,6 +1270,33 @@ function clampView() {
 }
 function centerOn(x, y, k) { if (k) view.k = k; view.x = cw / 2 - x * view.k; view.y = ch * .42 - y * view.k; clampView(); dirty = true; }
 const centerRegion = (ri, k) => centerOn(W.regions[ri].lx, W.regions[ri].ly, k);
+let bordCanvas = null, bordKey = null, bordEdges = null, expPath = null, expKey = null;
+function rebuildBorderLayer() {
+  if (!bordCanvas) { bordCanvas = document.createElement("canvas"); bordCanvas.width = GW; bordCanvas.height = GH; }
+  const x = bordCanvas.getContext("2d"), img = x.createImageData(GW, GH), d = img.data;
+  const rgb = G.nations.map(n => { const c = shade(n.color, .28); const m = c.match(/\d+/g); return m ? m.map(Number) : [200, 200, 200]; });
+  for (let i = 0; i < CELL.length; i++) { const o = CELL[i]; if (o < 0) continue; const c = rgb[o]; d[i * 4] = c[0]; d[i * 4 + 1] = c[1]; d[i * 4 + 2] = c[2]; d[i * 4 + 3] = 255; }
+  x.putImageData(img, 0, 0);
+  // outline edges between different owners, merged into runs
+  bordEdges = new Map(); const P = o => bordEdges.get(o) || (bordEdges.set(o, new Path2D()), bordEdges.get(o));
+  const run = new Map();
+  const flush = (o, horiz, line) => { const r = run.get(o); if (!r) return; const p = P(o); if (horiz) { p.moveTo(r[0] * CS, line * CS); p.lineTo((r[1] + 1) * CS, line * CS); } else { p.moveTo(line * CS, r[0] * CS); p.lineTo(line * CS, (r[1] + 1) * CS); } run.delete(o); };
+  const step = (owners, pos, horiz, line) => { for (const o of owners) { const r = run.get(o); if (r && r[1] === pos - 1) r[1] = pos; else { flush(o, horiz, line); run.set(o, [pos, pos]); } } };
+  for (let y = 1; y < GH; y++) { for (let xx = 0; xx < GW; xx++) { const a = CELL[(y - 1) * GW + xx], b = CELL[y * GW + xx]; if (a !== b) step([a, b].filter(o => o >= 0), xx, true, y); } for (const o of [...run.keys()]) flush(o, true, y); }
+  for (let xx = 1; xx < GW; xx++) { for (let y = 0; y < GH; y++) { const a = CELL[y * GW + xx - 1], b = CELL[y * GW + xx]; if (a !== b) step([a, b].filter(o => o >= 0), y, false, xx); } for (const o of [...run.keys()]) flush(o, false, xx); }
+}
+function drawBorders(k, me) {
+  if (!CELL) return;
+  const key = G.sv + ":" + G.turn; if (bordKey !== key) { rebuildBorderLayer(); bordKey = key; }
+  ctx.save();
+  if (G.exp && !G.setup && !G.demo) { const ek = G.exp.join(""); if (ek !== expKey) { expKey = ek; expPath = new Path2D(); W.regions.forEach(r => { if (G.exp[r.i]) expPath.addPath(r.path); }); } ctx.clip(expPath, "evenodd"); }
+  ctx.imageSmoothingEnabled = false; ctx.globalAlpha = .82;
+  ctx.drawImage(bordCanvas, 0, 0, GW * CS, GH * CS);
+  ctx.globalAlpha = 1; ctx.lineCap = "square";
+  for (const [o, p] of bordEdges) { const n = G.nations[o]; if (!n) continue; const war = atWar(me, o);
+    ctx.strokeStyle = war ? "#b3261e" : shade(n.color, -.42); ctx.lineWidth = Math.max(.22, (war ? 2.4 : 1.6) / k); ctx.stroke(p); }
+  ctx.restore();
+}
 let fogPat = null;
 function makeFog() {
   const c = document.createElement("canvas"); c.width = c.height = 40; const x = c.getContext("2d");
@@ -1216,16 +1339,15 @@ function draw() {
   for (const s of W.regions) {
     const r = G.regions[s.i];
     if (fogged(s.i)) { ctx.fillStyle = "#d3d9e0"; ctx.fill(s.path, "evenodd"); ctx.fillStyle = fogPat; ctx.fill(s.path, "evenodd"); continue; }
-    if (r.ctrl >= 0) { ctx.fillStyle = G.nations[r.ctrl].color; ctx.fill(s.path, "evenodd"); continue; }
     ctx.fillStyle = WILD; ctx.fill(s.path, "evenodd");
     ctx.globalAlpha = .28; ctx.fillStyle = TER[s.t].col; ctx.fill(s.path, "evenodd");
-    const p = presence[s.i];
-    if (p) { let best = -1, bv = 0; for (const o in p) if (p[o] > bv) { bv = p[o]; best = +o; } ctx.globalAlpha = .22; ctx.fillStyle = G.nations[best].color; ctx.fill(s.path, "evenodd"); }
+    if (r.ctrl >= 0) { ctx.globalAlpha = .2; ctx.fillStyle = G.nations[r.ctrl].color; ctx.fill(s.path, "evenodd"); }
     ctx.globalAlpha = 1;
   }
+  drawBorders(k, me);
   for (const s of W.regions) {
     const r = G.regions[s.i];
-    if (r.ctrl >= 0 && atWar(me, r.ctrl) && !fogged(s.i)) { ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = "rgba(120,0,0,.28)"; ctx.lineWidth = 3 / k; ctx.beginPath();
+    if (false) { ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = "rgba(120,0,0,.28)"; ctx.lineWidth = 3 / k; ctx.beginPath();
       const x0 = s.lx - 200, y0 = s.ly - 200; const st = 9 / Math.max(1, k / 2); for (let i = 0; i < 400; i += st) { ctx.moveTo(x0 + i, y0); ctx.lineTo(x0 + i - 200, y0 + 200); ctx.moveTo(x0 + i, y0 + 200); ctx.lineTo(x0 + i - 200, y0 + 400); } ctx.stroke(); ctx.restore(); }
   }
   ctx.lineJoin = "round";
@@ -1234,7 +1356,7 @@ function draw() {
   for (const s of W.regions) {
     const r = G.regions[s.i]; if (r.ctrl < 0 || fogged(s.i)) continue;
     const o = G.nations[r.ctrl];
-    ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = shade(o.color, -.35); ctx.globalAlpha = .6; ctx.lineWidth = 3.2 / k; ctx.stroke(s.path); ctx.restore();
+    ctx.save(); ctx.clip(s.path, "evenodd"); ctx.setLineDash([6 / k, 4 / k]); ctx.strokeStyle = shade(o.color, -.35); ctx.globalAlpha = .55; ctx.lineWidth = 2.4 / k; ctx.stroke(s.path); ctx.restore();
   }
   if (sel >= 0) { const s = W.regions[sel]; ctx.strokeStyle = "#fff"; ctx.lineWidth = 5 / k; ctx.stroke(s.path); ctx.strokeStyle = "#1d2a4d"; ctx.lineWidth = 2.2 / k; ctx.stroke(s.path); }
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -1282,7 +1404,7 @@ function drawSettlements(k, me) {
     const z = SET_SIZE[s.t];
     if (z * k >= 3) continue;
     const n = G.nations[s.o];
-    ctx.fillStyle = G.regions[s.r].ctrl === s.o ? shade(n.color, .7) : shade(n.color, -.15);
+    ctx.fillStyle = shade(n.color, -.45);
     ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(z, 1.1 / k), 0, Math.PI * 2); ctx.fill();
   }
   // pass 2: full shapes, drawn smallest first so cities sit on top
@@ -1290,7 +1412,7 @@ function drawSettlements(k, me) {
   for (let t = 0; t < 3; t++) for (const s of G.sets) {
     if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1 || fogged(s.r)) continue;
     const z = SET_SIZE[t]; if (z * k < 3) continue;
-    const n = G.nations[s.o], home = G.regions[s.r].ctrl === s.o, base = home ? shade(n.color, .62) : n.color;
+    const n = G.nations[s.o], home = true, base = shade(n.color, .62);
     shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
     shapePath(t, s.x, s.y, z);
     const g = ctx.createLinearGradient(s.x, s.y - z, s.x, s.y + z);
@@ -1378,7 +1500,9 @@ function setRow(s, n) {
       acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
     else if (s.t === 1) { const c = cityCheck(n, s);
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
-  } else if (atWar(n.id, o.id) && canReach(n, s.r)) {
+  } else if (atWar(n.id, o.id) && !touchesSet(n, s)) {
+    acts += `<span class="why">Not on the front line. Only settlements touching your borders can be attacked.</span>`;
+  } else if (atWar(n.id, o.id)) {
     acts += n.army - n.used > 0 ? `<button class="btn small red" data-act="attackPick" data-s="${s.id}">⚔️ Attack ${esc(s.name)}</button>` : `<span class="why">Your regiments have all fought this turn.</span>`;
   }
   return `<div class="set ${mine ? "mine" : ""}"><div class="st-top"><span class="st-icon">${TIERS[s.t].icon}</span><span class="st-name"><b>${esc(s.name)}</b><small><span class="sw" style="background:${o.color}"></span> ${mine ? "Yours" : esc(o.name)} · ${TIERS[s.t].name}${o.cap === s.id ? " · Capital ⭐" : ""}${full ? (s.crowd ? ' · <span class="bad">Overcrowded</span>' : (s.t ? ' · <span class="warn">Crowded · people moving out</span>' : ' · <span class="warn">Full · people moving out</span>')) : ""}${mine && s.u > 50 ? ' · <span class="bad">Unrest</span>' : ""}</small></span><span class="st-pop">${fmtP(s.pop)}<small>/ ${fmtP(cap)}</small></span></div>
@@ -1427,7 +1551,7 @@ sheet.addEventListener("click", e => {
   const keep = sheet.scrollTop;
   if (a === "close") return closeSheet();
   if (a === "build") { startBuild(n, ri, BK[b.dataset.k]); toast(`${BK[b.dataset.k].name} under construction`); }
-  else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(`Founded ${s.name}`); updateContacts(); updateExplore(); G.news = []; } }
+  else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(s ? `Founded ${s.name}` : "No free land there: it's all inside other peoples' borders"); updateContacts(); updateExplore(); G.news = []; } }
   else if (a === "town" || a === "city") { const s = setById(+b.dataset.s); const c = a === "town" ? townCheck(n, s) : cityCheck(n, s); if (c.ok) { upgrade(n, s); toast(`${s.name} is now a ${TIERS[s.t].name.toLowerCase()}!`); const msgs = G.news.filter(x => /territory|now the/.test(x.t)); G.news = []; if (msgs.length) setTimeout(() => showModal(`<div class="mi">🚩</div><h2>${esc(W.regions[ri].n)}</h2>${msgs.map(m => `<p>${esc(m.t)}</p>`).join("")}<div class="row"><button class="btn" data-m="ok">Hooray!</button></div>`), 50); } }
   else if (a === "attackPick") return attackDialog(setById(+b.dataset.s));
   else if (a === "diplo") return openNationDetail(+b.dataset.id);
@@ -1439,12 +1563,12 @@ function attackDialog(s) {
   const render = () => {
     const p = winChance(n, s, k);
     showModal(`<div class="mi">⚔️</div><h2>Attack ${esc(s.name)}</h2>
-      <p>${TIERS[s.t].name} of ${fmtP(s.pop)} people. Defense strength <b>${fmt(defenseOf(s).power)}</b>. Each of your regiments brings <b>${fmt(unitPower(n))}</b>.</p>
+      <p>${TIERS[s.t].name} of ${fmtP(s.pop)} people. It takes ${s.hp == null ? HP[s.t] : s.hp} more victor${(s.hp == null ? HP[s.t] : s.hp) === 1 ? "y" : "ies"} to capture. Defense strength <b>${fmt(defenseOf(s).power)}</b>. Each of your regiments brings <b>${fmt(unitPower(n))}</b>.</p>
       <label class="slider"><span>Regiments to send: <b>${k}</b> of ${av}</span><input id="ak" type="range" min="1" max="${av}" value="${k}"></label>
       <div class="odds"><div class="bar big"><i style="width:${p * 100}%;background:${p > .66 ? "var(--good)" : p > .4 ? "var(--warn)" : "var(--bad)"}"></i></div><b>${Math.round(p * 100)}% chance to win</b></div>
       <div class="row"><button class="btn ghost" data-m="cancel">Cancel</button><button class="btn red" data-m="go">Attack!</button></div>`, a => {
         if (a === "go") { const res = attack(n, s, k); const notes = G.news.filter(x => /territory|now the|fell/.test(x.t)).map(x => x.t); G.news = []; hud(); closeSheet();
-          showModal(`<div class="mi">${res.win ? "🚩" : "🛡️"}</div><h2>${res.win ? "Victory!" : "Repelled"}</h2><p>${res.win ? `${esc(s.name)} is yours.` : `The defenders of ${esc(s.name)} held.`} You lost ${res.aLoss} regiment${res.aLoss === 1 ? "" : "s"}; they lost ${res.dLoss}.</p>${notes.map(t => `<p><b>${esc(t)}</b></p>`).join("")}<div class="row"><button class="btn" data-m="ok">OK</button></div>`);
+          showModal(`<div class="mi">${res.win ? "🚩" : "🛡️"}</div><h2>${res.win ? (res.push ? "Border pushed back!" : "Victory!") : "Repelled"}</h2><p>${res.win ? (res.push ? `${esc(s.name)} lost ground but still holds. ${res.left} more victor${res.left === 1 ? "y" : "ies"} to take it.` : `${esc(s.name)} is yours.`) : `The defenders of ${esc(s.name)} held.`} You lost ${res.aLoss} regiment${res.aLoss === 1 ? "" : "s"}; they lost ${res.dLoss}.</p>${notes.map(t => `<p><b>${esc(t)}</b></p>`).join("")}<div class="row"><button class="btn" data-m="ok">OK</button></div>`);
           sel = s.r; dirty = true; if (G.over) setTimeout(showEnd, 50); }
       });
     const sl = $("ak"); if (sl) sl.oninput = () => { k = +sl.value; render(); };
@@ -1597,7 +1721,7 @@ function openNationDetail(id) {
     if (!d.ally) h += `<button class="opt" data-act="dAlly" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Propose an alliance</b><small>Defend each other. ${aiAccept(o, "ally", n) ? "Likely yes" : "Needs friendlier relations"}</small></span></button>`;
     else h += `<button class="opt" data-act="dAllyEnd" data-id="${id}"><span class="oi">💔</span><span class="ot"><b>End the alliance</b><small>Hurts relations a lot</small></span></button>`;
     h += `<button class="opt" data-act="dTrib" data-id="${id}"><span class="oi">👊</span><span class="ot"><b>Demand ${fmt(trib)} gold tribute</b><small>${aiAccept(o, "tribute", n) ? "They fear you" : "They will likely refuse"}. Hurts relations.</small></span></button>`;
-    const blocked = n.opposition > 0 ? "The opposition blocks war" : d.truce > 0 ? `Truce for ${d.truce} more turns` : "";
+    const blocked = n.opposition > 0 ? "The opposition blocks war" : d.truce > 0 ? `Truce for ${d.truce} more turns` : !bordersTouch(n, o) ? "Your borders don't touch yet. Grow toward them first" : "";
     h += `<button class="opt war" data-act="dWar" data-id="${id}" ${blocked ? "disabled" : ""}><span class="oi">⚔️</span><span class="ot"><b>Declare war</b><small>${blocked || "Breaks treaties. Then attack their settlements from the map."}</small></span></button>`;
   }
   h += `</div>`;
@@ -1678,7 +1802,8 @@ function showHelp() {
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
-  <p><b>War.</b> Declare war in World, then tap enemy settlements you can reach to attack them. Capturing towns can flip whole territories.</p>
+  <p><b>Borders.</b> Each settlement holds land around it, and your borders grow as you add villages, towns and cities. Borders stop where they meet another people's, and you can't settle inside someone else's borders.</p>
+  <p><b>War.</b> You can only declare war on peoples whose borders touch yours, and only attack their settlements on the front line. Each victory pushes their border back; it takes 1 win to capture a village, 2 for a town and 3 for a city.</p>
   <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed, and cloudy gray land is unexplored.</p></div>
   <div class="row"><button class="btn" data-m="ok">Got it</button></div>`);
 }
@@ -1694,7 +1819,7 @@ function showTitle() {
   if (!G) G = { demo: true, turn: 0, year: -4000, player: 0, nations: [], regions: W.regions.map((s, i) => ({ i, ctrl: -1 })), sets: [], bld: {}, cons: {}, dip: {}, news: [], sv: 0 };
   view.k = minK(); clampView(); dirty = true;
 }
-$("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); };
+$("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } restoreCells(); startPlaying(); };
 $("btnNew").onclick = () => openSetup();
 $("btnHelp").onclick = () => showHelp();
 function openSetup() {
@@ -1729,7 +1854,10 @@ function startPlaying(fresh) {
   $("title").hidden = true; $("setup").hidden = true; $("game").classList.remove("dim");
   G.setup = false; sel = -1;
   const c = capSet(P()) || G.sets[0];
-  if (c) centerOn(c.x, c.y, Math.max(minK() * 4, 7));
+  if (c && fresh) { const [x0, y0, x1, y1] = W.regions[c.r].bb, w = x1 - x0, h = y1 - y0;
+    const k = clamp(Math.min(cw / (w * 1.25), ch * .62 / (h * 1.25)), minK(), 14);
+    view.k = k; view.x = cw / 2 - (x0 + w / 2) * k; view.y = ch * .46 - (y0 + h / 2) * k; clampView(); dirty = true; }
+  else if (c) centerOn(c.x, c.y, Math.max(minK() * 4, 7));
   hud(); dirty = true;
   if (fresh) showModal(`<div class="mi">🛖</div><h2>${esc(nm(P()))}</h2><p>${START_POP} people gather around the fire in a small village in ${esc(W.regions[capSet(P()).r].n)}. The rest of the world is wild and unclaimed. ${-G.year} BCE.</p><div class="help small">
     <p>• A village holds ${VILLAGE_CAP} people. When it fills up, people move out and <b>form new villages</b> nearby on their own.</p>
@@ -1745,11 +1873,11 @@ if (window.ResizeObserver) new ResizeObserver(resize).observe(cv);
 document.addEventListener("keydown", e => { if (e.key === "Escape") { if (!modal.hidden) return; if (!panel.hidden) closePanel(); else closeSheet(); } });
 function start(data) {
   resize();
-  window.claude?.hot?.snapshot?.(() => ({ G: G && !G.demo && G.v === 2 ? G : null }));
-  if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
+  window.claude?.hot?.snapshot?.(() => { if (G && !G.demo && G.v === 2) { G.cells = rle(); return { G }; } return { G: null }; });
+  if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
+window.__c2c = { get G() { return G; }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
