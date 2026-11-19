@@ -193,7 +193,7 @@ const FACTIONS = {
   intellectuals: { name: () => "Intellectuals", icon: "📚", from: 4 },
   workers: { name: () => "Workers", icon: "🔧", from: 5 },
 };
-const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f", "#1fb5b0", "#e45aa0", "#8a5a33", "#5b6ee1", "#a5c234", "#c0392b", "#16a085", "#d35400", "#7d3c98", "#34495e", "#ff8fab", "#00a8e8"];
+const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f", "#1fb5b0", "#e45aa0", "#8a5a33", "#5b6ee1", "#a5c234", "#c0392b", "#16a085", "#d35400", "#7d3c98", "#34495e", "#ff8fab", "#00a8e8", "#6c5ce7", "#00b894", "#e1a10b", "#e17055", "#0984e3", "#b33771", "#3b3b98", "#58b19f", "#cd6133", "#4b4b7a", "#ff9f43", "#218c74", "#82589f", "#8e7d5b", "#d63031", "#2d98da"];
 const CRADLES = ["Lower Egypt", "Mesopotamia", "Indus", "North China Plain", "Jiangnan", "Punjab", "Anatolia", "Greece", "Southern Italy", "Central Mexico", "Peru", "Mali", "Ethiopia", "Northern Gaul", "England", "Persia", "Japan", "Muscovy", "Midwest", "Java", "Eastern Mongolia", "Castile", "Bengal", "Zimbabwe", "Korea", "Rhineland", "Gold Coast", "Southern Plains", "Pampas", "New South Wales", "Great Lakes Africa", "Yucatan"];
 const SYL = ["ka", "ra", "tal", "mor", "eth", "vin", "sul", "dor", "ash", "ul", "ren", "bar", "kesh", "an", "ith", "or", "zan", "lo", "mir", "gal", "hun", "tep", "yar", "ob", "nek", "sa", "tor", "al", "qua", "ri", "ven", "ito", "ba", "du", "shen", "ko", "zi", "mar", "el", "ost", "ta", "ny", "vel", "kor", "ae", "bri", "hal", "wen"];
 function genName(max = 9) { let s = pick(SYL) + pick(SYL); if (rnd() < .4) s += pick(SYL); s = s.replace(/(.)\1\1/, "$1$1"); return s[0].toUpperCase() + s.slice(1, max); }
@@ -330,17 +330,23 @@ function newGame(opts) {
   for (let i = 0; i < NR; i++) G.regions.push({ i, ctrl: -1 });
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder");
-  const used = [start];
-  const pool = CRADLES.map(c => RID[c]).filter(i => i !== undefined && i !== start).sort(() => rnd() - .5);
-  const colors = COLORS.filter(c => c !== opts.color);
+  const used = [start], colors = COLORS.filter(c => c !== opts.color);
+  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
+  const livable = r => TER[W.regions[r].t].food >= .9;
+  // two neighboring tribes a few territories away (never right on your border)
+  const near = W.regions.map(r => r.i).filter(r => r !== start && livable(r) && !W.regions[start].adj.includes(r) && gdist(start, r) >= 5 && gdist(start, r) <= 14)
+    .sort((a, b) => gdist(start, a) - gdist(start, b) - (W.regions[a].c - W.regions[b].c) * 3);
+  for (const r of near) { if (G.nations.length >= 3) break; if (used.some(u => u !== start && gdist(u, r) < 6)) continue; addTribe(r); }
+  // the rest of the world: mostly coastal peoples, a few inland river valleys
+  const pool = W.regions.map(r => r.i).filter(r => !used.includes(r) && (livable(r) || CRADLES.includes(W.regions[r].n))).sort(() => rnd() - .5);
   for (const r of pool) {
-    if (G.nations.length >= 16) break;
-    if (used.some(u => gdist(u, r) < 14)) continue;
-    used.push(r);
-    const n = newNation(genName(), colors.shift(), r, true, pick(Object.keys(PERS)));
-    n.laws.cons = n.pers === "aggressive" ? "levy" : "vol";
+    if (G.nations.length >= 30) break;
+    if (!W.regions[r].c && !CRADLES.includes(W.regions[r].n) && rnd() > .2) continue;
+    if (used.some(u => gdist(u, r) < 9)) continue;
+    addTribe(r);
   }
-  updateContacts();
+  G.exp = new Array(NR).fill(0);
+  updateContacts(); updateExplore();
   log(`The ${nm(P())} is born: a single village of ${START_POP} people in ${W.regions[start].n}.`, "🔥");
 }
 
@@ -580,6 +586,19 @@ function stabilityOf(n, fac) {
 }
 
 // ================= TURN PROCESSING =================
+// fog of war: what the player's people know about the world
+function updateExplore() {
+  const n = P(); if (!n || !G.exp) return;
+  if (has(n, "flight")) { G.exp.fill(1); return; }
+  const add = ri => { G.exp[ri] = 1; };
+  for (const ri of reachSet(n)) add(ri);
+  for (const ri of pres(n)) { const S = W.regions[ri]; S.adj.forEach(add); if (S.c) S.sea.forEach(j => { if (has(n, "sailing") || gdist(ri, j) <= 6) add(j); }); }
+  if (has(n, "navigation")) for (const ri of pres(n)) if (W.regions[ri].c) oceanNeighbors(ri).forEach(add);
+  for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
+    const c = capSet(o); if (c) add(c.r);
+    if (dip(n.id, o.id).trade || dip(n.id, o.id).ally) for (const ri of pres(o)) add(ri); }
+}
+const fogged = ri => G.exp && !G.setup && !G.demo && !G.exp[ri];
 function updateContacts() {
   for (const a of G.nations) { if (!a.alive) continue;
     for (const b of G.nations) { if (!b.alive || b.id <= a.id) continue;
@@ -1112,7 +1131,7 @@ function endTurn() {
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
   driftRelations();
-  updateContacts();
+  updateContacts(); updateExplore();
   G.turn++;
   { const e = Math.max(worldEra(), P().alive ? P().era - 1 : 0); G.year = Math.max(ERA_YEAR[e], Math.min(G.year + YEARS_PER_TURN[e], ERA_YEAR[e + 1] - (e === 7 ? 0 : 1))); }
   const me = P();
@@ -1155,6 +1174,13 @@ function clampView() {
 }
 function centerOn(x, y, k) { if (k) view.k = k; view.x = cw / 2 - x * view.k; view.y = ch * .42 - y * view.k; clampView(); dirty = true; }
 const centerRegion = (ri, k) => centerOn(W.regions[ri].lx, W.regions[ri].ly, k);
+let fogPat = null;
+function makeFog() {
+  const c = document.createElement("canvas"); c.width = c.height = 40; const x = c.getContext("2d");
+  x.strokeStyle = "rgba(255,255,255,.55)"; x.lineWidth = 2; x.lineCap = "round";
+  for (const [a, b] of [[10, 12], [30, 30]]) { x.beginPath(); x.arc(a, b, 4, Math.PI, 0); x.arc(a + 7, b, 3, Math.PI, 0); x.stroke(); }
+  fogPat = ctx.createPattern(c, "repeat");
+}
 function makeWaves() {
   const c = document.createElement("canvas"); c.width = c.height = 48; const x = c.getContext("2d");
   x.fillStyle = "#6fc3ea"; x.fillRect(0, 0, 48, 48);
@@ -1185,8 +1211,11 @@ function draw() {
   // who has the most people in each unclaimed region (for a soft tint)
   const presence = {};
   for (const s of G.sets) { const p = presence[s.r] || (presence[s.r] = {}); p[s.o] = (p[s.o] || 0) + U(s.pop) * (1 + s.t); }
+  if (!fogPat) makeFog();
+  if (fogPat.setTransform) fogPat.setTransform(new DOMMatrix().scale(1 / k));
   for (const s of W.regions) {
     const r = G.regions[s.i];
+    if (fogged(s.i)) { ctx.fillStyle = "#d3d9e0"; ctx.fill(s.path, "evenodd"); ctx.fillStyle = fogPat; ctx.fill(s.path, "evenodd"); continue; }
     if (r.ctrl >= 0) { ctx.fillStyle = G.nations[r.ctrl].color; ctx.fill(s.path, "evenodd"); continue; }
     ctx.fillStyle = WILD; ctx.fill(s.path, "evenodd");
     ctx.globalAlpha = .28; ctx.fillStyle = TER[s.t].col; ctx.fill(s.path, "evenodd");
@@ -1196,14 +1225,14 @@ function draw() {
   }
   for (const s of W.regions) {
     const r = G.regions[s.i];
-    if (r.ctrl >= 0 && atWar(me, r.ctrl)) { ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = "rgba(120,0,0,.28)"; ctx.lineWidth = 3 / k; ctx.beginPath();
+    if (r.ctrl >= 0 && atWar(me, r.ctrl) && !fogged(s.i)) { ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = "rgba(120,0,0,.28)"; ctx.lineWidth = 3 / k; ctx.beginPath();
       const x0 = s.lx - 200, y0 = s.ly - 200; const st = 9 / Math.max(1, k / 2); for (let i = 0; i < 400; i += st) { ctx.moveTo(x0 + i, y0); ctx.lineTo(x0 + i - 200, y0 + 200); ctx.moveTo(x0 + i, y0 + 200); ctx.lineTo(x0 + i - 200, y0 + 400); } ctx.stroke(); ctx.restore(); }
   }
   ctx.lineJoin = "round";
   ctx.strokeStyle = "rgba(120,130,150,.35)"; ctx.lineWidth = 1 / k;
-  for (const s of W.regions) ctx.stroke(s.path);
+  for (const s of W.regions) if (!fogged(s.i)) ctx.stroke(s.path);
   for (const s of W.regions) {
-    const r = G.regions[s.i]; if (r.ctrl < 0) continue;
+    const r = G.regions[s.i]; if (r.ctrl < 0 || fogged(s.i)) continue;
     const o = G.nations[r.ctrl];
     ctx.save(); ctx.clip(s.path, "evenodd"); ctx.strokeStyle = shade(o.color, -.35); ctx.globalAlpha = .6; ctx.lineWidth = 3.2 / k; ctx.stroke(s.path); ctx.restore();
   }
@@ -1213,7 +1242,7 @@ function draw() {
   if (k > 1.7) {
     ctx.font = `700 ${fs}px Nunito, system-ui, sans-serif`;
     for (const s of W.regions) {
-      if (s.ls * k < 20 && k < 6) continue;
+      if ((s.ls * k < 20 && k < 6) || fogged(s.i)) continue;
       ctx.lineWidth = 3 / k; ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.fillStyle = "rgba(29,42,77,.75)";
       ctx.strokeText(s.n, s.lx, s.ly); ctx.fillText(s.n, s.lx, s.ly);
       const bits = (consOf(me, s.i) ? "🔨" : "") + (s.r && k > 3 ? RES[s.r].icon : "");
@@ -1224,7 +1253,7 @@ function draw() {
   drawSettlements(k, me);
   if (k < 3.2) {
     for (const n of G.nations) {
-      if (!n.alive) continue; const sets = setsOf(n); if (!sets.length) continue;
+      if (!n.alive) continue; const sets = setsOf(n).filter(x => !fogged(x.r)); if (!sets.length) continue;
       let x = 0, y = 0, w = 0; for (const s of sets) { const u = U(s.pop) * (1 + s.t); x += s.x * u; y += s.y * u; w += u; }
       x /= w; y /= w;
       const tc = terrCount(n);
@@ -1249,7 +1278,7 @@ function drawSettlements(k, me) {
   const lw = Math.max(.12, 1 / k);
   // pass 1: tiny dots for settlements too small to show their shape
   for (const s of G.sets) {
-    if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
+    if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1 || fogged(s.r)) continue;
     const z = SET_SIZE[s.t];
     if (z * k >= 3) continue;
     const n = G.nations[s.o];
@@ -1259,7 +1288,7 @@ function drawSettlements(k, me) {
   // pass 2: full shapes, drawn smallest first so cities sit on top
   ctx.lineJoin = "round";
   for (let t = 0; t < 3; t++) for (const s of G.sets) {
-    if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
+    if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1 || fogged(s.r)) continue;
     const z = SET_SIZE[t]; if (z * k < 3) continue;
     const n = G.nations[s.o], home = G.regions[s.r].ctrl === s.o, base = home ? shade(n.color, .62) : n.color;
     shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
@@ -1357,6 +1386,10 @@ function setRow(s, n) {
 }
 function openRegion(ri) {
   closePanel();
+  if (fogged(ri)) {
+    sheet.innerHTML = `<div class="sh-head"><div><h3>Unexplored land</h3><div class="sub">Beyond the edge of your maps</div></div><button class="x" data-act="close" aria-label="Close">✕</button></div><p class="note">Your people don't know what lies here yet. Spread your settlements, meet other peoples, or sign trade pacts to share maps. Sailing and Navigation reveal distant coasts, and Flight reveals the whole world.</p>`;
+    sheet.hidden = false; sheet.dataset.ri = ri; return;
+  }
   const S = W.regions[ri], r = G.regions[ri], n = P(), T = TER[S.t], res = S.r ? RES[S.r] : null;
   const here = setsIn(ri).sort((a, b) => (b.o === n.id) - (a.o === n.id) || b.t - a.t || b.pop - a.pop);
   const ctrl = r.ctrl >= 0 ? G.nations[r.ctrl] : null;
@@ -1394,7 +1427,7 @@ sheet.addEventListener("click", e => {
   const keep = sheet.scrollTop;
   if (a === "close") return closeSheet();
   if (a === "build") { startBuild(n, ri, BK[b.dataset.k]); toast(`${BK[b.dataset.k].name} under construction`); }
-  else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(`Founded ${s.name}`); updateContacts(); G.news = []; } }
+  else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(`Founded ${s.name}`); updateContacts(); updateExplore(); G.news = []; } }
   else if (a === "town" || a === "city") { const s = setById(+b.dataset.s); const c = a === "town" ? townCheck(n, s) : cityCheck(n, s); if (c.ok) { upgrade(n, s); toast(`${s.name} is now a ${TIERS[s.t].name.toLowerCase()}!`); const msgs = G.news.filter(x => /territory|now the/.test(x.t)); G.news = []; if (msgs.length) setTimeout(() => showModal(`<div class="mi">🚩</div><h2>${esc(W.regions[ri].n)}</h2>${msgs.map(m => `<p>${esc(m.t)}</p>`).join("")}<div class="row"><button class="btn" data-m="ok">Hooray!</button></div>`), 50); } }
   else if (a === "attackPick") return attackDialog(setById(+b.dataset.s));
   else if (a === "diplo") return openNationDetail(+b.dataset.id);
@@ -1646,7 +1679,7 @@ function showHelp() {
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>War.</b> Declare war in World, then tap enemy settlements you can reach to attack them. Capturing towns can flip whole territories.</p>
-  <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed.</p></div>
+  <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed, and cloudy gray land is unexplored.</p></div>
   <div class="row"><button class="btn" data-m="ok">Got it</button></div>`);
 }
 
@@ -1661,7 +1694,7 @@ function showTitle() {
   if (!G) G = { demo: true, turn: 0, year: -4000, player: 0, nations: [], regions: W.regions.map((s, i) => ({ i, ctrl: -1 })), sets: [], bld: {}, cons: {}, dip: {}, news: [], sv: 0 };
   view.k = minK(); clampView(); dirty = true;
 }
-$("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); startPlaying(); };
+$("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); };
 $("btnNew").onclick = () => openSetup();
 $("btnHelp").onclick = () => showHelp();
 function openSetup() {
@@ -1713,7 +1746,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") { if (!modal
 function start(data) {
   resize();
   window.claude?.hot?.snapshot?.(() => ({ G: G && !G.demo && G.v === 2 ? G : null }));
-  if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); startPlaying(); } else showTitle();
+  if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
 window.__c2c = { get G() { return G; }, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
