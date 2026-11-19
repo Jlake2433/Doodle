@@ -376,14 +376,21 @@ function foundVillage(n, ri, donor) {
 }
 function townCheck(n, s) {
   if (s.t !== 0) return { ok: false };
-  const v = setsOf(n).filter(x => x.r === s.r && x.t === 0).length;
-  if (!has(n, "agriculture")) return { ok: false, why: "Research Agriculture first" };
-  if (v < VILLAGES_FOR_TOWN) return { ok: false, why: `Needs ${VILLAGES_FOR_TOWN} of your villages in this territory (you have ${v})` };
+  const mates = mergeMates(n, s);
+  if (!has(n, "agriculture")) return { ok: false, why: "Research Agriculture first", mates };
+  if (mates.length < VILLAGES_FOR_TOWN - 1) return { ok: false, why: `Needs ${VILLAGES_FOR_TOWN} of your villages close together, in this territory or the one next door (you have ${mates.length + 1})`, mates };
   const k = townsOf(n) + 1, req = townReq(k), pop = popOf(n);
   if (pop < req) return { ok: false, why: `Town #${k} needs ${fmtP(req)} people in your nation (you have ${fmtP(pop)})` };
   const c = townCost(n);
   if (!afford(n, c)) return { ok: false, why: "Not enough gold or materials", c };
-  return { ok: true, c };
+  return { ok: true, c, mates };
+}
+// the 3 closest villages (same territory or a bordering one) that would merge with s into a town
+function mergeMates(n, s) {
+  const adj = W.regions[s.r].adj;
+  return G.sets.filter(x => x.o === n.id && x.t === 0 && x !== s && (x.r === s.r || adj.includes(x.r)))
+    .sort((a, b) => (a.r !== s.r) - (b.r !== s.r) || Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))
+    .slice(0, VILLAGES_FOR_TOWN - 1);
 }
 function cityCheck(n, s) {
   if (s.t !== 1) return { ok: false };
@@ -395,8 +402,14 @@ function cityCheck(n, s) {
 }
 function upgrade(n, s) {
   const c = s.t === 0 ? townCost(n) : cityCost(n);
-  n.gold -= c.g; n.mat -= c.m; s.t++; G.sv++;
-  if (!n.ai) log(`${s.name} grew into a ${TIERS[s.t].name.toLowerCase()}!`, TIERS[s.t].icon);
+  n.gold -= c.g; n.mat -= c.m;
+  if (s.t === 0) { // villages merge: everyone moves together into one town
+    const mates = mergeMates(n, s);
+    for (const m of mates) { s.pop += m.pop; if (n.cap === m.id) n.cap = s.id; G.sets.splice(G.sets.indexOf(m), 1); }
+    s.u = Math.min(s.u, ...mates.map(m => m.u)); s.ov = 0; s.crowd = false;
+    if (!n.ai) log(`${[s, ...mates].map(x => x.name).join(", ").replace(/, ([^,]*)$/, " and $1")} merged into the town of ${s.name}!`, "🏘️");
+  } else if (!n.ai) log(`${s.name} grew into a city!`, "🏙️");
+  s.t++; G.sv++;
   recomputeControl(s.r);
 }
 
@@ -456,7 +469,7 @@ function capOf(s, n) {
   n = n || G.nations[s.o];
   const cb = bonus(n, s.r, "cap") + (W.regions[s.r].r === "fish" ? .1 : 0);
   if (s.t === 1) return 3000 * (1 + cb);
-  return 15000 * (1 + .5 * n.era) * (1 + cb);
+  return 12000 * (1 + .4 * n.era) * (1 + cb);
 }
 function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
@@ -605,8 +618,9 @@ function processNation(n) {
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
       const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr);
-      s.pop += (s.pop * r + T.flat) * free;
-    } else s.pop *= 1 - .05 * Math.min(1, -sr * 3);
+      const g = (s.pop * r + T.flat) * free;
+      s.pop += g; s.g = g;
+    } else { s.pop *= 1 - .05 * Math.min(1, -sr * 3); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * .25;
     if (s.t === 0 && s.pop > VILLAGE_CAP) s.pop = VILLAGE_CAP;
     s.pop = Math.max(2, s.pop);
@@ -616,8 +630,12 @@ function processNation(n) {
   let crowdedNow = 0;
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
-    if (s.pop < cap * .94 || sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
-    s.ov = (s.ov || 0) + s.pop * T.emi * (n.laws.focus === "grow" ? 1.3 : 1);
+    // villages send people out when full; towns and cities start pushing people to the countryside as they get crowded
+    const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
+    if (sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
+    if (s.t >= 1 && s.g > 0) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
+    if (s.pop >= cap * start) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1);
+    else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
     const ri = bestVillageSpot(n, s.r);
     if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
@@ -1287,18 +1305,18 @@ function costTxt(c) { return `${c.g ? `<span class="cg">🪙${fmt(c.g)}</span>` 
 
 // ---------- region sheet ----------
 function setRow(s, n) {
-  const o = G.nations[s.o], mine = s.o === n.id, cap = capOf(s, o), full = s.pop >= cap * .94;
+  const o = G.nations[s.o], mine = s.o === n.id, cap = capOf(s, o), full = s.pop >= cap * (s.t ? .6 : .94);
   let acts = "";
   if (mine) {
     const biggest = setsOf(n).filter(x => x.r === s.r && x.t === 0).sort((a, b) => b.pop - a.pop)[0];
     if (s.t === 0 && biggest === s) { const c = townCheck(n, s);
-      acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Upgrade to town · ${costTxt(townCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
+      acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
     else if (s.t === 1) { const c = cityCheck(n, s);
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
   } else if (atWar(n.id, o.id) && canReach(n, s.r)) {
     acts += n.army - n.used > 0 ? `<button class="btn small red" data-act="attackPick" data-s="${s.id}">⚔️ Attack ${esc(s.name)}</button>` : `<span class="why">Your regiments have all fought this turn.</span>`;
   }
-  return `<div class="set ${mine ? "mine" : ""}"><div class="st-top"><span class="st-icon">${TIERS[s.t].icon}</span><span class="st-name"><b>${esc(s.name)}</b><small><span class="sw" style="background:${o.color}"></span> ${mine ? "Yours" : esc(o.name)} · ${TIERS[s.t].name}${o.cap === s.id ? " · Capital ⭐" : ""}${full ? (s.crowd ? ' · <span class="bad">Overcrowded</span>' : ' · <span class="warn">Full · people moving out</span>') : ""}${mine && s.u > 50 ? ' · <span class="bad">Unrest</span>' : ""}</small></span><span class="st-pop">${fmtP(s.pop)}<small>/ ${fmtP(cap)}</small></span></div>
+  return `<div class="set ${mine ? "mine" : ""}"><div class="st-top"><span class="st-icon">${TIERS[s.t].icon}</span><span class="st-name"><b>${esc(s.name)}</b><small><span class="sw" style="background:${o.color}"></span> ${mine ? "Yours" : esc(o.name)} · ${TIERS[s.t].name}${o.cap === s.id ? " · Capital ⭐" : ""}${full ? (s.crowd ? ' · <span class="bad">Overcrowded</span>' : (s.t ? ' · <span class="warn">Crowded · people moving out</span>' : ' · <span class="warn">Full · people moving out</span>')) : ""}${mine && s.u > 50 ? ' · <span class="bad">Unrest</span>' : ""}</small></span><span class="st-pop">${fmtP(s.pop)}<small>/ ${fmtP(cap)}</small></span></div>
     <div class="bar thin"><i style="width:${Math.min(100, s.pop / cap * 100)}%;background:${full ? "var(--warn)" : o.color}"></i></div>${acts ? `<div class="acts">${acts}</div>` : ""}</div>`;
 }
 function openRegion(ri) {
@@ -1311,7 +1329,7 @@ function openRegion(ri) {
   h += `<div class="owner">${ctrl ? `<span class="sw" style="background:${ctrl.color}"></span>${ctrl.id === n.id ? "Your territory" : "Territory of the " + esc(nm(ctrl))}${ctrl.id !== n.id && atWar(n.id, ctrl.id) ? ' <span class="pill bad">At war</span>' : ""}` : `<span class="sw" style="background:${WILD}"></span>Unclaimed land`}<span class="muted"> · ${here.length}/${S.slots} settlements</span></div>`;
   if (!ctrl || ctrl.id !== n.id) {
     if (mine.length) h += `<div class="claim"><div class="bar-row"><small>Claim it</small><div class="bar"><i style="width:${myTowns / TOWNS_TO_CLAIM * 100}%;background:var(--accent)"></i></div><span>${myTowns}/${TOWNS_TO_CLAIM} towns</span></div><p class="small muted">${ctrl ? `The ${esc(nm(ctrl))} control this land. Capture their towns to take it.` : `Have ${TOWNS_TO_CLAIM} towns or cities here and this territory becomes yours.`} Villages here: ${myVill}.</p></div>`;
-    else if (!ctrl) h += `<p class="small muted">Wild land. Villages form here on their own when nearby settlements fill up, or you can send settlers. With ${VILLAGES_FOR_TOWN} villages you can raise a town, and ${TOWNS_TO_CLAIM} towns make it your territory.</p>`;
+    else if (!ctrl) h += `<p class="small muted">Wild land. Villages form here on their own when nearby settlements fill up, or you can send settlers. ${VILLAGES_FOR_TOWN} villages close together can merge into a town, and ${TOWNS_TO_CLAIM} towns make it your territory.</p>`;
   }
   // found a village
   const fc = foundCheck(n, ri);
@@ -1390,7 +1408,7 @@ function panelNation() {
     ${line(`Next town (#${tc + cc + 1}) needs`, `${fmtP(townReq(tc + cc + 1))} people ${E.pop >= townReq(tc + cc + 1) ? '<span class="good">✓</span>' : `<span class="muted">(have ${fmtP(E.pop)})</span>`}`)}
     ${full ? line("Overcrowded", `<span class="bad">${full} with no room nearby</span>`) : ""}
     ${line("Settlements you can manage", `${fmt(sizeOf(n))} / ${adminCap(n)}${E.over ? ' <span class="bad">overextended</span>' : ""}`)}
-    <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages in one territory let you raise a town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
+    <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages close together can merge into one town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line("Building upkeep", sgn(-E.bUp))}${line("Army upkeep", sgn(-E.armyUp))}${E.imports ? line("Resource imports", sgn(-E.imports)) : ""}${E.govUp ? line("Overextension costs", sgn(-E.govUp), "bad") : ""}
@@ -1586,7 +1604,7 @@ function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
-  <p><b>Towns & cities.</b> With ${VILLAGES_FOR_TOWN} villages in one territory you can upgrade one into a town (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
+  <p><b>Towns & cities.</b> ${VILLAGES_FOR_TOWN} villages close together (in one territory or neighboring ones) can merge into one town with all their people (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
@@ -1645,7 +1663,7 @@ function startPlaying(fresh) {
   hud(); dirty = true;
   if (fresh) showModal(`<div class="mi">🛖</div><h2>${esc(nm(P()))}</h2><p>${START_POP} people gather around the fire in a small village in ${esc(W.regions[capSet(P()).r].n)}. The rest of the world is wild and unclaimed. ${-G.year} BCE.</p><div class="help small">
     <p>• A village holds ${VILLAGE_CAP} people. When it fills up, people move out and <b>form new villages</b> nearby on their own.</p>
-    <p>• ${VILLAGES_FOR_TOWN} villages in one territory let you raise a <b>town</b>. ${TOWNS_TO_CLAIM} towns claim the territory and make you a <b>Nation</b>.</p>
+    <p>• ${VILLAGES_FOR_TOWN} villages close together can merge into a <b>town</b>. ${TOWNS_TO_CLAIM} towns claim the territory and make you a <b>Nation</b>.</p>
     <p>• Tap <b>End Turn</b> when you're ready.</p></div><div class="row"><button class="btn ghost" data-m="help">How to play</button><button class="btn" data-m="ok">Begin</button></div>`, a => { if (a === "help") showHelp(); });
   else if (G.over) showEnd();
   else if (G.event) afterTurnFlow();
