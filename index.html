@@ -59,6 +59,7 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 .chip i { font-style: normal; font-size: 11px; font-weight: 800; color: var(--ink-2); line-height: 1.1; white-space: nowrap; max-width: 92px; overflow: hidden; text-overflow: ellipsis; }
 .chip i.neg { color: var(--bad); }
 .chip.good { background: #e3f7ea; } .chip.bad { background: #ffe3e3; }
+.chip.warnchip { background: #fff0c2; }
 .chip.alert { background: #fff0c2; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: translateY(-2px); } }
 
@@ -232,6 +233,26 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 #sDiff { display: flex; gap: 6px; }
 #sDiff button { flex: 1; }
 #sInfo { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 700; }
+.sets { display: grid; gap: 8px; }
+.set { background: var(--paper); border: 2px solid var(--line); border-radius: 14px; padding: 8px 10px; display: grid; gap: 6px; }
+.set.mine { border-color: var(--ink); }
+.st-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.st-icon { font-size: 24px; line-height: 1; }
+.st-name { min-width: 0; flex: 1; }
+.st-name b { display: block; font: 600 16px var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.st-name small { display: block; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.st-pop { text-align: right; font: 600 17px var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.st-pop small { display: block; font: 700 11px var(--body); color: var(--ink-2); }
+.bar.thin { height: 8px; border-width: 1.5px; }
+.acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.why { font-size: 12px; font-weight: 700; color: var(--ink-2); flex-basis: 100%; }
+.claim { background: var(--paper); border: 2px dashed var(--accent); border-radius: 14px; padding: 6px 10px; margin-bottom: 8px; }
+.claim p { margin: 2px 0 4px; }
+.tiers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.tiers > div { background: var(--panel); border-radius: 12px; padding: 6px; display: grid; justify-items: center; }
+.tiers span { font-size: 22px; }
+.tiers b { font: 600 20px var(--display); }
+.tiers small { font-size: 11px; font-weight: 800; color: var(--ink-2); }
 [hidden] { display: none !important; }
 @media (min-width: 700px) { .sheet { max-height: 70%; } }
 @media (prefers-reduced-motion: reduce) { .sheet, .panel, .mbox, .chip.alert { animation: none; } }
@@ -243,6 +264,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
   <div class="hud">
     <div class="title-row"><span id="hFlag"></span><div class="tt"><div id="hName">—</div><div id="hYear"></div></div></div>
     <div class="chips">
+      <button class="chip" id="cPop" data-open="nation" aria-label="Population"></button>
       <button class="chip" id="cGold" data-open="nation" aria-label="Gold"></button>
       <button class="chip" id="cMat" data-open="nation" aria-label="Materials"></button>
       <button class="chip" id="cFood" data-open="nation" aria-label="Food"></button>
@@ -268,7 +290,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 <div class="screen" id="title">
   <div class="tbox">
     <h1 class="logo">Cradle<span>to Cosmos</span></h1>
-    <p class="tag">Lead your people from a Stone Age village to a colony on Mars.</p>
+    <p class="tag">Grow one village of 30 people into an empire, and then reach for Mars.</p>
     <button class="btn big-btn" id="btnContinue" hidden>Continue<small></small></button>
     <button class="btn big-btn" id="btnNew">New nation<small>Pick a homeland on the real world map</small></button>
     <button class="btn ghost" id="btnHelp">How to play</button>
@@ -277,7 +299,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 
 <div class="screen" id="setup" hidden>
   <div class="setup-box">
-    <h2>Found your tribe</h2>
+    <h2>Found your village</h2>
     <label class="field">Name your people
       <span class="namebox"><input id="sName" maxlength="18" autocomplete="off"><button id="sRandomName" type="button" aria-label="Random name">🎲</button></span>
     </label>
