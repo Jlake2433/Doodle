@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ink &amp; Marbles</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gochi+Hand&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: a single sheet of engineering paper lying on a slate desk; HUD above, pen tools below. */
+:root {
+  --desk: #1f2b34;
+  --desk-2: #2b3a46;
+  --chalk: #e6eee2;
+  --chalk-dim: #9fb0a8;
+  --paper: #eef4e9;
+  --ink: #1d3fa3;
+  --red: #d23a2f;
+  --marker: #e8892b;
+  --hand: "Gochi Hand", "Comic Sans MS", "Segoe Print", cursive;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--desk); color: var(--chalk);
+  font-family: var(--mono); font-size: 14px;
+  overflow: hidden; user-select: none; -webkit-user-select: none;
+}
+#app {
+  height: 100%; display: flex; flex-direction: column; gap: 8px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  box-sizing: border-box; max-width: 640px; margin: 0 auto;
+}
+.hud { display: flex; align-items: center; gap: 12px; justify-content: space-between; min-height: 40px; }
+.lvl { min-width: 0; }
+.lvl small { display: block; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--chalk-dim); }
+.lvl b { display: block; font-family: var(--hand); font-weight: 400; font-size: 26px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meters { display: flex; gap: 14px; align-items: center; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.meter small { display: block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--chalk-dim); }
+.inkbar { width: 92px; height: 10px; border-radius: 5px; background: var(--desk-2); overflow: hidden; margin-top: 4px; border: 1px solid #3d4f5c; }
+.inkbar i { display: block; height: 100%; background: #5d82ee; transition: width .1s; }
+.inkbar.low i { background: var(--red); }
+.count { font-weight: 600; font-size: 17px; }
+.hint { font-family: var(--hand); font-size: 18px; color: var(--chalk-dim); text-align: center; min-height: 22px; line-height: 1.2; }
+.stage { flex: 1; min-height: 0; display: grid; place-items: center; position: relative; }
+canvas { display: block; touch-action: none; border-radius: 3px; box-shadow: 0 18px 40px rgba(0,0,0,.45), 0 2px 0 rgba(255,255,255,.04); cursor: crosshair; }
+.tools { display: grid; grid-template-columns: 1fr 1fr 1.6fr 1fr; gap: 8px; }
+button {
+  font: 600 13px var(--mono); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--chalk); background: var(--desk-2); border: 1px solid #3d4f5c;
+  border-radius: 10px; padding: 12px 6px; cursor: pointer;
+}
+button:hover { background: #34465450; border-color: #5a7080; }
+button:focus-visible { outline: 2px solid var(--marker); outline-offset: 2px; }
+button:disabled { opacity: .4; cursor: default; }
+button.go { background: var(--marker); color: #2a1604; border-color: var(--marker); font-size: 15px; }
+button.go.stop { background: var(--chalk); border-color: var(--chalk); color: var(--desk); }
+.toast {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+  background: var(--desk); color: var(--chalk); border-radius: 8px; padding: 8px 14px;
+  font-family: var(--hand); font-size: 20px; white-space: nowrap; pointer-events: none;
+  box-shadow: 0 6px 20px rgba(0,0,0,.35); transition: opacity .3s; opacity: 0;
+}
+.toast.on { opacity: 1; }
+.overlay {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 20;
+  background: rgba(16, 24, 30, .78); backdrop-filter: blur(3px);
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.sheet {
+  background: var(--paper); color: #24323a; border-radius: 4px; width: min(420px, 100%);
+  padding: 26px 22px 22px; box-sizing: border-box; box-shadow: 0 24px 60px rgba(0,0,0,.5);
+  background-image: linear-gradient(#cfe0c8 1px, transparent 1px), linear-gradient(90deg, #cfe0c8 1px, transparent 1px);
+  background-size: 16px 16px; max-height: 100%; overflow-y: auto;
+}
+.sheet h1, .sheet h2 { font-family: var(--hand); font-weight: 400; color: var(--ink); margin: 0; text-wrap: balance; line-height: 1; }
+.sheet h1 { font-size: 52px; transform: rotate(-2deg); }
+.sheet h2 { font-size: 40px; text-align: center; }
+.sheet p { font-family: var(--hand); font-size: 20px; margin: 10px 0 18px; line-height: 1.25; color: #3a4a52; }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.grid button { background: #fff; color: var(--ink); border: 2px solid var(--ink); padding: 8px 0 6px; font-size: 18px; display: grid; gap: 2px; border-radius: 6px; }
+.grid button span { font-size: 11px; color: var(--marker); letter-spacing: 0; }
+.grid button:disabled { border-style: dashed; color: #7d8d86; border-color: #9aaba3; background: transparent; opacity: 1; }
+.stars { text-align: center; font-size: 44px; letter-spacing: 6px; color: #c9d6c2; margin: 8px 0 4px; }
+.stars .lit { color: var(--marker); }
+.row { display: flex; gap: 8px; margin-top: 16px; }
+.row button { flex: 1; }
+.sheet .row button:not(.go) { background: #fff; color: var(--ink); border: 2px solid var(--ink); }
+.center { text-align: center; }
+[hidden] { display: none !important; }
+@media (max-height: 640px) { .hint { display: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hud">
+    <div class="lvl"><small id="lvlNum">Page 1</small><b id="lvlName">First Doodle</b></div>
+    <div class="meters">
+      <div class="meter"><small>Ink</small><div class="inkbar" id="inkbar"><i id="inkfill" style="width:100%"></i></div></div>
+      <div class="meter"><small>Cup</small><span class="count" id="count">0/3</span></div>
+    </div>
+  </div>
+  <div class="hint" id="hint"></div>
+  <div class="stage" id="stage"><canvas id="cv" aria-label="Drawing area"></canvas><div class="toast" id="toast"></div></div>
+  <div class="tools">
+    <button id="undo" title="Undo last line (Z)">Undo</button>
+    <button id="clear" title="Erase all lines">Erase</button>
+    <button id="go" class="go" title="Drop marbles (Space)">Drop</button>
+    <button id="menuBtn" title="Choose a page">Pages</button>
+  </div>
+</div>
+
+<div class="overlay" id="menu">
+  <div class="sheet">
+    <h1>Ink &amp; Marbles</h1>
+    <p>Draw lines with your finger or mouse. Press Drop, and guide the marbles into the cup. Dodge the red spikes, stay out of the hatched zones, and save ink for more stars.</p>
+    <div class="grid" id="levelGrid"></div>
+  </div>
+</div>
+
+<div class="overlay" id="result" hidden>
+  <div class="sheet center">
+    <h2 id="resTitle">Nice!</h2>
+    <div class="stars" id="resStars"></div>
+    <p id="resText"></p>
+    <div class="row"><button id="retry">Redo</button><button id="next" class="go">Next page</button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+const W = 400, H = 640, R = 9, GRAV = 900, STEP = 1 / 240;
+const BALL_COLORS = ["#e4572e", "#2fa36b", "#f2b134", "#7a4fd1", "#2c8fd6", "#e05297"];
+
+// Levels: walls/noink are [x, y, w, h]; cup is {x: center, y: bottom}; spikes may oscillate (ax/ay amplitude, sp speed).
+const LEVELS = [
+  { name: "First Doodle", hint: "Draw a ramp from the pipe to the cup, then press Drop.",
+    spawn: [70, 40], cup: { x: 310, y: 620 }, balls: 5, need: 3, ink: 700 },
+  { name: "Mind the Gap", hint: "Red spikes pop marbles. Carry them over the top.",
+    spawn: [60, 40], cup: { x: 335, y: 620 }, balls: 5, need: 3, ink: 650,
+    spikes: [{ x: 140, y: 612, r: 15 }, { x: 190, y: 612, r: 15 }, { x: 240, y: 612, r: 15 }] },
+  { name: "Shelf Life", hint: "The cup sits on a shelf. Don't overshoot.",
+    spawn: [70, 40], cup: { x: 330, y: 400 }, balls: 5, need: 3, ink: 550,
+    walls: [[255, 400, 145, 16]], spikes: [{ x: 120, y: 470, r: 16 }] },
+  { name: "Keep Out", hint: "Ink won't stick inside the hatched zone.",
+    spawn: [60, 40], cup: { x: 335, y: 620 }, balls: 5, need: 3, ink: 750,
+    noink: [[110, 170, 180, 300]] },
+  { name: "Switchback", hint: "Zig one way, zag the other.",
+    spawn: [340, 40], cup: { x: 70, y: 620 }, balls: 6, need: 4, ink: 800,
+    walls: [[190, 140, 20, 230]], spikes: [{ x: 200, y: 450, r: 22 }, { x: 330, y: 560, r: 16 }] },
+  { name: "Pendulum", hint: "That spike swings. Give your marbles a roof.",
+    spawn: [60, 40], cup: { x: 330, y: 620 }, balls: 5, need: 3, ink: 850,
+    spikes: [{ x: 200, y: 330, r: 18, ax: 150, sp: 1.3 }] },
+  { name: "Thread the Needle", hint: "Find the gap between the spikes.",
+    spawn: [330, 40], cup: { x: 80, y: 620 }, balls: 6, need: 4, ink: 650,
+    walls: [[0, 330, 150, 16], [250, 330, 150, 16]],
+    spikes: [{ x: 160, y: 338, r: 11 }, { x: 240, y: 338, r: 11 }] },
+  { name: "Up High", hint: "Short trip, short on ink.",
+    spawn: [360, 40], cup: { x: 90, y: 300 }, balls: 6, need: 4, ink: 420,
+    walls: [[20, 300, 150, 16]],
+    spikes: [{ x: 100, y: 612, r: 14 }, { x: 160, y: 612, r: 14 }, { x: 220, y: 612, r: 14 }, { x: 280, y: 612, r: 14 }] },
+  { name: "Gauntlet", hint: "Straight down is the danger zone. Build a chute.",
+    spawn: [200, 40], cup: { x: 200, y: 620 }, balls: 6, need: 4, ink: 1000,
+    spikes: [{ x: 200, y: 250, r: 18, ax: 140, sp: 1.6 }, { x: 200, y: 450, r: 18, ax: 140, sp: -1.2 }] },
+  { name: "Last Page", hint: "Everything at once. Good luck.",
+    spawn: [60, 40], cup: { x: 330, y: 380 }, balls: 6, need: 4, ink: 650,
+    walls: [[255, 380, 145, 16]], noink: [[130, 110, 120, 170]],
+    spikes: [{ x: 230, y: 340, r: 12 }, { x: 200, y: 520, r: 18, ax: 130, sp: 1.4 }] },
+];
+
+// ---------- DOM ----------
+const $ = id => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d"), stage = $("stage");
+let scale = 1, dpr = 1;
+
+// ---------- State ----------
+let li = 0, L = null;
+let strokes = [], cur = null;
+let balls = [], parts = [], segs = [];
+let running = false, spawnLeft = 0, spawnT = 0, caught = 0, endT = 0, t = 0, shownCaught = 0;
+let progress = { unlocked: 1, stars: [] };
+try { const s = JSON.parse(localStorage.getItem("ink-marbles-v1")); if (s && s.unlocked) progress = s; } catch (e) {}
+const save = () => { try { localStorage.setItem("ink-marbles-v1", JSON.stringify(progress)); } catch (e) {} };
+
+const strokeLen = s => { let l = 0; for (let i = 1; i < s.length; i++) l += Math.hypot(s[i][0] - s[i-1][0], s[i][1] - s[i-1][1]); return l; };
+const inkUsed = () => strokes.reduce((a, s) => a + strokeLen(s), 0) + (cur ? strokeLen(cur) : 0);
+const inRect = (x, y, r, pad = 0) => x > r[0] - pad && x < r[0] + r[2] + pad && y > r[1] - pad && y < r[1] + r[3] + pad;
+
+// ---------- Sound ----------
+let ac = null, lastPlink = 0;
+function audio() { if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } if (ac && ac.state === "suspended") ac.resume(); }
+function tone(freq, dur, type = "sine", vol = 0.08, slide = 0) {
+  if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain(), n = ac.currentTime;
+  o.type = type; o.frequency.setValueAtTime(freq, n);
+  if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, n + dur);
+  g.gain.setValueAtTime(vol, n); g.gain.exponentialRampToValueAtTime(0.0001, n + dur);
+  o.connect(g).connect(ac.destination); o.start(n); o.stop(n + dur);
+}
+
+// ---------- Level setup ----------
+function cupSegs(c) {
+  const w = 70, h = 52, l = c.x - w / 2, r = c.x + w / 2;
+  return [[l, c.y - h, l, c.y], [l, c.y, r, c.y], [r, c.y, r, c.y - h]];
+}
+function buildSegs() {
+  segs = [];
+  const add = (a, b, c, d, th, e, f) => segs.push({ ax: a, ay: b, bx: c, by: d, th, e, f });
+  for (const w of L.walls || []) {
+    const [x, y, ww, hh] = w;
+    add(x, y, x + ww, y, 1, .3, .004); add(x + ww, y, x + ww, y + hh, 1, .3, .004);
+    add(x + ww, y + hh, x, y + hh, 1, .3, .004); add(x, y + hh, x, y, 1, .3, .004);
+  }
+  for (const s of cupSegs(L.cup)) add(...s, 3, .08, .03);
+  for (const s of strokes) for (let i = 1; i < s.length; i++) add(s[i-1][0], s[i-1][1], s[i][0], s[i][1], 2, .35, .002);
+  // pipe walls so marbles leave the spawner cleanly
+  const [sx, sy] = L.spawn; add(sx - 15, 0, sx - 15, sy, 1, .2, 0); add(sx + 15, 0, sx + 15, sy, 1, .2, 0);
+}
+function loadLevel(i, keepStrokes) {
+  li = i; L = LEVELS[i];
+  if (!keepStrokes) strokes = [];
+  cur = null; stopRun();
+  $("lvlNum").textContent = `Page ${i + 1} of ${LEVELS.length}`;
+  $("lvlName").textContent = L.name;
+  $("hint").textContent = L.hint;
+  updateHud();
+}
+function updateHud() {
+  const left = Math.max(0, 1 - inkUsed() / L.ink);
+  $("inkfill").style.width = (left * 100).toFixed(1) + "%";
+  $("inkbar").classList.toggle("low", left < 0.15);
+  $("count").textContent = `${caught}/${L.need}`;
+  $("undo").disabled = running || !strokes.length;
+  $("clear").disabled = running || !strokes.length;
+  const g = $("go"); g.textContent = running ? "Stop" : "Drop"; g.classList.toggle("stop", running);
+}
+let toastTimer = 0;
+function toast(msg) { const el = $("toast"); el.textContent = msg; el.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 1800); }
+
+// ---------- Run ----------
+function startRun() {
+  audio(); buildSegs();
+  balls = []; parts = []; caught = 0; shownCaught = 0; spawnLeft = L.balls; spawnT = 0; endT = 0; t = 0;
+  running = true; updateHud();
+}
+function stopRun() { running = false; balls = []; caught = 0; parts = []; t = 0; if (L) updateHud(); }
+function spawnBall() {
+  const [x, y] = L.spawn;
+  balls.push({ x: x + (Math.random() - .5) * 4, y: y - 20, vx: (Math.random() - .5) * 20, vy: 60, dead: false, in: false, idle: 0,
+    c: BALL_COLORS[(L.balls - spawnLeft) % BALL_COLORS.length] });
+}
+function spikePos(s) { return [s.x + (s.ax || 0) * Math.sin(t * (s.sp || 1)), s.y + (s.ay || 0) * Math.sin(t * (s.sp || 1))]; }
+function burst(x, y, color, n, spd) {
+  for (let i = 0; i < n; i++) { const a = Math.random() * Math.PI * 2, v = spd * (.4 + Math.random());
+    parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: .6 + Math.random() * .4, c: color }); }
+}
+function collide(b, s) {
+  const dx = s.bx - s.ax, dy = s.by - s.ay, l2 = dx * dx + dy * dy || 1e-9;
+  let u = ((b.x - s.ax) * dx + (b.y - s.ay) * dy) / l2; u = u < 0 ? 0 : u > 1 ? 1 : u;
+  let nx = b.x - (s.ax + u * dx), ny = b.y - (s.ay + u * dy);
+  const d2 = nx * nx + ny * ny, rr = R + s.th;
+  if (d2 >= rr * rr) return;
+  let d = Math.sqrt(d2);
+  if (d < 1e-6) { const l = Math.sqrt(l2); nx = -dy / l; ny = dx / l; d = 1; } else { nx /= d; ny /= d; }
+  b.x += nx * (rr - d); b.y += ny * (rr - d);
+  const vn = b.vx * nx + b.vy * ny;
+  if (vn < 0) {
+    b.vx -= (1 + s.e) * vn * nx; b.vy -= (1 + s.e) * vn * ny;
+    const tx = -ny, ty = nx, vt = b.vx * tx + b.vy * ty;
+    b.vx -= tx * vt * s.f; b.vy -= ty * vt * s.f;
+    if (-vn > 160 && performance.now() - lastPlink > 45) { lastPlink = performance.now(); tone(520 + Math.random() * 400, .07, "triangle", Math.min(.06, -vn / 9000)); }
+  }
+}
+function physics(dt) {
+  t += dt;
+  if (spawnLeft > 0 && (spawnT -= dt) <= 0) { spawnBall(); spawnLeft--; spawnT = 0.6; }
+  for (const b of balls) {
+    if (b.dead) continue;
+    b.vy += GRAV * dt; b.x += b.vx * dt; b.y += b.vy * dt;
+    for (const s of segs) collide(b, s);
+    if (b.x < R) { b.x = R; b.vx = Math.abs(b.vx) * .4; }
+    if (b.x > W - R) { b.x = W - R; b.vx = -Math.abs(b.vx) * .4; }
+  }
+  for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+    const a = balls[i], b = balls[j]; if (a.dead || b.dead) continue;
+    let dx = b.x - a.x, dy = b.y - a.y; const d2 = dx * dx + dy * dy;
+    if (d2 >= 4 * R * R || d2 === 0) continue;
+    const d = Math.sqrt(d2); dx /= d; dy /= d; const p = (2 * R - d) / 2;
+    a.x -= dx * p; a.y -= dy * p; b.x += dx * p; b.y += dy * p;
+    const rv = (b.vx - a.vx) * dx + (b.vy - a.vy) * dy;
+    if (rv < 0) { const j2 = -rv * .6; a.vx -= dx * j2; a.vy -= dy * j2; b.vx += dx * j2; b.vy += dy * j2; }
+  }
+  const c = L.cup, cl = c.x - 35, cr = c.x + 35;
+  for (const b of balls) {
+    if (b.dead) continue;
+    for (const s of L.spikes || []) {
+      const [sx, sy] = spikePos(s);
+      if (Math.hypot(b.x - sx, b.y - sy) < R + s.r * .8) { b.dead = true; burst(b.x, b.y, b.c, 14, 140); tone(180, .18, "square", .05, .4); break; }
+    }
+    if (b.dead) continue;
+    if (!b.in && b.x > cl && b.x < cr && b.y > c.y - 52 + R * .5 && b.y < c.y) {
+      b.in = true; caught++; burst(b.x, b.y - 10, "#e8892b", 10, 90);
+      tone(660 + caught * 110, .25, "sine", .09, 1.5); updateHud();
+    }
+    if (b.y > H + 40) { b.dead = true; if (b.in) { b.in = false; caught--; updateHud(); } continue; }
+    if (!b.in) {
+      b.idle = Math.hypot(b.vx, b.vy) < 12 ? b.idle + dt : 0;
+      if (b.idle > 2.2) { b.dead = true; burst(b.x, b.y, b.c, 8, 50); tone(240, .15, "sine", .04, .6); }
+    }
+  }
+  if (spawnLeft === 0 && balls.every(b => b.dead || b.in)) {
+    endT += dt; if (endT > 0.9) finishRun();
+  }
+}
+function finishRun() {
+  running = false;
+  if (caught >= L.need) {
+    const frac = inkUsed() / L.ink;
+    const stars = frac <= .45 ? 3 : frac <= .7 ? 2 : 1;
+    progress.stars[li] = Math.max(progress.stars[li] || 0, stars);
+    progress.unlocked = Math.max(progress.unlocked, Math.min(LEVELS.length, li + 2));
+    save();
+    showResult(stars);
+    [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, .3, "triangle", .07), i * 110));
+  } else {
+    toast(`${caught} of ${L.need} caught. Adjust your lines.`);
+    balls = []; parts = []; caught = 0; t = 0;
+  }
+  updateHud();
+}
+function showResult(stars) {
+  const last = li === LEVELS.length - 1;
+  $("resTitle").textContent = ["", "Made it!", "Nice lines!", "Masterpiece!"][stars];
+  $("resStars").innerHTML = [1, 2, 3].map(i => `<span class="${i <= stars ? "lit" : ""}">★</span>`).join("");
+  $("resText").textContent = last
+    ? `${caught} of ${L.balls} marbles caught. You filled the whole notebook!`
+    : `${caught} of ${L.balls} marbles caught using ${Math.round(inkUsed() / L.ink * 100)}% of your ink.` + (stars < 3 ? " Use less ink for more stars." : "");
+  $("next").textContent = last ? "All pages" : "Next page";
+  $("result").hidden = false;
+  $("next").focus();
+}
+
+// ---------- Drawing input ----------
+function toWorld(e) { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]; }
+function canInk(x, y) {
+  if (x < 3 || x > W - 3 || y < 3 || y > H - 3) return false;
+  for (const z of L.noink || []) if (inRect(x, y, z)) return false;
+  for (const w of L.walls || []) if (inRect(x, y, w, 2)) return false;
+  return true;
+}
+function endStroke() {
+  if (cur && cur.length > 1 && strokeLen(cur) > 8) strokes.push(cur);
+  cur = null; updateHud();
+}
+cv.addEventListener("pointerdown", e => {
+  audio();
+  if (running) { toast("Press Stop to draw"); return; }
+  const [x, y] = toWorld(e);
+  if (!canInk(x, y)) { toast("Ink won't stick there"); return; }
+  if (inkUsed() >= L.ink - 1) { toast("Out of ink. Undo a line."); return; }
+  cv.setPointerCapture(e.pointerId); cur = [[x, y]];
+});
+cv.addEventListener("pointermove", e => {
+  if (!cur) return;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of evs.length ? evs : [e]) {
+    if (!cur) break;
+    let [x, y] = toWorld(ev); const [px, py] = cur[cur.length - 1];
+    let d = Math.hypot(x - px, y - py); if (d < 5) continue;
+    const left = L.ink - inkUsed();
+    if (d > left) { x = px + (x - px) * left / d; y = py + (y - py) * left / d; d = left; }
+    if (!canInk(x, y)) { endStroke(); toast("Ink won't stick there"); break; }
+    cur.push([x, y]);
+    if (d >= left - .01) { endStroke(); toast("Out of ink"); break; }
+  }
+  updateHud();
+});
+const up = () => { if (cur) endStroke(); };
+cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+
+// ---------- Buttons ----------
+$("go").onclick = () => { if (running) stopRun(); else { endStroke(); startRun(); } };
+$("undo").onclick = () => { strokes.pop(); updateHud(); };
+$("clear").onclick = () => { strokes = []; updateHud(); };
+$("menuBtn").onclick = openMenu;
+$("retry").onclick = () => { $("result").hidden = true; stopRun(); };
+$("next").onclick = () => { $("result").hidden = true; if (li === LEVELS.length - 1) openMenu(); else loadLevel(li + 1); };
+document.addEventListener("keydown", e => {
+  if (!$("menu").hidden || !$("result").hidden) { if (e.key === "Escape" && !$("menu").hidden && L) $("menu").hidden = true; return; }
+  if (e.code === "Space") { e.preventDefault(); $("go").click(); }
+  else if ((e.key === "z" || e.key === "Z") && !running) $("undo").click();
+});
+function openMenu() {
+  stopRun();
+  const g = $("levelGrid"); g.innerHTML = "";
+  LEVELS.forEach((lv, i) => {
+    const b = document.createElement("button"); b.id = "lv" + i;
+    const st = progress.stars[i] || 0;
+    b.innerHTML = `${i + 1}<span>${"★".repeat(st)}${"☆".repeat(3 - st)}</span>`;
+    b.title = lv.name; b.disabled = i >= progress.unlocked;
+    b.onclick = () => { $("menu").hidden = true; audio(); loadLevel(i); };
+    g.appendChild(b);
+  });
+  $("menu").hidden = false;
+}
+
+// ---------- Rendering ----------
+function rng(seed) { return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
+function wobble(x1, y1, x2, y2, rnd, amt = 1.6) {
+  const n = Math.max(2, Math.round(Math.hypot(x2 - x1, y2 - y1) / 30));
+  ctx.moveTo(x1 + (rnd() - .5) * amt, y1 + (rnd() - .5) * amt);
+  for (let i = 1; i <= n; i++) { const k = i / n; ctx.lineTo(x1 + (x2 - x1) * k + (rnd() - .5) * amt, y1 + (y2 - y1) * k + (rnd() - .5) * amt); }
+}
+function hatch(rect, color, gap, width) {
+  const [x, y, w, h] = rect;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+  for (let k = -h; k < w; k += gap) { ctx.moveTo(x + k, y + h); ctx.lineTo(x + k + h, y); }
+  ctx.stroke(); ctx.restore();
+}
+function drawPaper() {
+  ctx.fillStyle = "#eef4e9"; ctx.fillRect(0, 0, W, H);
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= W; i += 16) { ctx.strokeStyle = i % 80 === 0 ? "#b4cfac" : "#d5e5cf"; ctx.beginPath(); ctx.moveTo(i + .5, 0); ctx.lineTo(i + .5, H); ctx.stroke(); }
+  for (let j = 0; j <= H; j += 16) { ctx.strokeStyle = j % 80 === 0 ? "#b4cfac" : "#d5e5cf"; ctx.beginPath(); ctx.moveTo(0, j + .5); ctx.lineTo(W, j + .5); ctx.stroke(); }
+}
+function drawSpike(s, idx) {
+  const [x, y] = spikePos(s), rnd = rng(idx * 97 + 13), pts = 12;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(t * 1.5 * ((s.sp || 0) ? 1 : 0.2));
+  ctx.beginPath();
+  for (let k = 0; k <= pts * 2; k++) { const a = k / (pts * 2) * Math.PI * 2, r = (k % 2 ? s.r * .5 : s.r) + (rnd() - .5) * 1.5; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); }
+  ctx.fillStyle = "rgba(210,58,47,.18)"; ctx.fill();
+  ctx.strokeStyle = "#d23a2f"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  ctx.restore();
+  if (s.ax || s.ay) { ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = "rgba(210,58,47,.35)"; ctx.beginPath(); ctx.moveTo(s.x - (s.ax || 0), s.y - (s.ay || 0)); ctx.lineTo(s.x + (s.ax || 0), s.y + (s.ay || 0)); ctx.stroke(); ctx.restore(); }
+}
+function drawStroke(s, color) {
+  if (s.length < 2) return;
+  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.beginPath(); ctx.moveTo(s[0][0], s[0][1]);
+  for (let i = 1; i < s.length - 1; i++) { const mx = (s[i][0] + s[i+1][0]) / 2, my = (s[i][1] + s[i+1][1]) / 2; ctx.quadraticCurveTo(s[i][0], s[i][1], mx, my); }
+  const e = s[s.length - 1]; ctx.lineTo(e[0], e[1]); ctx.stroke();
+}
+function render() {
+  ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  drawPaper();
+  ctx.font = "15px 'Gochi Hand', cursive";
+  // no-ink zones
+  for (const z of L.noink || []) {
+    hatch(z, "rgba(210,58,47,.28)", 9, 1.2);
+    ctx.save(); ctx.setLineDash([6, 5]); ctx.strokeStyle = "rgba(210,58,47,.6)"; ctx.lineWidth = 1.5; ctx.strokeRect(z[0], z[1], z[2], z[3]); ctx.restore();
+    ctx.fillStyle = "#b8352c"; ctx.textAlign = "center"; ctx.fillText("no ink", z[0] + z[2] / 2, z[1] + z[3] / 2 + 5);
+  }
+  // walls
+  (L.walls || []).forEach((w, i) => {
+    hatch(w, "#5a6168", 5, 1);
+    const rnd = rng(i * 31 + 7), [x, y, ww, hh] = w;
+    ctx.strokeStyle = "#3d4247"; ctx.lineWidth = 1.8; ctx.beginPath();
+    wobble(x, y, x + ww, y, rnd); wobble(x + ww, y, x + ww, y + hh, rnd); wobble(x + ww, y + hh, x, y + hh, rnd); wobble(x, y + hh, x, y, rnd);
+    ctx.stroke();
+  });
+  // pipe
+  const [sx, sy] = L.spawn;
+  ctx.fillStyle = "rgba(61,66,71,.08)"; ctx.fillRect(sx - 15, 0, 30, sy);
+  ctx.strokeStyle = "#3d4247"; ctx.lineWidth = 2; ctx.beginPath();
+  const pr = rng(5); wobble(sx - 15, 0, sx - 15, sy, pr, 1); wobble(sx + 15, 0, sx + 15, sy, pr, 1);
+  wobble(sx - 20, sy, sx - 10, sy, pr, .5); wobble(sx + 10, sy, sx + 20, sy, pr, .5); ctx.stroke();
+  const waiting = running ? spawnLeft : L.balls;
+  ctx.fillStyle = "#3d4247"; ctx.textAlign = sx > W / 2 ? "right" : "left";
+  ctx.fillText(`× ${waiting}`, sx + (sx > W / 2 ? -22 : 22), sy - 4);
+  // cup
+  const c = L.cup, cr = rng(3);
+  ctx.fillStyle = "rgba(232,137,43,.12)"; ctx.fillRect(c.x - 35, c.y - 52, 70, 52);
+  ctx.strokeStyle = "#e8892b"; ctx.lineWidth = 5; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.beginPath();
+  wobble(c.x - 35, c.y - 54, c.x - 35, c.y, cr, 1.4); wobble(c.x - 35, c.y, c.x + 35, c.y, cr, 1.4); wobble(c.x + 35, c.y, c.x + 35, c.y - 54, cr, 1.4);
+  ctx.stroke();
+  ctx.fillStyle = "#c46a14"; ctx.textAlign = "center"; ctx.font = "18px 'Gochi Hand', cursive";
+  ctx.fillText(`${caught}/${L.need}`, c.x, c.y - 62);
+  // spikes
+  (L.spikes || []).forEach(drawSpike);
+  // ink
+  for (const s of strokes) drawStroke(s, "#1d3fa3");
+  if (cur) drawStroke(cur, "#3557c4");
+  // balls
+  for (const b of balls) {
+    if (b.dead) continue;
+    ctx.beginPath(); ctx.arc(b.x, b.y, R, 0, Math.PI * 2); ctx.fillStyle = b.c; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.x - 3, b.y - 3, 2.6, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.fill();
+  }
+  for (const p of parts) { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; ctx.fillRect(p.x - 2, p.y - 2, 4, 4); }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- Loop & layout ----------
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  scale = Math.max(0.3, Math.min(w / W, h / H));
+  dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  cv.style.width = W * scale + "px"; cv.style.height = H * scale + "px";
+  cv.width = Math.round(W * scale * dpr); cv.height = Math.round(H * scale * dpr);
+}
+let acc = 0, last = performance.now();
+function frame(now) {
+  let dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (running) { acc += dt; while (acc >= STEP) { physics(STEP); acc -= STEP; if (!running) break; } } else acc = 0;
+  for (const p of parts) { p.vy += 300 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * 1.4; }
+  parts = parts.filter(p => p.life > 0);
+  render();
+  requestAnimationFrame(frame);
+}
+window.addEventListener("resize", resize);
+if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+
+function start(data) {
+  data = data || {};
+  window.claude?.hot?.snapshot?.(() => ({ li, strokes, menu: !$("menu").hidden }));
+  loadLevel(Math.min(data.li ?? Math.max(0, progress.unlocked - 1), LEVELS.length - 1));
+  if (Array.isArray(data.strokes)) { strokes = data.strokes; updateHud(); }
+  if (data.menu === false) $("menu").hidden = true; else openMenu();
+  resize(); requestAnimationFrame(frame);
+}
+const hot = window.claude?.hot;
+hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
+})();
+</script>
+</body>
+</html>
