@@ -21,9 +21,9 @@ const TECH_BASE = [10, 36, 100, 250, 580, 1300, 2800, 5500];
 
 // settlements
 const TIERS = [
-  { k: "village", name: "Village", icon: "🛖", gold: 1, mat: 1, sci: .6, food: 1, def: 1, trade: .3, r: .2, flat: .8, admin: .5, base: .3 },
-  { k: "town", name: "Town", icon: "🏘️", gold: 1.3, mat: 1.25, sci: 1.3, food: .9, def: 1.4, trade: 1, r: .08, flat: 2, admin: 1, base: 1 },
-  { k: "city", name: "City", icon: "🏙️", gold: 1.6, mat: 1.5, sci: 1.8, food: .75, def: 1.9, trade: 3, r: .055, flat: 10, admin: 1.5, base: 3 },
+  { k: "village", name: "Village", icon: "🛖", gold: 1, mat: 1, sci: .6, food: 1, def: 1, trade: .3, r: .2, flat: .8, admin: .3, base: .3, emi: .06, need: 12 },
+  { k: "town", name: "Town", icon: "🏘️", gold: 1.3, mat: 1.25, sci: 1.3, food: .9, def: 1.4, trade: 1, r: .08, flat: 2, admin: 1, base: 1, emi: .02, need: 25 },
+  { k: "city", name: "City", icon: "🏙️", gold: 1.6, mat: 1.5, sci: 1.8, food: .75, def: 1.9, trade: 3, r: .055, flat: 10, admin: 1.5, base: 3, emi: .012, need: 30 },
 ];
 const VILLAGE_CAP = 50, CITY_POP = 2000, VILLAGES_FOR_TOWN = 4, TOWNS_TO_CLAIM = 3, START_POP = 30, MOVERS = 10;
 const townReq = k => Math.round(180 * Math.pow(k, 1.5));
@@ -181,6 +181,7 @@ const LAWS = {
   trade: { name: "Trade", opts: { prot: ["Protectionist", null, "+10% materials, less trade."], bal: ["Balanced", null, "Normal trade."], free: ["Free Trade", "currency", "+30% trade income. Merchants love it."] } },
   labor: { name: "Labor", tech: "steam", opts: { unreg: ["Unregulated", null, "+10% materials. Workers angry."], rights: ["Workers' Rights", null, "Workers happy, −5% materials."] } },
   press: { name: "Press", tech: "printing", opts: { cens: ["Censored", null, "Nobles happy, thinkers angry."], free: ["Free Press", null, "Thinkers happy, +5% science."] } },
+  migr: { name: "Migration", opts: { free: ["Free settling", null, "Full settlements send people out to form new villages on their own."], restrict: ["Restricted", null, "No new villages form. Full settlements just stop growing. Commoners dislike it."] } },
   focus: { name: "National Focus", opts: { bal: ["Balanced", null, "No special focus."], grow: ["Growth", null, "Settlements grow faster."], mil: ["Military", "bronze", "+15% army, cheaper upkeep."], sci: ["Science", "writing", "+15% science."], com: ["Commerce", "currency", "+15% gold."], ind: ["Industry", "guilds", "+15% materials, cheaper buildings."] } },
 };
 const FACTIONS = {
@@ -312,7 +313,7 @@ function recomputeControl(ri) {
 function newNation(name, color, ri, ai, pers) {
   const id = G.nations.length;
   const n = { id, name, color, ai, pers: pers || "builder", alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
-    laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, focus: "bal" },
+    laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", focus: "bal" },
     gold: 15, mat: 10, sciPts: 0, research: "agriculture", techs: [], era: 0, army: 1, used: 0,
     fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0 };
   for (const k in FACTIONS) n.fac[k] = 55;
@@ -508,7 +509,7 @@ function facTargets(n, E) {
   const rn = Math.max(1, P0.length);
   const wars = G.nations.filter(o => atWar(n.id, o.id));
   const warBal = wars.reduce((a, o) => a + wscore(n.id, o.id), 0);
-  const fullV = setsOf(n).filter(s => s.t === 0 && s.pop >= VILLAGE_CAP - 1.5).length;
+  const crowded = setsOf(n).filter(s => s.crowd).length;
   add("commoners", { low: 12, normal: 0, high: -12, extort: -28 }[L.tax], "Taxes");
   add("commoners", E.surplus >= 0 ? 6 : -25, E.surplus >= 0 ? "Food surplus" : "Famine");
   add("commoners", Math.min(15, E.luxKinds * 3), "Luxuries");
@@ -518,7 +519,8 @@ function facTargets(n, E) {
   add("commoners", { democracy: 10, republic: 5, party: -10 }[g] || 0, "Government");
   add("commoners", L.labor === "rights" ? 6 : 0, "Workers' rights");
   add("commoners", L.focus === "grow" ? 8 : 0, "Growth focus");
-  add("commoners", -Math.min(12, fullV * 2), "Crowded villages");
+  add("commoners", -Math.min(12, crowded * 2), "Overcrowding");
+  add("commoners", L.migr === "restrict" ? -6 : 0, "Migration restricted");
   add("commoners", -Math.min(25, Math.round(E.over * 3)), "Overextended");
   add("elders", { faith: 15, tol: -5, sec: -22 }[L.rel], "Religion law");
   add("elders", Math.round(Math.min(18, (cnt("shrine") + cnt("cathedral") * 2) * 8 / rn)), "Holy sites");
@@ -609,10 +611,23 @@ function processNation(n) {
     if (s.t === 0 && s.pop > VILLAGE_CAP) s.pop = VILLAGE_CAP;
     s.pop = Math.max(2, s.pop);
   }
+  // emigration: full settlements send people outward to form rural villages on their own
+  const born = [];
+  let crowdedNow = 0;
+  for (const s of sets) {
+    const cap = capOf(s, n), T = TIERS[s.t];
+    if (s.pop < cap * .94 || sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
+    s.ov = (s.ov || 0) + s.pop * T.emi * (n.laws.focus === "grow" ? 1.3 : 1);
+    if (s.ov < T.need) continue;
+    const ri = bestVillageSpot(n, s.r);
+    if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
+    s.crowd = false;
+    born.push([addSettlement(n.id, ri, Math.min(s.ov, 25), s), s]); s.ov = 0;
+  }
   if (!n.ai) {
-    const full = sets.filter(s => s.t === 0 && s.pop >= VILLAGE_CAP - 1.5).length;
-    if (full > n.fullSeen) log(full === 1 ? "A village has reached 50 people and stopped growing. Found a new village nearby so your people can keep growing." : `${full} villages are full at 50 people. Found new villages nearby to keep growing.`, "🛖");
-    n.fullSeen = full;
+    if (born.length === 1) log(`People from ${born[0][1].name} moved out and formed the village of ${born[0][0].name} in ${W.regions[born[0][0].r].n}.`, "🛖");
+    else if (born.length > 1) log(`${born.length} new villages formed as people moved out of full settlements: ${born.slice(0, 4).map(b => b[0].name).join(", ")}${born.length > 4 ? "…" : ""}.`, "🛖");
+    if (crowdedNow) log(`${crowdedNow === 1 ? "A settlement is" : crowdedNow + " settlements are"} overcrowded with no room nearby to expand. Claim more land, or research Sailing to reach across the sea.`, "😣");
     if (sr < 0) log("Famine! There isn't enough food. Settle fertile land or build Farms.", "🥀");
   }
   // construction
@@ -820,7 +835,7 @@ function aiTurn(n) {
   const donors = sets.filter(s => s.pop >= MOVERS + 12 && (s.t > 0 || s.pop >= VILLAGE_CAP - 3)).sort((a, b) => b.pop - a.pop);
   const saving = underCap && donors.length > 0 && wars.length === 0;
   for (const d of donors) {
-    if (founds >= maxF || !underCap) break;
+    if (founds >= maxF || !underCap || rnd() > .35) break;
     const ri = bestVillageSpot(n, d.r); if (ri < 0) continue;
     const c = villageCost(n); if (!afford(n, c)) break;
     if (!near(n, d.r, ri)) continue;
@@ -1189,7 +1204,7 @@ function draw() {
     else ctx.arc(s.x, s.y, z, 0, Math.PI * 2);
     ctx.fillStyle = G.regions[s.r].ctrl === s.o ? shade(col, -.38) : col; ctx.fill(); ctx.stroke();
     if (s.t === 2) { ctx.beginPath(); ctx.arc(s.x, s.y, z * .45, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); }
-    if (s.t === 0 && s.pop >= VILLAGE_CAP - 1.5 && s.o === me && k > 2.5) { ctx.beginPath(); ctx.arc(s.x, s.y, z + 2.2 * sc, 0, Math.PI * 2); ctx.strokeStyle = "rgba(230,154,11,.9)"; ctx.lineWidth = 1.2 * sc; ctx.stroke(); }
+    if (s.crowd && s.o === me && k > 2.5) { ctx.beginPath(); ctx.arc(s.x, s.y, z + 2.2 * sc, 0, Math.PI * 2); ctx.strokeStyle = "rgba(230,154,11,.9)"; ctx.lineWidth = 1.2 * sc; ctx.stroke(); }
     if (n.cap === s.id && k > 1.4) { ctx.font = `${10 * sc * 1.2}px system-ui`; ctx.fillStyle = "#000"; ctx.fillText("⭐", s.x, s.y - z - 5 * sc); }
     if ((s.t >= 1 && k > 5) || k > 9) {
       ctx.font = `800 ${8.5 * sc * 1.15}px Nunito, system-ui, sans-serif`; ctx.lineWidth = 2.6 * sc; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
@@ -1252,8 +1267,8 @@ function hud() {
   $("hName").textContent = nm(n);
   $("hFlag").style.background = n.color;
   $("hYear").textContent = `${G.year < 0 ? -G.year + " BCE" : G.year + " CE"} · ${ERAS[n.era]} · Turn ${G.turn}`;
-  const sets = setsOf(n), full = sets.filter(s => s.t === 0 && s.pop >= VILLAGE_CAP - 1.5).length;
-  $("cPop").innerHTML = `<span class="ci">👥</span><b>${fmtP(E.pop)}</b><i>${full ? `${full} village${full > 1 ? "s" : ""} full` : `${sets.length} settlement${sets.length > 1 ? "s" : ""}`}</i>`;
+  const sets = setsOf(n), full = sets.filter(s => s.crowd).length;
+  $("cPop").innerHTML = `<span class="ci">👥</span><b>${fmtP(E.pop)}</b><i>${full ? `${full} overcrowded` : `${sets.length} settlement${sets.length > 1 ? "s" : ""}`}</i>`;
   $("cPop").classList.toggle("warnchip", full > 0);
   $("cGold").innerHTML = `<span class="ci">🪙</span><b>${fmt(n.gold)}</b><i class="${E.goldNet < 0 ? "neg" : ""}">${sgn(E.goldNet)}</i>`;
   $("cMat").innerHTML = `<span class="ci">🪵</span><b>${fmt(n.mat)}</b><i>${sgn(E.mat)}</i>`;
@@ -1272,7 +1287,7 @@ function costTxt(c) { return `${c.g ? `<span class="cg">🪙${fmt(c.g)}</span>` 
 
 // ---------- region sheet ----------
 function setRow(s, n) {
-  const o = G.nations[s.o], mine = s.o === n.id, cap = capOf(s, o), full = s.t === 0 && s.pop >= VILLAGE_CAP - 1.5;
+  const o = G.nations[s.o], mine = s.o === n.id, cap = capOf(s, o), full = s.pop >= cap * .94;
   let acts = "";
   if (mine) {
     const biggest = setsOf(n).filter(x => x.r === s.r && x.t === 0).sort((a, b) => b.pop - a.pop)[0];
@@ -1283,7 +1298,7 @@ function setRow(s, n) {
   } else if (atWar(n.id, o.id) && canReach(n, s.r)) {
     acts += n.army - n.used > 0 ? `<button class="btn small red" data-act="attackPick" data-s="${s.id}">⚔️ Attack ${esc(s.name)}</button>` : `<span class="why">Your regiments have all fought this turn.</span>`;
   }
-  return `<div class="set ${mine ? "mine" : ""}"><div class="st-top"><span class="st-icon">${TIERS[s.t].icon}</span><span class="st-name"><b>${esc(s.name)}</b><small><span class="sw" style="background:${o.color}"></span> ${mine ? "Yours" : esc(o.name)} · ${TIERS[s.t].name}${o.cap === s.id ? " · Capital ⭐" : ""}${full ? ' · <span class="warn">Full</span>' : ""}${mine && s.u > 50 ? ' · <span class="bad">Unrest</span>' : ""}</small></span><span class="st-pop">${fmtP(s.pop)}<small>/ ${fmtP(cap)}</small></span></div>
+  return `<div class="set ${mine ? "mine" : ""}"><div class="st-top"><span class="st-icon">${TIERS[s.t].icon}</span><span class="st-name"><b>${esc(s.name)}</b><small><span class="sw" style="background:${o.color}"></span> ${mine ? "Yours" : esc(o.name)} · ${TIERS[s.t].name}${o.cap === s.id ? " · Capital ⭐" : ""}${full ? (s.crowd ? ' · <span class="bad">Overcrowded</span>' : ' · <span class="warn">Full · people moving out</span>') : ""}${mine && s.u > 50 ? ' · <span class="bad">Unrest</span>' : ""}</small></span><span class="st-pop">${fmtP(s.pop)}<small>/ ${fmtP(cap)}</small></span></div>
     <div class="bar thin"><i style="width:${Math.min(100, s.pop / cap * 100)}%;background:${full ? "var(--warn)" : o.color}"></i></div>${acts ? `<div class="acts">${acts}</div>` : ""}</div>`;
 }
 function openRegion(ri) {
@@ -1296,12 +1311,12 @@ function openRegion(ri) {
   h += `<div class="owner">${ctrl ? `<span class="sw" style="background:${ctrl.color}"></span>${ctrl.id === n.id ? "Your territory" : "Territory of the " + esc(nm(ctrl))}${ctrl.id !== n.id && atWar(n.id, ctrl.id) ? ' <span class="pill bad">At war</span>' : ""}` : `<span class="sw" style="background:${WILD}"></span>Unclaimed land`}<span class="muted"> · ${here.length}/${S.slots} settlements</span></div>`;
   if (!ctrl || ctrl.id !== n.id) {
     if (mine.length) h += `<div class="claim"><div class="bar-row"><small>Claim it</small><div class="bar"><i style="width:${myTowns / TOWNS_TO_CLAIM * 100}%;background:var(--accent)"></i></div><span>${myTowns}/${TOWNS_TO_CLAIM} towns</span></div><p class="small muted">${ctrl ? `The ${esc(nm(ctrl))} control this land. Capture their towns to take it.` : `Have ${TOWNS_TO_CLAIM} towns or cities here and this territory becomes yours.`} Villages here: ${myVill}.</p></div>`;
-    else if (!ctrl) h += `<p class="small muted">Wild land. Found a village here to start settling it. With ${VILLAGES_FOR_TOWN} villages you can raise a town, and ${TOWNS_TO_CLAIM} towns make it your territory.</p>`;
+    else if (!ctrl) h += `<p class="small muted">Wild land. Villages form here on their own when nearby settlements fill up, or you can send settlers. With ${VILLAGES_FOR_TOWN} villages you can raise a town, and ${TOWNS_TO_CLAIM} towns make it your territory.</p>`;
   }
   // found a village
   const fc = foundCheck(n, ri);
-  if (fc.ok || fc.donor) h += `<div class="opts"><button class="opt" data-act="found" ${fc.ok ? "" : "disabled"}><span class="oi">🛖</span><span class="ot"><b>Found a village here</b><small>${MOVERS} people move from ${esc(fc.donor.name)}${fc.ok ? "" : ` · ${esc(fc.why)}`}</small></span><span class="oc">${costTxt(villageCost(n))}</span></button></div>`;
-  else if (!(ctrl && ctrl.id !== n.id) || mine.length) h += `<p class="note">Can't found a village here: ${esc(fc.why)}.</p>`;
+  if (fc.ok || fc.donor) h += `<div class="opts"><button class="opt" data-act="found" ${fc.ok ? "" : "disabled"}><span class="oi">🛖</span><span class="ot"><b>Send settlers here</b><small>${MOVERS} people move from ${esc(fc.donor.name)}${fc.ok ? "" : ` · ${esc(fc.why)}`}</small></span><span class="oc">${costTxt(villageCost(n))}</span></button></div>`;
+  else if (!(ctrl && ctrl.id !== n.id) || mine.length) h += `<p class="small muted">Can't send settlers here: ${esc(fc.why)}.</p>`;
   if (here.length) h += `<h4>Settlements</h4><div class="sets">${here.map(s => setRow(s, n)).join("")}</div>`;
   // buildings
   if (mine.length) {
@@ -1366,16 +1381,16 @@ const line = (label, v, cls = "") => `<div class="ln ${cls}"><span>${label}</spa
 function panelNation() {
   const n = P(), E = econ(n), sets = setsOf(n), uc = unitCost(n), ma = maxArmy(n);
   const vc = sets.filter(s => s.t === 0).length, tc = sets.filter(s => s.t === 1).length, cc = sets.filter(s => s.t === 2).length;
-  const terr = territories(n), rk = rankOf(n), full = sets.filter(s => s.t === 0 && s.pop >= VILLAGE_CAP - 1.5).length;
+  const terr = territories(n), rk = rankOf(n), full = sets.filter(s => s.crowd).length;
   let h = ph(esc(nm(n)), `${GOVS[n.gov].name} · ${fmtP(E.pop)} people`);
   const nextRank = rk < 3 ? [1, 2, 4][rk] : null;
   h += `<div class="card"><h4>Your people</h4>
     <div class="tiers"><div><span>🛖</span><b>${vc}</b><small>Villages</small></div><div><span>🏘️</span><b>${tc}</b><small>Towns</small></div><div><span>🏙️</span><b>${cc}</b><small>Cities</small></div><div><span>🚩</span><b>${terr.length}</b><small>Territories</small></div></div>
     ${line("Rank", `${RANKS[rk].name}${nextRank ? ` · ${RANKS[rk + 1].name} at ${nextRank} territor${nextRank > 1 ? "ies" : "y"}` : ""}`)}
     ${line(`Next town (#${tc + cc + 1}) needs`, `${fmtP(townReq(tc + cc + 1))} people ${E.pop >= townReq(tc + cc + 1) ? '<span class="good">✓</span>' : `<span class="muted">(have ${fmtP(E.pop)})</span>`}`)}
-    ${full ? line("Full villages", `<span class="warn">${full} at ${VILLAGE_CAP} people: found new villages</span>`) : ""}
+    ${full ? line("Overcrowded", `<span class="bad">${full} with no room nearby</span>`) : ""}
     ${line("Settlements you can manage", `${fmt(sizeOf(n))} / ${adminCap(n)}${E.over ? ' <span class="bad">overextended</span>' : ""}`)}
-    <p class="muted small">Villages hold up to ${VILLAGE_CAP} people. ${VILLAGES_FOR_TOWN} villages in one territory let you raise a town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
+    <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages in one territory let you raise a town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line("Building upkeep", sgn(-E.bUp))}${line("Army upkeep", sgn(-E.armyUp))}${E.imports ? line("Resource imports", sgn(-E.imports)) : ""}${E.govUp ? line("Overextension costs", sgn(-E.govUp), "bad") : ""}
@@ -1396,7 +1411,7 @@ function panelNation() {
     ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? ([...pres(n)].some(ri => B(n.id, ri).spaceport) ? "Spaceport ready" : "Build a Spaceport") : ERAS[n.era])}
     ${line("🌍 Control 40% of the world", `${terr.length} / ${Math.ceil(NR * .4)} territories`)}
     ${line("⌛ Lead the world in 2100", `#${ranking().findIndex(x => x.id === n.id) + 1} by score`)}</div>`;
-  h += `<div class="card"><h4>Your settlements</h4><div class="rlist">${sets.sort((a, b) => b.t - a.t || b.pop - a.pop).slice(0, 60).map(s => `<button class="rl" data-act="goto" data-sid="${s.id}"><span>${TIERS[s.t].icon} ${s.id === n.cap ? "⭐ " : ""}${esc(s.name)}</span><small>${esc(W.regions[s.r].n)} · ${fmtP(s.pop)}${s.t === 0 && s.pop >= VILLAGE_CAP - 1.5 ? ' · <span class="warn">full</span>' : ""}${s.u > 50 ? ' · <span class="bad">unrest</span>' : ""}</small></button>`).join("")}</div></div>`;
+  h += `<div class="card"><h4>Your settlements</h4><div class="rlist">${sets.sort((a, b) => b.t - a.t || b.pop - a.pop).slice(0, 60).map(s => `<button class="rl" data-act="goto" data-sid="${s.id}"><span>${TIERS[s.t].icon} ${s.id === n.cap ? "⭐ " : ""}${esc(s.name)}</span><small>${esc(W.regions[s.r].n)} · ${fmtP(s.pop)}${s.crowd ? ' · <span class="bad">overcrowded</span>' : ""}${s.u > 50 ? ' · <span class="bad">unrest</span>' : ""}</small></button>`).join("")}</div></div>`;
   h += `<div class="card"><h4>Game</h4><div class="row wrap"><button class="btn small ghost" data-act="help">How to play</button><button class="btn small ghost" data-act="newgame">New game</button></div></div>`;
   return h;
 }
@@ -1570,7 +1585,7 @@ function showEnd() {
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
-  <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}. When it fills up it stops growing, so tap land in the same territory or right next to it and <b>Found a village</b>. ${MOVERS} people move there and both keep growing.</p>
+  <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
   <p><b>Towns & cities.</b> With ${VILLAGES_FOR_TOWN} villages in one territory you can upgrade one into a town (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
@@ -1629,7 +1644,7 @@ function startPlaying(fresh) {
   if (c) centerOn(c.x, c.y, Math.max(minK() * 4, 7));
   hud(); dirty = true;
   if (fresh) showModal(`<div class="mi">🛖</div><h2>${esc(nm(P()))}</h2><p>${START_POP} people gather around the fire in a small village in ${esc(W.regions[capSet(P()).r].n)}. The rest of the world is wild and unclaimed. ${-G.year} BCE.</p><div class="help small">
-    <p>• A village holds ${VILLAGE_CAP} people. Tap the land around your village to <b>found more villages</b> so your people can keep growing.</p>
+    <p>• A village holds ${VILLAGE_CAP} people. When it fills up, people move out and <b>form new villages</b> nearby on their own.</p>
     <p>• ${VILLAGES_FOR_TOWN} villages in one territory let you raise a <b>town</b>. ${TOWNS_TO_CLAIM} towns claim the territory and make you a <b>Nation</b>.</p>
     <p>• Tap <b>End Turn</b> when you're ready.</p></div><div class="row"><button class="btn ghost" data-m="help">How to play</button><button class="btn" data-m="ok">Begin</button></div>`, a => { if (a === "help") showHelp(); });
   else if (G.over) showEnd();

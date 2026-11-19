@@ -6,7 +6,7 @@ A turn-based nation-building strategy game for phones and computers. Lead your p
 Open `index.html` in a browser. No build step or install needed. Progress saves automatically in your browser.
 
 ## The game
-- **Start small:** one village of 30 people on a white, unclaimed world. Villages hold 50 people; found new ones nearby as you grow. 4 villages in a territory let you raise a town, towns of 2,000 people become cities, and 3 towns claim the territory.
+- **Start small:** one village of 30 people on a white, unclaimed world. Villages hold 50 people and towns 3,000; when a settlement fills up, people move out and form new villages nearby on their own. 4 villages in a territory let you raise a town, towns of 2,000 people become cities, and 3 towns claim the territory.
 - **Rank by territory:** 1 territory makes you a Nation, 2–3 a Kingdom, 4+ an Empire.
 - **193 real-world regions** with terrain and resources (horses, iron, oil, spices, silk and more).
 - **8 ages**, 46 technologies: Stone, Bronze, Classical, Medieval, Renaissance, Industrial, Modern and Information.
