@@ -204,6 +204,7 @@ const regionAvg = W.regions.reduce((a, r) => a + r.a, 0) / NR;
 W.regions.forEach((r, i) => {
   r.i = i; r.sizeF = clamp(Math.sqrt(r.a / regionAvg), 0.6, 1.7);
   r.slots = clamp(Math.round(4 + 5 * r.sizeF * TER[r.t].slot), 6, 14);
+  r.urban = clamp(Math.round(1.5 + 3 * r.sizeF * TER[r.t].slot), TOWNS_TO_CLAIM, 8); // max towns + cities
   r.path = new Path2D();
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   for (const poly of r.p) for (const rg of poly) { r.path.moveTo(rg[0], rg[1]); for (let k = 0; k < rg.length; k += 2) { if (k) r.path.lineTo(rg[k], rg[k + 1]); x0 = Math.min(x0, rg[k]); x1 = Math.max(x1, rg[k]); y0 = Math.min(y0, rg[k + 1]); y1 = Math.max(y1, rg[k + 1]); } r.path.closePath(); }
@@ -276,8 +277,10 @@ function samplePoint(ri, nearPt) {
   for (let i = 0; i < 80; i++) {
     const x = x0 + rnd() * (x1 - x0), y = y0 + rnd() * (y1 - y0);
     if (!sampler.isPointInPath(s.path, x, y, "evenodd")) continue;
-    if (i < 70 && others.some(o => Math.hypot(o.x - x, o.y - y) < 2.4)) continue;
-    const d = nearPt ? Math.hypot(nearPt.x - x, nearPt.y - y) : Math.hypot(s.lx - x, s.ly - y) * (.5 + rnd());
+    let gap = 9; for (const o of others) gap = Math.min(gap, Math.hypot(o.x - x, o.y - y));
+    if (i < 70 && gap < 2.4) continue;
+    // stay near home but keep a comfortable distance from other settlements
+    const d = (nearPt ? Math.hypot(nearPt.x - x, nearPt.y - y) : Math.hypot(s.lx - x, s.ly - y) * .5) + rnd() * 5 - Math.min(gap, 6) * 1.6;
     if (d < bd) { bd = d; best = [x, y]; }
   }
   return best || [s.lx + (rnd() - .5) * 4, s.ly + (rnd() - .5) * 4];
@@ -377,6 +380,8 @@ function foundVillage(n, ri, donor) {
 function townCheck(n, s) {
   if (s.t !== 0) return { ok: false };
   const mates = mergeMates(n, s);
+  const urb = urbanIn(s.r), cap = W.regions[s.r].urban;
+  if (urb >= cap) return { ok: false, why: `${W.regions[s.r].n} has room for only ${cap} towns and cities, and all are taken`, mates };
   if (!has(n, "agriculture")) return { ok: false, why: "Research Agriculture first", mates };
   if (mates.length < VILLAGES_FOR_TOWN - 1) return { ok: false, why: `Needs ${VILLAGES_FOR_TOWN} of your villages close together, in this territory or the one next door (you have ${mates.length + 1})`, mates };
   const k = townsOf(n) + 1, req = townReq(k), pop = popOf(n);
@@ -385,6 +390,7 @@ function townCheck(n, s) {
   if (!afford(n, c)) return { ok: false, why: "Not enough gold or materials", c };
   return { ok: true, c, mates };
 }
+const urbanIn = ri => G.sets.reduce((a, x) => a + (x.r === ri && x.t >= 1 ? 1 : 0), 0);
 // the 3 closest villages (same territory or a bordering one) that would merge with s into a town
 function mergeMates(n, s) {
   const adj = W.regions[s.r].adj;
@@ -1159,7 +1165,9 @@ function makeWaves() {
 }
 function shade(hex, f) {
   if (hex.startsWith("hsl")) return hex;
-  const n = parseInt(hex.slice(1), 16); let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  let r, g, b;
+  if (hex[0] === "#") { const n = parseInt(hex.slice(1), 16); r = n >> 16; g = (n >> 8) & 255; b = n & 255; }
+  else [r, g, b] = hex.match(/\d+/g).map(Number);
   if (f > 0) { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; } else { r *= 1 + f; g *= 1 + f; b *= 1 + f; }
   return `rgb(${r | 0},${g | 0},${b | 0})`;
 }
@@ -1212,23 +1220,8 @@ function draw() {
       if (bits) { ctx.font = `${fs * 1.05}px system-ui, sans-serif`; ctx.fillText(bits, s.lx, s.ly + fs * 1.25); ctx.font = `700 ${fs}px Nunito, system-ui, sans-serif`; }
     }
   }
-  // settlements
-  const sc = clamp(k / 3, .55, 1.5) / k;
-  for (const s of G.sets) {
-    const n = G.nations[s.o], col = n.color, z = [2.6, 4.2, 5.6][s.t] * sc;
-    ctx.lineWidth = 1.6 * sc; ctx.strokeStyle = "#fff";
-    ctx.beginPath();
-    if (s.t === 1) { ctx.rect(s.x - z, s.y - z, z * 2, z * 2); }
-    else ctx.arc(s.x, s.y, z, 0, Math.PI * 2);
-    ctx.fillStyle = G.regions[s.r].ctrl === s.o ? shade(col, -.38) : col; ctx.fill(); ctx.stroke();
-    if (s.t === 2) { ctx.beginPath(); ctx.arc(s.x, s.y, z * .45, 0, Math.PI * 2); ctx.fillStyle = "#fff"; ctx.fill(); }
-    if (s.crowd && s.o === me && k > 2.5) { ctx.beginPath(); ctx.arc(s.x, s.y, z + 2.2 * sc, 0, Math.PI * 2); ctx.strokeStyle = "rgba(230,154,11,.9)"; ctx.lineWidth = 1.2 * sc; ctx.stroke(); }
-    if (n.cap === s.id && k > 1.4) { ctx.font = `${10 * sc * 1.2}px system-ui`; ctx.fillStyle = "#000"; ctx.fillText("⭐", s.x, s.y - z - 5 * sc); }
-    if ((s.t >= 1 && k > 5) || k > 9) {
-      ctx.font = `800 ${8.5 * sc * 1.15}px Nunito, system-ui, sans-serif`; ctx.lineWidth = 2.6 * sc; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
-      const t = `${s.name} · ${fmt(s.pop)}`; ctx.strokeText(t, s.x, s.y + z + 6 * sc); ctx.fillText(t, s.x, s.y + z + 6 * sc);
-    }
-  }
+  // settlements: drawn at true map scale, so you zoom in to see their shapes
+  drawSettlements(k, me);
   if (k < 3.2) {
     for (const n of G.nations) {
       if (!n.alive) continue; const sets = setsOf(n); if (!sets.length) continue;
@@ -1239,6 +1232,49 @@ function draw() {
       ctx.font = `600 ${size}px Fredoka, system-ui, sans-serif`;
       ctx.lineWidth = size / 4; ctx.strokeStyle = shade(n.color, -.55); ctx.fillStyle = "#fff";
       ctx.strokeText(n.name, x, y - 12 / k); ctx.fillText(n.name, x, y - 12 / k);
+    }
+  }
+}
+// village = dot, town = square, city = triangle. Sizes are in map units (Greece is ~25 units across).
+const SET_SIZE = [.75, .95, 1.35];
+function starPath(x, y, r) { ctx.beginPath(); for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); }
+function shapePath(t, x, y, z) {
+  ctx.beginPath();
+  if (t === 0) ctx.arc(x, y, z, 0, Math.PI * 2);
+  else if (t === 1) { if (ctx.roundRect) ctx.roundRect(x - z, y - z, z * 2, z * 2, z * .32); else ctx.rect(x - z, y - z, z * 2, z * 2); }
+  else { const h = z * 1.05; ctx.moveTo(x, y - h); ctx.lineTo(x + h * .95, y + h * .62); ctx.lineTo(x - h * .95, y + h * .62); ctx.closePath(); }
+}
+function drawSettlements(k, me) {
+  const x0 = -view.x / k - 3, y0 = -view.y / k - 3, x1 = (cw - view.x) / k + 3, y1 = (ch - view.y) / k + 3;
+  const lw = Math.max(.12, 1 / k);
+  // pass 1: tiny dots for settlements too small to show their shape
+  for (const s of G.sets) {
+    if (s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
+    const z = SET_SIZE[s.t];
+    if (z * k >= 3) continue;
+    const n = G.nations[s.o];
+    ctx.fillStyle = G.regions[s.r].ctrl === s.o ? shade(n.color, .7) : shade(n.color, -.15);
+    ctx.beginPath(); ctx.arc(s.x, s.y, Math.max(z, 1.1 / k), 0, Math.PI * 2); ctx.fill();
+  }
+  // pass 2: full shapes, drawn smallest first so cities sit on top
+  ctx.lineJoin = "round";
+  for (let t = 0; t < 3; t++) for (const s of G.sets) {
+    if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
+    const z = SET_SIZE[t]; if (z * k < 3) continue;
+    const n = G.nations[s.o], home = G.regions[s.r].ctrl === s.o, base = home ? shade(n.color, .62) : n.color;
+    shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
+    shapePath(t, s.x, s.y, z);
+    const g = ctx.createLinearGradient(s.x, s.y - z, s.x, s.y + z);
+    g.addColorStop(0, shade(base, home ? .5 : .3)); g.addColorStop(1, shade(base, -.1));
+    ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = Math.max(z * .22, lw); ctx.strokeStyle = home ? shade(n.color, -.45) : "#fff"; ctx.stroke();
+    if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = Math.max(z * .12, lw * .8); ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
+    if (n.cap === s.id) { starPath(s.x + z * .95, s.y - z * .95, z * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = Math.max(z * .1, lw * .7); ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
+    if ((t >= 1 && z * k > 9) || z * k > 13) {
+      const fs = clamp(1.1 * k, 9, 13) / k;
+      ctx.font = `800 ${fs}px Nunito, system-ui, sans-serif`; ctx.lineWidth = fs * .3; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
+      const txt = `${s.name} · ${fmt(s.pop)}`, ty = s.y + z * 1.25 + fs * .7;
+      ctx.strokeText(txt, s.x, ty); ctx.fillText(txt, s.x, ty);
     }
   }
 }
@@ -1326,7 +1362,7 @@ function openRegion(ri) {
   const ctrl = r.ctrl >= 0 ? G.nations[r.ctrl] : null;
   const mine = here.filter(s => s.o === n.id), myTowns = mine.filter(s => s.t >= 1).length, myVill = mine.filter(s => s.t === 0).length;
   let h = `<div class="sh-head"><div><h3>${esc(S.n)}</h3><div class="sub">${T.name}${res ? ` · ${res.icon} ${res.name}` : ""}${S.c ? " · Coastal" : ""}</div></div><button class="x" data-act="close" aria-label="Close">✕</button></div>`;
-  h += `<div class="owner">${ctrl ? `<span class="sw" style="background:${ctrl.color}"></span>${ctrl.id === n.id ? "Your territory" : "Territory of the " + esc(nm(ctrl))}${ctrl.id !== n.id && atWar(n.id, ctrl.id) ? ' <span class="pill bad">At war</span>' : ""}` : `<span class="sw" style="background:${WILD}"></span>Unclaimed land`}<span class="muted"> · ${here.length}/${S.slots} settlements</span></div>`;
+  h += `<div class="owner">${ctrl ? `<span class="sw" style="background:${ctrl.color}"></span>${ctrl.id === n.id ? "Your territory" : "Territory of the " + esc(nm(ctrl))}${ctrl.id !== n.id && atWar(n.id, ctrl.id) ? ' <span class="pill bad">At war</span>' : ""}` : `<span class="sw" style="background:${WILD}"></span>Unclaimed land`}<span class="muted"> · ${here.length}/${S.slots} settlements · ${urbanIn(ri)}/${S.urban} towns & cities</span></div>`;
   if (!ctrl || ctrl.id !== n.id) {
     if (mine.length) h += `<div class="claim"><div class="bar-row"><small>Claim it</small><div class="bar"><i style="width:${myTowns / TOWNS_TO_CLAIM * 100}%;background:var(--accent)"></i></div><span>${myTowns}/${TOWNS_TO_CLAIM} towns</span></div><p class="small muted">${ctrl ? `The ${esc(nm(ctrl))} control this land. Capture their towns to take it.` : `Have ${TOWNS_TO_CLAIM} towns or cities here and this territory becomes yours.`} Villages here: ${myVill}.</p></div>`;
     else if (!ctrl) h += `<p class="small muted">Wild land. Villages form here on their own when nearby settlements fill up, or you can send settlers. ${VILLAGES_FOR_TOWN} villages close together can merge into a town, and ${TOWNS_TO_CLAIM} towns make it your territory.</p>`;
@@ -1605,11 +1641,12 @@ function showHelp() {
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
   <p><b>Towns & cities.</b> ${VILLAGES_FOR_TOWN} villages close together (in one territory or neighboring ones) can merge into one town with all their people (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
+  <p><b>Room.</b> Each territory has room for a set number of settlements and of towns and cities, based on its size and land. Big fertile plains hold the most.</p>
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>War.</b> Declare war in World, then tap enemy settlements you can reach to attack them. Capturing towns can flip whole territories.</p>
-  <p><b>Map.</b> Drag to move, pinch or scroll to zoom. ● villages, ■ towns, ◉ cities, ⭐ capitals. White land is unclaimed.</p></div>
+  <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed.</p></div>
   <div class="row"><button class="btn" data-m="ok">Got it</button></div>`);
 }
 
@@ -1637,7 +1674,7 @@ function renderSetup() {
   $("sName").value = st.name;
   $("sColors").innerHTML = COLORS.slice(0, 12).map(c => `<button class="sw pick ${c === st.color ? "on" : ""}" style="background:${c}" data-c="${c}" aria-label="Color ${c}"></button>`).join("");
   $("sStarts").innerHTML = CRADLES.filter(c => RID[c] !== undefined).map(c => `<button class="${c === st.start ? "on" : ""}" data-s="${esc(c)}">${esc(c)}</button>`).join("");
-  $("sInfo").innerHTML = `<b>${esc(s.n)}</b> · ${TER[s.t].name}${s.r ? ` · ${RES[s.r].icon} ${RES[s.r].name}` : ""}${s.c ? " · Coastal" : ""} · room for ${s.slots} settlements`;
+  $("sInfo").innerHTML = `<b>${esc(s.n)}</b> · ${TER[s.t].name}${s.r ? ` · ${RES[s.r].icon} ${RES[s.r].name}` : ""}${s.c ? " · Coastal" : ""} · room for ${s.slots} settlements and ${s.urban} towns or cities`;
   $("sDiff").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.d === st.diff));
   G.setup = true; sel = ri; centerRegion(ri, Math.max(minK() * 2.2, 2.5));
 }
@@ -1679,7 +1716,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
+window.__c2c = { get G() { return G; }, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
