@@ -166,7 +166,11 @@ const CHAINS = [
   { k: "food", name: "Food", icon: "🌾", eff: { food: .05, cap: .025 }, d: "food, room in towns", f: [["farming", "Farming", "agriculture"], ["irrigation", "Irrigation", "masonry"], ["crop", "Crop Rotation", "feudalism"], ["mechfarm", "Mechanized Farming", "steam"], ["biotech", "Biotech Farming", "computers"]] },
   { k: "herd", name: "Herding", icon: "🐎", eff: { food: .03, prod: .03, pow: .015 }, d: "food, materials, cavalry", f: [["husbandry", "Animal Husbandry", "husbandry"], ["horses", "Horse Breeding", "bronze"], ["ranching", "Ranching", "navigation"], ["livestock", "Industrial Livestock", "railroad"]] },
   { k: "ind", name: "Industry", icon: "⚒️", eff: { prod: .045 }, d: "materials", f: [["tools", "Toolmaking", null], ["mining", "Mining", "mining"], ["smithing", "Blacksmithing", "iron"], ["workshops", "Guild Workshops", "guilds"], ["factories", "Factories", "steam"], ["assembly", "Assembly Lines", "electricity"], ["robotics", "Robotics", "robotics"]] },
-  { k: "mil", name: "Weapons", icon: "⚔️", eff: { pow: .035, recruit: .3 }, d: "army strength and size", f: [["weapons", "Weapon Making", null], ["bronzearms", "Bronze Weapons", "bronze"], ["ironarms", "Iron Forging", "iron"], ["siege", "Siege Engineering", "mathematics"], ["muskets", "Musket Manufacturing", "gunpowder"], ["rifles", "Rifle Factories", "rifling"], ["tanks", "Tank Production", "combustion"], ["nukes", "Nuclear Arsenal", "fission"]] },
+  { k: "mil", name: "Weapons", icon: "⚔️", eff: { pow: .035, recruit: .3 }, d: "army strength and size", f: [["weapons", "Weapon Making", null], ["bronzearms", "Bronze Weapons", "bronze"], ["ironarms", "Iron Forging", "iron"], ["siege", "Siege Engineering", "mathematics"], ["muskets", "Musket Manufacturing", "gunpowder"]] },
+  // in the industrial age, arms making splits into three branches
+  { k: "land", parent: "muskets", name: "Land Weapons & Vehicles", icon: "🪖", eff: { pow: .04, recruit: .4 }, d: "army strength and size", f: [["rifles", "Rifle Factories", "rifling"], ["artillery", "Artillery Works", "electricity"], ["tanks", "Tank Production", "combustion"], ["missiles", "Missile Systems", "computers"]] },
+  { k: "navy", parent: "muskets", name: "Shipbuilding", icon: "⚓", eff: { pow: .02, trade: .04, def: .03 }, d: "fleets: army strength, sea trade, coastal defense", f: [["ironclads", "Steam Ironclads", "steam"], ["battleships", "Battleship Yards", "electricity"], ["submarines", "Submarine Works", "combustion"], ["carriers", "Aircraft Carriers", "flight"], ["nuclearsubs", "Nuclear Submarines", "fission"]] },
+  { k: "air", parent: "muskets", name: "Aviation", icon: "✈️", eff: { pow: .045, def: .02 }, d: "air power: army strength, defense", f: [["aircraft", "Aircraft Factories", "flight"], ["bombers", "Strategic Bombers", "massmedia"], ["nukes", "Nuclear Arsenal", "fission"], ["jets", "Jet & Stealth Aircraft", "computers"]] },
   { k: "def", name: "Fortifications", icon: "🏰", eff: { def: .06 }, d: "defense of your settlements", f: [["palisades", "Palisades", null], ["walls", "Stone Walls", "masonry"], ["castles", "Castles", "feudalism"], ["starforts", "Star Forts", "gunpowder"], ["bunkers", "Bunkers", "combustion"], ["missiledef", "Missile Defense", "computers"]] },
   { k: "trade", name: "Trade", icon: "💰", eff: { trade: .07, gold: .015 }, d: "trade income, gold", f: [["barter", "Barter Markets", null], ["roads", "Roads", "wheel"], ["coinage", "Coinage", "currency"], ["fleets", "Merchant Fleets", "navigation"], ["railways", "Railways", "railroad"], ["airports", "Airports", "flight"], ["networks", "Global Networks", "globalization"]] },
   { k: "sci", name: "Knowledge", icon: "📚", eff: { sci: .045 }, d: "science", f: [["lore", "Oral Tradition", null], ["scribes", "Writing Schools", "writing"], ["academies", "Academies", "philosophy"], ["observatories", "Observatories", "astronomy"], ["universities", "Universities", "printing"], ["labs", "Research Labs", "electricity"], ["techhubs", "Tech Hubs", "computers"]] },
@@ -177,7 +181,7 @@ const CHAINS = [
   { k: "space", name: "Space", icon: "🚀", eff: { sci: .05 }, d: "science; Mars Mission level 3 lets you research Mars Colony", f: [["rockets", "Rocket Program", "rocketry"], ["marsmission", "Mars Mission", null]] },
 ];
 const FIELDS = {};
-CHAINS.forEach(c => c.f.forEach(([k, name, tech], i) => { const t = tech ? TECH[tech].era : (i ? 7 : 0); FIELDS[k] = { k, name, tech, chain: c, idx: i, tier: t, prev: i ? c.f[i - 1][0] : null, mult: 1 + .15 * i }; }));
+CHAINS.forEach(c => c.f.forEach(([k, name, tech], i) => { const t = tech ? TECH[tech].era : (i ? 7 : 0); FIELDS[k] = { k, name, tech, chain: c, idx: i, tier: t, prev: i ? c.f[i - 1][0] : (c.parent || null), mult: 1 + .15 * (i + (c.parent ? 4 : 0)) }; }));
 const lv = (n, k) => (n.fields && n.fields[k]) || 0;
 function fieldOpen(n, f) { return (!f.tech || has(n, f.tech)) && (!f.prev || lv(n, f.prev) >= FIELD_NEXT); }
 function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
@@ -186,7 +190,10 @@ function fb(n, key) { let v = 0; if (!n.fields) return 0; for (const k in n.fiel
 const chainLevels = (n, ck) => CHAINS.find(c => c.k === ck).f.reduce((a, [k]) => a + lv(n, k), 0);
 function expandField(n, f) { const c = fieldCost(n, f); n.gold -= c.g; n.mat -= c.m; if (!n.fields) n.fields = {}; n.fields[f.k] = lv(n, f.k) + 1;
   if (!n.ai) { const L = n.fields[f.k]; log(L === 1 ? `${f.name} has been set up.` : `${f.name} expanded to level ${L}.`, f.chain.icon);
-    if (L === FIELD_NEXT) { const nx = f.chain.f[f.idx + 1]; if (nx) { const F2 = FIELDS[nx[0]]; log(F2.tech && !has(n, F2.tech) ? `${F2.name} can be set up once you research ${TECH[F2.tech].name}.` : `${F2.name} is now open to set up!`, "🔓"); } } } }
+    if (L === FIELD_NEXT) {
+      const nexts = [f.chain.f[f.idx + 1], ...CHAINS.filter(c => c.parent === f.k).map(c => c.f[0])].filter(Boolean);
+      if (nexts.length > 1) log(`${f.name} branches out: ${nexts.map(x => FIELDS[x[0]].chain.name).join(", ")}!`, "🌿");
+      for (const nx of nexts) { const F2 = FIELDS[nx[0]]; log(F2.tech && !has(n, F2.tech) ? `${F2.name} can be set up once you research ${TECH[F2.tech].name}.` : `${F2.name} is now open to set up!`, "🔓"); } } } }
 // what each technology opens
 TECHS.forEach(t => { const opens = Object.values(FIELDS).filter(f => f.tech === t.id).map(f => f.name);
   const extra = { tribal: "Chiefdom government.", monarchy: "Monarchy government.", republic: "Republic government.", theology: "Theocracy government.", absolutism: "Absolute Monarchy.", democracy: "Democracy government.", ideology: "Single-Party State.", computers: "Technocracy government.", enlightenment: "Secular religion law.", currency: "Free Trade law.", printing: "Press law.", steam: "Labor law.", sailing: "Settle across short seas.", navigation: "Settle distant coasts.", agriculture: "Villages can merge into towns.", masonry: "Towns can grow into cities.", mars: "Win the game. Needs Mars Mission level 3.", bronze: "Armies need copper.", iron: "Armies need iron.", combustion: "Armies need oil." }[t.id];
@@ -1031,7 +1038,7 @@ function aiTurn(n) {
   const uc = unitCost(n);
   while (n.army < want && n.gold > uc.g * 1.5 + (saving ? villageCost(n).g : 0) && n.mat > uc.m) recruit(n, 1);
   // develop fields
-  const prefC = { aggressive: ["mil", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food"], zealot: ["faith", "def", "food"] }[n.pers] || [];
+  const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   let builds = 0;
   for (let tries = 0; tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
     const opts = Object.values(FIELDS).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX);
@@ -1767,8 +1774,13 @@ function panelDevelop() {
   const n = P(); let h = ph("Develop", "Set up fields, then expand them. Level 3 opens the next stage.");
   for (const c of CHAINS) {
     const total = c.f.reduce((a, [k]) => a + lv(n, k) * FIELDS[k].mult, 0);
-    const effTxt = Object.entries(c.eff).filter(([k]) => total).map(([k, v]) => { const x = v * total; return k === "stab" ? `+${Math.round(x)} stability` : k === "admin" ? `+${Math.round(x)} admin` : k === "recruit" ? `+${Math.round(x)} regiments` : `+${Math.round(x * 100)}% ${({ food: "food", cap: "town room", prod: "materials", pow: "army", def: "defense", trade: "trade", gold: "gold", sci: "science", grow: "growth" })[k]}`; }).join(" · ");
-    h += `<div class="card fcard"><h4><span>${c.icon}</span> ${c.name}</h4><p class="small muted">${total ? effTxt : "Boosts " + c.d + "."}</p><div class="stages">`;
+    const effTxt = Object.entries(c.eff).filter(([k]) => total).map(([k, v]) => { const x = v * total; return k === "stab" ? `+${Math.round(x)} stability` : k === "admin" ? `+${Math.round(x)} admin` : k === "recruit" ? `+${Math.round(x)} regiment${Math.round(x) === 1 ? "" : "s"}` : `+${Math.round(x * 100)}% ${({ food: "food", cap: "town room", prod: "materials", pow: "army", def: "defense", trade: "trade", gold: "gold", sci: "science", grow: "growth" })[k]}`; }).join(" · ");
+    const par = c.parent ? FIELDS[c.parent] : null;
+    if (par && lv(n, par.k) < FIELD_NEXT && !c.f.some(([k]) => lv(n, k))) {
+      if (CHAINS.find(x => x.parent === c.parent) === c) h += `<div class="card fcard branch locked-b"><h4><span>🌿</span> Branches of ${par.name}</h4><p class="small muted">At level ${FIELD_NEXT}, ${par.name} splits into ${CHAINS.filter(x => x.parent === c.parent).map(x => x.icon + " " + x.name).join(", ")}.</p></div>`;
+      continue;
+    }
+    h += `<div class="card fcard ${par ? "branch" : ""}">${par ? `<div class="from">🌿 Branch of ${par.name}</div>` : ""}<h4><span>${c.icon}</span> ${c.name}</h4><p class="small muted">${total ? effTxt : "Boosts " + c.d + "."}</p><div class="stages">`;
     let shown = 0;
     for (const [k] of c.f) {
       const f = FIELDS[k], L = lv(n, k), open = fieldOpen(n, f);
