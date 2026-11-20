@@ -7,7 +7,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 const rnd = () => Math.random();
 const pick = a => a[Math.floor(rnd() * a.length)];
-const fmt = v => { const a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(1) + "M" : a >= 1e4 ? (v / 1e3).toFixed(0) + "k" : a >= 1e3 ? (v / 1e3).toFixed(1) + "k" : a >= 100 ? Math.round(v) + "" : a >= 10 ? v.toFixed(0) : v.toFixed(1); };
+const fmt = v => { const a = Math.abs(v); return a >= 1e6 ? (v / 1e6).toFixed(1) + "M" : a >= 1e4 ? (v / 1e3).toFixed(0) + "k" : a >= 1e3 ? (v / 1e3).toFixed(1) + "k" : a >= 100 ? Math.round(v) + "" : a >= 10 ? v.toFixed(0) : a >= 1 || a === 0 ? v.toFixed(1) : a >= .01 ? v.toFixed(2) : v.toFixed(3); };
 const fmtP = v => v >= 1e4 ? fmt(v) : Math.round(v).toLocaleString("en-US");
 const sgn = v => (v >= 0 ? "+" : "−") + fmt(Math.abs(v));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -16,6 +16,17 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const ERAS = ["Stone Age", "Bronze Age", "Classical Age", "Medieval Age", "Renaissance", "Industrial Age", "Modern Age", "Information Age"];
 const YEARS_PER_TURN = [25, 70, 45, 32, 12, 6, 4, 3];
 const ERA_YEAR = [-4000, -3000, -800, 500, 1450, 1750, 1900, 1990, 2100];
+// ---- time: every turn is one month. The game's rates are written per "span" (the old turn length of each age,
+// YEARS_PER_TURN years), and each month runs TD of a span: flows scale by TD, chances and drifts compound by TD ----
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const calEra = y => { let e = 0; while (e < 7 && y >= ERA_YEAR[e + 1]) e++; return e; };
+let TD = 1 / (12 * YEARS_PER_TURN[0]);
+function setTD() { if (G && G.year != null) TD = 1 / (12 * YEARS_PER_TURN[calEra(G.year)]); return TD; }
+const pr = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), TD); // a chance (or drift rate) per span, as a monthly chance
+const dec = x => { const v = (x || 0) - TD; return v < 1e-6 ? 0 : v; }; // count down a timer measured in spans
+const monthsOf = t => Math.max(1, Math.round(t / TD));
+const durTxt = t => { const m = monthsOf(t); return m < 24 ? `${m} month${m > 1 ? "s" : ""}` : `${Math.round(m / 12)} years`; };
+const etaTxt = (left, rate) => rate <= 0 ? "stalled" : durTxt(Math.max(0, left) / rate * TD);
 const ERA_POW = [1, 1.6, 2.6, 4, 6.5, 11, 18, 30];
 const TECH_BASE = [10, 40, 115, 330, 1100, 3000, 8500, 18000];
 
@@ -479,14 +490,14 @@ function getLandPath() {
 function hOf(s) { const n = G.nations[s.o]; const apc = APC[s.t] / (1 + .05 * (n ? n.era : 0)); return Math.max(.05, Math.sqrt(s.pop * apc) / 48 * 1.13); }
 function growBorders() {
   for (const s of G.sets) { if (s.hp == null) s.hp = HP[s.t];
-    if (s.hp < HP[s.t] && G.turn - (s.hit || 0) > 3) s.hp++;
+    if (s.hp < HP[s.t] && G.tt - (s.hit || 0) > 3) s.hp++;
     if (s.h == null) s.h = hOf(s) * .6; }
   for (const s of G.sets) {
     let target = hOf(s) * 1.9; // worked land plus the free hunting and grazing land around it
     const near = nearSets(s.x, s.y, 9);
     let gapMin = 1e9; for (const o of near) if (o.o !== s.o) gapMin = Math.min(gapMin, chebGap(s, o));
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
-    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2));
+    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD);
     for (const o of near) { if (o.o === s.o) continue;
       lim = Math.min(lim, Math.hypot(o.x - s.x, o.y - s.y) - o.h - .01); }
     s.h = Math.max(.04, lim);
@@ -547,7 +558,7 @@ function newNation(name, color, ri, ai, pers, culture) {
 }
 function newGame(opts) {
   reachCache.clear(); resetCells();
-  G = { v: 2, turn: 1, year: -4000, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
+  G = { v: 2, turn: 1, tt: 0, month: 0, year: -4000, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
   for (let i = 0; i < NR; i++) G.regions.push({ i, ctrl: -1 });
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder", opts.cul || "mixed");
@@ -741,6 +752,8 @@ const propSway = n => 3 * Math.sqrt((bud(n).prop || 0) / 100) * 25 / (25 + eduOf
 const welfareExpect = (n, k) => Math.min(welfareMax(n, k), Math.max(0, (eduOf(n) - 8) / 22));
 const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propSway(n));
 const welfareWork = n => .02 * welfareLv(n); // healthier, steadier people work better
+const FLOWS = ["tax", "routeGold", "luxGold", "foodGold", "bUp", "armyUp", "imports", "govUp", "goldNet", "mat", "sci", "resGold", "resMat", "resSci", "acadUp", "sciPay", "offPay", "gross", "fixed", "spend", "milGold", "qtyGold", "qualGold", "prodGold", "travelGold", "subGold", "propGold", "incGold", "healthGold", "spare"];
+function econM(n) { setTD(); const E = econ(n), M = { ...E, raw: E }; for (const k of FLOWS) M[k] = E[k] * TD; return M; } // what a month brings in and costs
 function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
@@ -935,16 +948,18 @@ function recruit(n, k) { const c = unitCost(n); n.gold -= c.g * k; n.mat -= c.m 
 function processNation(n) {
   if (!n.alive) return;
   const E = econ(n);
-  n.gold += E.goldNet; n.mat += E.mat;
+  n.gold += E.goldNet * TD; n.mat += E.mat * TD;
   // the army grows or shrinks toward what the military budget pays for. New regiments need materials to equip
-  if (n.army < E.armyTarget) { const uc = unitCost(n), k = Math.min(E.armyTarget - n.army, Math.max(1, Math.ceil(E.manpower * .25)), Math.max(0, Math.floor(n.mat / uc.m)));
-    if (k > 0) { n.army += k; n.mat -= k * uc.m; } }
-  else if (n.army > E.armyTarget) n.army -= Math.max(1, Math.ceil((n.army - E.armyTarget) * .5));
+  if (n.army === E.armyTarget) n.armyAcc = 0;
+  else if (n.army < E.armyTarget) { n.armyAcc = (n.armyAcc || 0) + Math.max(1, E.manpower * .25) * TD;
+    const uc = unitCost(n), k = Math.min(E.armyTarget - n.army, Math.floor(n.armyAcc), Math.max(0, Math.floor(n.mat / uc.m)));
+    if (k > 0) { n.army += k; n.mat -= k * uc.m; n.armyAcc -= k; } }
+  else { n.armyAcc = (n.armyAcc || 0) + Math.max(1, (n.army - E.armyTarget) * .5) * TD; const k = Math.min(n.army - E.armyTarget, Math.floor(n.armyAcc)); if (k > 0) { n.army -= k; n.armyAcc -= k; } }
   // debt: nobody quits, the nation simply borrows. Interest piles up and the people's trust drains away
   if (n.trust == null) n.trust = 100;
-  if (n.gold < 0) n.gold *= 1.02;
+  if (n.gold < 0) n.gold *= Math.pow(1.02, TD);
   n.trustDelta = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
-  n.trust = Math.min(100, n.trust + n.trustDelta);
+  n.trust = Math.min(100, n.trust + n.trustDelta * TD);
   if (n.trust < 30) {
     if (!n.ai && !n.trustWarned) { n.trustWarned = true; log(`Public trust is collapsing (${Math.round(Math.max(0, n.trust))}/100). If it reaches zero, the nation will tear itself apart in civil war.`, "⚠️"); }
   } else if (n.trust > 40) n.trustWarned = false;
@@ -957,10 +972,10 @@ function processNation(n) {
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
       const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health;
-      const g = (s.pop * r + T.flat) * free;
+      const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
-    } else { s.pop *= 1 - .05 * Math.min(1, -sr * 3); s.g = 0; }
-    if (s.pop > cap) s.pop -= (s.pop - cap) * .25;
+    } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3), TD); s.g = 0; }
+    if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
     if (s.t === 0 && s.pop > VILLAGE_CAP) s.pop = VILLAGE_CAP;
     s.pop = Math.max(2, s.pop);
   }
@@ -973,7 +988,7 @@ function processNation(n) {
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
     if (sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
     if (s.t >= 1 && s.g > 0) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
-    if (s.pop >= cap * start) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1);
+    if (s.pop >= cap * start) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD;
     else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
     const ri = bestVillageSpot(n, s.r);
@@ -987,12 +1002,13 @@ function processNation(n) {
     if (born.length === 1) log(`People from ${born[0][1].name} moved out and formed the village of ${born[0][0].name} in ${W.regions[born[0][0].r].n}.`, "🛖");
     else if (born.length > 1) log(`${born.length} new villages formed as people moved out of full settlements: ${born.slice(0, 4).map(b => b[0].name).join(", ")}${born.length > 4 ? "…" : ""}.`, "🛖");
     if (crowdedNow) log(`${crowdedNow === 1 ? "A settlement is" : crowdedNow + " settlements are"} overcrowded with no room nearby to expand. Claim more land, or research Sailing to reach across the sea.`, "😣");
-    if (sr < 0) log("Famine! There isn't enough food. Settle fertile land or build Farms.", "🥀");
+    if (sr < 0 && !n.famine) log("Famine! There isn't enough food. Settle fertile land or build Farms.", "🥀");
   }
+  n.famine = sr < 0;
   // construction
   for (const ri of pres(n)) { const k = consOf(n.id, ri); if (k) { B(n.id, ri)[k] = 1; setCons(n.id, ri, null); if (!n.ai) log(`${BK[k].name} completed in ${W.regions[ri].n}.`, BK[k].icon); } }
   // research
-  n.sciPts += E.sci;
+  n.sciPts += E.sci * TD;
   let guard = 0;
   while (guard++ < 5) {
     let it = resItem(n, n.research);
@@ -1029,56 +1045,53 @@ function processNation(n) {
     else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
   }
   // politics
-  n.facMods.forEach(m => m.t--); n.facMods = n.facMods.filter(m => m.t > 0);
-  const tg = facTargets(n, E);
-  for (const k in FACTIONS) { const t = tg[k] ? tg[k].v : 50; n.fac[k] += (t - n.fac[k]) * .35; }
+  n.facMods.forEach(m => m.t -= TD); n.facMods = n.facMods.filter(m => m.t > 0);
+  const tg = facTargets(n, E), fk = pr(.35);
+  for (const k in FACTIONS) { const t = tg[k] ? tg[k].v : 50; n.fac[k] += (t - n.fac[k]) * fk; }
   n.stab = stabilityOf(n, n.fac);
   const wars = G.nations.filter(o => atWar(n.id, o.id)).length;
-  n.ww = wars ? n.ww + 1.5 * (GOVS[n.gov].ww || 1) * wars : Math.max(0, n.ww - 3);
+  n.ww = wars ? n.ww + 1.5 * (GOVS[n.gov].ww || 1) * wars * TD : Math.max(0, n.ww - 3 * TD);
   n.ww = Math.min(n.ww, 35);
-  if (n.anarchy > 0) n.anarchy--;
-  if (n.govCool > 0) n.govCool--;
-  if (n.opposition > 0) n.opposition--;
-  if (n.culCool > 0) n.culCool--; if (n.culShift > 0) n.culShift--;
+  n.anarchy = dec(n.anarchy); n.govCool = dec(n.govCool); n.opposition = dec(n.opposition); n.culCool = dec(n.culCool); n.culShift = dec(n.culShift);
   if (n.cmd === "supreme") {
     // succession is decided by the army, not by you: any general (good or bad) or an unproven officer may rise
     const successor = () => (n.generals || []).length && rnd() < .6 ? pick(n.generals) : null;
     if (!n.commander) appointCommander(n, successor());
-    else if (--n.commander.left <= 0) { const old = n.commander, g = successor(), c = appointCommander(n, g);
+    else if ((n.commander.left -= TD) <= 0) { const old = n.commander, g = successor(), c = appointCommander(n, g);
       if (!n.ai) log(`Supreme Commander ${old.name} has stepped down. ${g ? `The army raised General ${c.name} as successor: ${"★".repeat(c.skill)}${"☆".repeat(5 - c.skill)} (${CMDR_EFF[c.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[c.skill - 1] * 100)}% army).` : `The army raised ${c.name}, an unproven officer, as successor: ${"★".repeat(c.skill)}${"☆".repeat(5 - c.skill)} (${CMDR_EFF[c.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[c.skill - 1] * 100)}% army).`}`, "🎖️"); }
   }
   if (!n.generals) n.generals = [];
-  n.generals.forEach(g => g.left--);
+  n.generals.forEach(g => g.left -= TD);
   for (const g of n.generals.filter(g => g.left <= 0)) if (!n.ai) log(`General ${g.name} has retired.`, "🎖️");
   n.generals = n.generals.filter(g => g.left > 0);
-  n.scientists = (n.scientists || 0) * .98 + sciGradRate(n);
-  n.officers = (n.officers || 0) * .97 + offGradRate(n);
+  n.scientists = (n.scientists || 0) * Math.pow(.98, TD) + sciGradRate(n) * TD;
+  n.officers = (n.officers || 0) * Math.pow(.97, TD) + offGradRate(n) * TD;
   { const ma = setsOf(n).filter(x => x.mil), op = (n.officers || 0) / 10;
     const tq = travelQ(n);
-    for (const a of ma) if (n.generals.length < ma.length * 2 && rnd() < .06 * (1 + .6 * tq)) {
+    for (const a of ma) if (n.generals.length < ma.length * 2 && rnd() < pr(.06 * (1 + .6 * tq))) {
       const skill = clamp(Math.round(1 + rnd() * 2 + op * .25 + rnd() + tq * rnd()), 1, 5), g = { name: genName(8), skill, left: 25 + Math.floor(rnd() * 25), from: a.name };
       n.generals.push(g); if (!n.ai) log(`General ${g.name} (${"★".repeat(skill)}) graduated from the military academy in ${a.name}.`, "🎖️");
     } }
-  n.warmonger = Math.max(0, n.warmonger - 1);
-  n.used = 0;
+  n.warmonger = Math.max(0, n.warmonger - TD);
+  n.used = Math.max(0, (n.used || 0) - n.army * TD); // regiments rest and regroup after fighting
   // unrest & revolts
   for (const s of setsOf(n)) {
     const foreign = s.c !== n.id && s.c >= 0 ? (n.laws.rel === "tol" ? 15 : 25) : 0;
     const b = B(n.id, s.r); let roads = 0; for (const k in b) roads += BK[k].unrest || 0;
     const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
-    s.u += (clamp(target, 0, 100) - s.u) * .3;
-    if (s.q > 0) s.q = Math.max(0, s.q - 3);
-    if (s.c !== n.id && s.c >= 0 && s.u < 25 && rnd() < .06) { s.c = n.id; if (!n.ai) log(`${s.name} now considers itself part of your nation.`, "🫶"); }
-    if (s.u > 65 && s.id !== n.cap && setsOf(n).length > 1 && rnd() < (s.u - 60) / 120) revolt(n, s);
+    s.u += (clamp(target, 0, 100) - s.u) * pr(.3);
+    if (s.q > 0) s.q = Math.max(0, s.q - 3 * TD);
+    if (s.c !== n.id && s.c >= 0 && s.u < 25 && rnd() < pr(.06)) { s.c = n.id; if (!n.ai) log(`${s.name} now considers itself part of your nation.`, "🫶"); }
+    if (s.u > 65 && s.id !== n.cap && setsOf(n).length > 1 && rnd() < pr((s.u - 60) / 120)) revolt(n, s);
   }
-  if (n.stab < 18 && n.anarchy === 0 && rnd() < .12) upheaval(n);
+  if (n.stab < 18 && !(n.anarchy > 0) && rnd() < pr(.12)) upheaval(n);
   const el = GOVS[n.gov].elect;
-  if (el && G.turn - n.lastElect >= el) {
-    n.lastElect = G.turn;
+  if (el && G.tt - n.lastElect >= el) {
+    n.lastElect = G.tt;
     const win = rnd() * 100 < n.stab + 15;
     if (!n.ai) {
       if (win) { log("You won the election! The people renewed your mandate.", "🗳️"); n.facMods.push({ k: "commoners", v: 8, why: "Election mandate", t: 4 }); }
-      else { n.opposition = 3; log("You lost the election. The opposition controls the legislature for 3 turns: laws are locked and you can't declare war.", "🗳️"); n.facMods.push({ k: "commoners", v: 6, why: "New government", t: 3 }); }
+      else { n.opposition = 3; log(`You lost the election. The opposition controls the legislature for ${durTxt(3)}: laws are locked and you can't declare war.`, "🗳️"); n.facMods.push({ k: "commoners", v: 6, why: "New government", t: 3 }); }
     }
   }
 }
@@ -1120,7 +1133,7 @@ function revolt(n, s) {
     s.o = rb.id; s.c = rb.id; s.u = 0; s.q = 0; rb.cap = s.id; G.sv++;
     rb.gold = 15 * (n.era + 1); rb.techs = n.techs.slice(); rb.era = n.era; rb.army = Math.max(1, Math.round(n.army * .15)); rb.gov = n.gov === "tribe" ? "tribe" : "chiefdom"; rb.research = chooseResearch(rb);
     n.army = Math.max(0, n.army - Math.round(n.army * .1));
-    const d = dip(n.id, rb.id); d.met = true; d.war = true; d.rel = -60; d.wt = G.turn;
+    const d = dip(n.id, rb.id); d.met = true; d.war = true; d.rel = -60; d.wt = G.tt;
     if (n.id === G.player) log(`${s.name} revolted and declared independence!`, "🔥");
     else if (dip(n.id, G.player).met) log(`${s.name} broke away from the ${nm(n)}.`, "🔥", -1);
   }
@@ -1159,7 +1172,7 @@ function civilWar(n) {
   for (const x of rebelsS) { x.o = rb.id; x.focus = null; x.u = 20; }
   rb.cap = rebelsS.slice().sort((a, b) => b.pop - a.pop)[0].id;
   n.trust = 45; n.trustWarned = false;
-  const d = dip(n.id, rb.id); d.met = true; d.war = true; d.wt = G.turn; d.rel = -80; d.ws = 0;
+  const d = dip(n.id, rb.id); d.met = true; d.war = true; d.wt = G.tt; d.rel = -80; d.ws = 0;
   for (const o of G.nations) if (o.alive && o.id !== n.id && o.id !== rb.id && dip(o.id, n.id).met) { const d2 = dip(o.id, rb.id); d2.met = true; d2.rel = dip(o.id, n.id).rel; d2.trade = false; }
   for (const ri of new Set(rebelsS.map(x => x.r))) recomputeControl(ri);
   G.sv++; reachCache.clear();
@@ -1201,14 +1214,14 @@ function attack(n, s, units) {
   const res = { win, aLoss, dLoss, name: s.name, def: dn };
   if (win && (s.hp == null ? HP[s.t] : s.hp) > 1) {
     // push their border back; the settlement holds out a little longer
-    s.hp = (s.hp == null ? HP[s.t] : s.hp) - 1; s.hit = G.turn; s.pop *= .92; s.u = Math.min(100, s.u + 15);
+    s.hp = (s.hp == null ? HP[s.t] : s.hp) - 1; s.hit = G.tt; s.pop *= .92; s.u = Math.min(100, s.u + 15);
     chip(n.id, s);
     addWs(n.id, dn.id, 3); dn.ww += 1;
     res.push = true; res.left = s.hp;
   } else if (win) {
     addWs(n.id, dn.id, s.id === dn.cap ? 15 : 5 + s.t * 3);
     chip(n.id, s);
-    s.o = n.id; s.focus = null; s.pop *= .85; s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.turn; G.sv++;
+    s.o = n.id; s.focus = null; s.pop *= .85; s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
     if (!setsOf(dn).some(x => x.r === ri)) { if (G.bld[ri]) delete G.bld[ri][dn.id]; setCons(dn.id, ri, null); }
     if (s.id === dn.cap) { const rest = setsOf(dn); if (rest.length) { dn.cap = rest.sort((a, b) => b.pop - a.pop)[0].id; dn.facMods.push({ k: "commoners", v: -15, why: "Capital lost", t: 5 }); } }
@@ -1229,7 +1242,7 @@ function eliminate(dn, by) {
   else if (dip(dn.id, G.player).met) log(`The ${nm(dn)} has been wiped from the map by the ${nm(by)}.`, "☠️", -1);
 }
 function declareWar(a, b) {
-  const d = dip(a.id, b.id); d.war = true; d.trade = false; d.ally = false; d.ws = 0; d.wt = G.turn;
+  const d = dip(a.id, b.id); d.war = true; d.trade = false; d.ally = false; d.ws = 0; d.wt = G.tt;
   if (d.rel > -60) a.warmonger += 12;
   d.rel = Math.min(d.rel, -50);
   for (const o of G.nations) if (o.alive && o.id !== a.id && o.id !== b.id && dip(o.id, a.id).met) dip(o.id, a.id).rel -= dip(o.id, b.id).rel < -40 ? 2 : 10;
@@ -1239,7 +1252,7 @@ function declareWar(a, b) {
     if (!o.alive || o.id === a.id || o.id === b.id) continue;
     if (dip(o.id, b.id).ally && !dip(o.id, a.id).war && !dip(o.id, a.id).ally) {
       if (o.id === G.player) log(`Your ally the ${nm(b)} was attacked by the ${nm(a)}. They expect your help (check World).`, "📯");
-      else if (rnd() < .8) { const d2 = dip(o.id, a.id); d2.war = true; d2.trade = false; d2.ws = 0; d2.wt = G.turn; d2.rel = Math.min(d2.rel, -40);
+      else if (rnd() < .8) { const d2 = dip(o.id, a.id); d2.war = true; d2.trade = false; d2.ws = 0; d2.wt = G.tt; d2.rel = Math.min(d2.rel, -40);
         if (a.id === G.player || dip(o.id, G.player).met) log(`The ${nm(o)} joined the war to defend their ally.`, "🛡️", a.id === G.player ? null : -1); }
     }
   }
@@ -1290,7 +1303,7 @@ function aiTurn(n) {
     const wl = n.era >= 5 ? 2 : n.era >= 3 ? 1 : 0; B0.inc = Math.min(wl, welfareMax(n, "inc")); B0.health = Math.min(wl + (n.era >= 6 ? 1 : 0), welfareMax(n, "health"));
     if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); }
     { const gap = welfareGap(n, "inc") + welfareGap(n, "health"); if (gap > .1) B0.prop = clamp(Math.round(gap * (n.pers === "zealot" || n.pers === "aggressive" ? 8 : 4) * (1 + eduOf(n) / 25)), 0, 40); } }
-  if (n.govCool === 0 && n.stab > 40) {
+  if (!(n.govCool > 0) && n.stab > 40) {
     const pref = { aggressive: ["party", "empire", "monarchy", "chiefdom"], builder: ["technocracy", "democracy", "empire", "monarchy", "chiefdom"], trader: ["democracy", "republic", "monarchy", "chiefdom"], zealot: ["theocracy", "monarchy", "chiefdom"] }[n.pers];
     const g = pref.find(g => has(n, GOVS[g].tech));
     if (g && g !== n.gov) { n.gov = g; n.anarchy = 1; n.govCool = 15; }
@@ -1305,7 +1318,7 @@ function aiTurn(n) {
   const donors = sets.filter(s => s.pop >= MOVERS + 12 && (s.t > 0 || s.pop >= VILLAGE_CAP - 3)).sort((a, b) => b.pop - a.pop);
   const saving = underCap && donors.length > 0 && wars.length === 0;
   for (const d of donors) {
-    if (founds >= maxF || !underCap || rnd() > .35) break;
+    if (founds >= maxF || !underCap || rnd() > pr(.35)) break;
     const ri = bestVillageSpot(n, d.r); if (ri < 0) continue;
     const c = villageCost(n); if (!afford(n, c)) break;
     if (!near(n, d.r, ri)) continue;
@@ -1322,9 +1335,9 @@ function aiTurn(n) {
   if (!n.cmd || n.cmd === "chiefs") { const want = (n.cul === "martial" || n.pers === "aggressive") ? "supreme" : "council"; if (!CMDS[want].tech || has(n, CMDS[want].tech)) setCommand(n, want, bestGeneral(n)); }
   for (const x of setsOf(n)) {
     if (!canAcad(n, x)) continue;
-    if (!x.mil && has(n, "bronze") && milAcadCount(n) < milAcadLimit(n) && (n.cul === "martial" || n.pers === "aggressive" || rnd() < .25)) { const c = milAcadCost(n); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 4 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.mil = true; } }
-    if (has(n, "writing") && (x.acad || 0) < 1 && rnd() < (n.cul === "scholarly" ? .6 : .2)) { const c = acadCost(n, 1); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 2 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.acad = 1; } }
-    else if (has(n, "printing") && x.acad === 1 && rnd() < (n.cul === "scholarly" ? .4 : .1)) { const c = acadCost(n, 2); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.acad = 2; } }
+    if (!x.mil && has(n, "bronze") && milAcadCount(n) < milAcadLimit(n) && (n.cul === "martial" || n.pers === "aggressive" || rnd() < pr(.25))) { const c = milAcadCost(n); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 4 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.mil = true; } }
+    if (has(n, "writing") && (x.acad || 0) < 1 && rnd() < pr(n.cul === "scholarly" ? .6 : .2)) { const c = acadCost(n, 1); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 2 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.acad = 1; } }
+    else if (has(n, "printing") && x.acad === 1 && rnd() < pr(n.cul === "scholarly" ? .4 : .1)) { const c = acadCost(n, 2); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.acad = 2; } }
   }
   // develop fields
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
@@ -1343,32 +1356,32 @@ function aiTurn(n) {
     if (!o.alive || o.id === n.id) continue;
     const d = dip(n.id, o.id); if (!d.met) continue;
     if (o.ai && o.id > n.id) {
-      if (!d.war && !d.trade && d.rel > 5 && rnd() < .15) d.trade = true;
-      if (!d.war && !d.ally && d.rel > 60 && rnd() < .08) d.ally = true;
+      if (!d.war && !d.trade && d.rel > 5 && rnd() < pr(.15)) d.trade = true;
+      if (!d.war && !d.ally && d.rel > 60 && rnd() < pr(.08)) d.ally = true;
     }
     if (d.war) {
-      const myScore = wscore(n.id, o.id), dur = G.turn - d.wt;
+      const myScore = wscore(n.id, o.id), dur = G.tt - d.wt;
       const losing = myScore < -12 || power(n) < power(o) * .5;
-      const tired = dur > 10 && rnd() < .15;
-      if (o.ai && (losing || tired || (myScore > 25 && rnd() < .3))) makePeace(n, o, myScore < -12 ? Math.round(Math.max(0, Math.min(n.gold * .3, 30 * (n.era + 1)))) : 0, myScore < -12 ? n : null);
-      else if (!o.ai && (losing || tired) && !G.pendingPeace && rnd() < .5) {
+      const tired = dur > 10 && rnd() < pr(.15);
+      if (o.ai && ((losing && rnd() < pr(.9)) || tired || (myScore > 25 && rnd() < pr(.3)))) makePeace(n, o, myScore < -12 ? Math.round(Math.max(0, Math.min(n.gold * .3, 30 * (n.era + 1)))) : 0, myScore < -12 ? n : null);
+      else if (!o.ai && (losing || tired) && !G.pendingPeace && rnd() < pr(.5)) {
         const trib = myScore < -12 ? Math.round(Math.max(0, Math.min(n.gold * .3, 30 * (n.era + 1)))) : 0;
         G.pendingPeace = { from: n.id, tribute: trib, payer: trib ? n.id : null };
-      } else if (!o.ai && myScore > 18 && dur > 4 && !G.pendingPeace && rnd() < .25) {
+      } else if (!o.ai && myScore > 18 && dur > 4 && !G.pendingPeace && rnd() < pr(.25)) {
         G.pendingPeace = { from: n.id, tribute: Math.round(Math.min(Math.max(0, o.gold) * .4, 40 * (o.era + 1))), payer: o.id };
       }
-    } else if (!d.ally && d.truce <= 0 && wars.length === 0 && n.anarchy === 0) {
+    } else if (!d.ally && !(d.truce > 0) && wars.length === 0 && !(n.anarchy > 0)) {
       const ratioP = power(n) / Math.max(1, power(o));
       const hostile = d.rel < (n.pers === "aggressive" ? 0 : -25);
       const border = bordersTouch(n, o);
       const chance = { aggressive: .22, zealot: .12, builder: .06, trader: .05 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1);
-      const grace = (o.id === G.player && G.turn < [60, 35, 20][G.diff]) || G.turn < 12;
-      if (!grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) && rnd() < chance) declareWar(n, o);
+      const grace = (o.id === G.player && G.tt < [60, 35, 20][G.diff]) || G.tt < 12;
+      if (!grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) && rnd() < pr(chance)) declareWar(n, o);
     }
   }
   // attack
   for (const o of G.nations.filter(o => atWar(n.id, o.id))) {
-    if (dip(n.id, o.id).wt === G.turn) continue;
+    if (G.tt - dip(n.id, o.id).wt < TD * .5) continue;
     let tries = o.id === G.player ? (n.era < 4 ? 1 : 2) : 1 + Math.floor(n.era / 3);
     while (tries-- > 0) {
       const avail = n.army - n.used; if (avail < 1) break;
@@ -1395,8 +1408,8 @@ function driftRelations() {
     v -= ((a.id === G.player ? a.warmonger : 0) + (b.id === G.player ? b.warmonger : 0)) * .05;
     v += (rnd() - .5) * 2;
     v -= d.rel * .015;
-    d.rel = clamp(d.rel + v, -100, 100);
-    if (d.truce > 0) d.truce--;
+    d.rel = clamp(d.rel + v * TD, -100, 100);
+    d.truce = dec(d.truce);
   }
 }
 
@@ -1553,10 +1566,10 @@ const EVENTS = [
          { t: "Sell the artifacts", d: n => `+${fmt(15 * eraScale(n))} gold`, f: n => fx.gold(n, 15 * eraScale(n)) }] },
 ];
 function rollEvent() {
-  const n = P(); if (!n.alive || G.turn < G.nextEvent) return null;
+  const n = P(); if (!n.alive || G.tt < G.nextEvent) return null;
   const ok = EVENTS.filter(e => n.era >= e.era[0] && n.era <= e.era[1] && (!e.cond || e.cond(n)) && e.id !== G.lastEvent);
   if (!ok.length) return null;
-  G.nextEvent = G.turn + 3 + Math.floor(rnd() * 3);
+  G.nextEvent = G.tt + 3 + rnd() * 3;
   const e = pick(ok); G.lastEvent = e.id;
   return { id: e.id, text: e.text(n) };
 }
@@ -1565,13 +1578,16 @@ function rollEvent() {
 function endTurn() {
   if (G.over) return;
   G.news = [];
+  if (G.tt == null) G.tt = G.turn; if (G.month == null) G.month = 0;
+  setTD();
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
   driftRelations();
   growBorders();
   updateContacts(); updateExplore();
-  G.turn++;
-  { const e = Math.max(worldEra(), P().alive ? P().era - 1 : 0); G.year = Math.max(ERA_YEAR[e], Math.min(G.year + YEARS_PER_TURN[e], ERA_YEAR[e + 1] - (e === 7 ? 0 : 1))); }
+  G.turn++; G.tt += TD;
+  if (++G.month >= 12) { G.month = 0; G.year++; if (G.year === 0) G.year = 1; } // there is no year 0
+  setTD();
   const me = P();
   if (me.alive && terrCount(me) >= Math.ceil(NR * .4)) victory(me, "domination");
   const rival = G.nations.find(n => n.alive && n.ai && terrCount(n) >= Math.ceil(NR * .5));
@@ -1913,11 +1929,12 @@ function zoomBy(f) { const cx = cw / 2, cy = ch / 2, mx = (cx - view.x) / view.k
 
 // ================= UI =================
 const sheet = $("sheet"), panel = $("panel"), modal = $("modal");
+const dateTxt = () => `${MONTHS[G.month || 0]} ${yearTxt(G.year)}`;
 function hud() {
-  const n = P(), E = econ(n);
+  const n = P(), E = econM(n);
   $("hName").textContent = nm(n);
   $("hFlag").style.background = n.color;
-  $("hYear").textContent = `${G.year < 0 ? -G.year + " BCE" : G.year + " CE"} · ${ERAS[n.era]} · Turn ${G.turn}`;
+  $("hYear").textContent = `${dateTxt()} · ${ERAS[n.era]}`;
   const sets = setsOf(n), full = sets.filter(s => s.crowd).length;
   $("cPop").innerHTML = `<span class="ci">👥</span><b>${fmtP(E.pop)}</b><i>${full ? `${full} overcrowded` : `${sets.length} settlement${sets.length > 1 ? "s" : ""}`}</i>`;
   $("cPop").classList.toggle("warnchip", full > 0);
@@ -2050,7 +2067,7 @@ function budgetHTML(n) {
 }
 function budgetFill(root) {
   if (!root) return;
-  const n = P(), E = econ(n), B0 = bud(n), set = (k, v) => { const el = root.querySelector(`[data-bx="${k}"]`); if (el) el.innerHTML = v; };
+  const n = P(), E = econM(n), B0 = bud(n), set = (k, v) => { const el = root.querySelector(`[data-bx="${k}"]`); if (el) el.innerHTML = v; };
   const mm = milMult(E.milFund) - 1;
   for (const k in BUDGET) set("v-" + k, `${B0[k]}% · ${fmt(E[{ mil: "milGold", res: "resGold", prod: "prodGold", travel: "travelGold", sub: "subGold", prop: "propGold" }[k]])} 🪙`);
   { const ed = Math.round(eduOf(n)), sw = propSway(n), ex = k => WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))];
@@ -2058,16 +2075,16 @@ function budgetFill(root) {
   set("mil", `Pays for <b>${E.armyTarget}</b> regiment${E.armyTarget === 1 ? "" : "s"} (you have ${n.army}; manpower allows ${E.manpower}). ${E.armyTarget > n.army ? "New regiments are raised each turn as materials allow." : E.armyTarget < n.army ? `<span class="bad">${n.army - E.armyTarget} will be stood down; until then they're underpaid (${Math.round(mm * 100)}% strength).</span>` : ""}${E.spare > .01 ? ` Manpower is maxed out, so ${fmt(E.spare)} 🪙 extra goes into quality.` : ""}`);
   set("v-qual", `${100 - B0.qual}% · ${B0.qual}%`);
   set("qual", `${fmt(E.qtyGold)} 🪙 on regiments, ${fmt(E.qualGold)} 🪙 on arms and training: <span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% strength per regiment</span> · total strength about ${fmt(Math.max(n.army, E.armyTarget) * unitPower(n))}.`);
-  set("res", `+${fmt(E.resSci)} 🔬 science a turn · uses ${fmt(E.resMat)} 🪵 materials.`);
+  set("res", `+${fmt(E.resSci)} 🔬 science a month · uses ${fmt(E.resMat)} 🪵 materials.`);
   set("prod", B0.prod ? `+${Math.round(E.prodBoost * 100)}% materials.` : BUDGET.prod.d);
   set("travel", B0.travel ? `Generals and commanders: up to +${(travelQ(n)).toFixed(1)}★ better odds, and generals emerge ${Math.round(.6 * travelQ(n) * 100)}% more often.` : BUDGET.travel.d);
   set("sub", B0.sub ? `+${Math.round(subFoodOf(n) * 100)}% food · +${(subGrowOf(n) * 100).toFixed(1)}% growth · commoners +${Math.round(2 * Math.sqrt(B0.sub))}, merchants +${Math.round(1.5 * Math.sqrt(B0.sub))}.` : BUDGET.sub.d);
   for (const k in WELFARE) { const l = B0[k], g = k === "inc" ? E.incGold : E.healthGold, gp = welfareGap(n, k);
     set("v-" + k, l ? `${Math.round(WELFARE[k].cost[l] * 100)}% · ${fmt(g)} 🪙` : "Off");
-    set(k, l ? `+${(.75 * l).toFixed(2).replace(/\.?0+$/, "")} trust a turn · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp).toFixed(1)} trust a turn.</span>` : ""}`); }
+    set(k, l ? `+${(.75 * l * TD * 12).toFixed(2).replace(/\.?0+$/, "")} trust a year · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp * TD * 12).toFixed(2)} trust a year.</span>` : ""}`); }
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100);
-  const td = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
-  set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a turn)`, td < 0 ? "bad" : "")}`);
+  const td = trustFactors(n, E.raw).reduce((a, x) => a + x[1], 0) * TD * 12;
+  set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a year)`, td < 0 ? "bad" : "")}`);
 }
 // the army tab splits whatever the yearly budget gives the military between quantity and quality
 function armyBudgetHTML(n) {
@@ -2081,7 +2098,7 @@ function openBudget(yearly) {
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
 function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b.disabled || !G) return; e.stopPropagation(); bud(P())[b.dataset.wel] = +b.dataset.l; const box = b.closest(".budget"); box.querySelectorAll(`[data-wel="${b.dataset.wel}"]`).forEach(x => x.classList.toggle("on", x === b)); budgetFill(box); hud(); }
 function panelNation() {
-  const n = P(), E = econ(n), sets = setsOf(n), uc = unitCost(n), ma = maxArmy(n);
+  const n = P(), E = econM(n), sets = setsOf(n), uc = unitCost(n), ma = maxArmy(n);
   const vc = sets.filter(s => s.t === 0).length, tc = sets.filter(s => s.t === 1).length, cc = sets.filter(s => s.t === 2).length;
   const terr = territories(n), rk = rankOf(n), full = sets.filter(s => s.crowd).length;
   let h = ph(esc(nm(n)), `${GOVS[n.gov].name} · ${fmtP(E.pop)} people`);
@@ -2093,12 +2110,12 @@ function panelNation() {
     ${full ? line("Overcrowded", `<span class="bad">${full} with no room nearby</span>`) : ""}
     ${line("Settlements you can manage", `${fmt(sizeOf(n))} / ${adminCap(n)}${E.over ? ' <span class="bad">overextended</span>' : ""}`)}
     <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages close together can merge into one town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
-  { const t = Math.round(Math.max(0, n.trust == null ? 100 : n.trust)), tf = trustFactors(n, E), td = tf.reduce((a, x) => a + x[1], 0);
+  { const t = Math.round(Math.max(0, n.trust == null ? 100 : n.trust)), tf = trustFactors(n, E.raw).map(x => [x[0], x[1] * TD * 12]), td = tf.reduce((a, x) => a + x[1], 0);
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
-      ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each turn", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
-      <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing 2% a turn in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every turn. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
+      ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
+      <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * 12) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every month. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
   h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
-  h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
+  h += `<div class="card"><h4>Treasury <span class="muted">per month</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Military budget (${bud(n).mil}%)`, sgn(-E.milGold))}${line(`Research budget (${bud(n).res}%)`, sgn(-E.resGold))}${E.prodGold ? line(`Production (${bud(n).prod}%)`, sgn(-E.prodGold)) : ""}${E.travelGold ? line(`Travel (${bud(n).travel}%)`, sgn(-E.travelGold)) : ""}${E.subGold ? line(`Subsidies (${bud(n).sub}%)`, sgn(-E.subGold)) : ""}${E.incGold ? line(WELFARE.inc.lv[bud(n).inc], sgn(-E.incGold)) : ""}${E.healthGold ? line(WELFARE.health.lv[bud(n).health], sgn(-E.healthGold)) : ""}
     ${E.acadUp ? line("Academies upkeep", sgn(-E.acadUp)) : ""}${E.sciPay ? line(`Scientists' pay (${fmtP(n.scientists)})`, sgn(-E.sciPay)) : ""}${E.offPay ? line(`Officers' pay (${fmtP(n.officers)})`, sgn(-E.offPay)) : ""}
@@ -2112,9 +2129,9 @@ function panelNation() {
     ${line("Luxuries reached", Object.keys(E.luxCount).length ? Object.entries(E.luxCount).map(([k, c]) => `${RES[k].icon}${c > 1 ? "×" + c : ""}`).join(" ") : "None")}
     ${E.strat.map(s => line(`${RES[s.res].icon} ${RES[s.res].name} for the army`, s.st === "have" ? '<span class="good">Own supply</span>' : s.st === "import" ? `<span class="warn">Imported from ${esc(s.from.name)} (−${s.cost}🪙)</span>` : `<span class="bad">Missing${s.pen ? ` (−${s.pen * 100}% army)` : ""}</span>`)).join("")}</div>`;
   h += `<div class="card"><h4>Army</h4>
-    ${line("Regiments", `${n.army} / ${ma} max`)}${line("Strength per regiment", fmt(unitPower(n)))}${line("Total strength", fmt(power(n)))}${line("Ready to fight this turn", n.army - n.used)}
+    ${line("Regiments", `${n.army} / ${ma} max`)}${line("Strength per regiment", fmt(unitPower(n)))}${line("Total strength", fmt(power(n)))}${line("Ready to fight", Math.floor(n.army - (n.used || 0)))}
     ${line("Budget pays for", `${E.armyTarget} regiments`)}
-    <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n))} gold a turn, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
+    <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n) * TD)} gold a month, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
   h += `<div class="card"><h4>Paths to victory</h4>
     ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? (lv(n, "marsmission") >= 3 ? "Mars Mission ready" : "Develop the Space field") : ERAS[n.era])}
     ${line("🌍 Control 40% of the world", `${terr.length} / ${Math.ceil(NR * .4)} territories`)}
@@ -2158,33 +2175,33 @@ function panelDevelop() {
   return h;
 }
 function panelMilitary() {
-  const n = P(), E = econ(n), uc = unitCost(n), ma = maxArmy(n), C = cmd(n);
+  const n = P(), E = econM(n), uc = unitCost(n), ma = maxArmy(n), C = cmd(n);
   let h = ph("Army", `${n.army} regiments · strength ${fmt(power(n))}`);
   // command structure
   h += `<div class="card"><h4>${C.icon} Command: ${C.name}</h4><p class="small muted">${C.d}</p>`;
   if (n.cmd === "supreme" && n.commander) { const cm = n.commander, eff = supremeMult(n);
     h += `<div class="ln me"><span>Supreme Commander ${esc(cm.name)}</span><b>${"★".repeat(cm.skill)}${"☆".repeat(5 - cm.skill)} · <span class="${eff < 0 ? "bad" : "good"}">${eff >= 0 ? "+" : ""}${Math.round(eff * 100)}% army</span></b></div>`; }
-  h += `<p class="small muted">${n.cmd === "supreme" && n.commander ? `Serves about ${n.commander.left} more turns; the army, not you, chooses the successor. ` : ""}${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
+  h += `<p class="small muted">${n.cmd === "supreme" && n.commander ? `Serves about ${durTxt(n.commander.left)} more; the army, not you, chooses the successor. ` : ""}${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
   for (const [k, c] of Object.entries(CMDS)) { const un = !c.tech || has(n, c.tech);
     h += `<button class="gov ${n.cmd === k || (!n.cmd && k === "chiefs") ? "cur" : ""}" data-act="cmd" data-k="${k}" ${(n.cmd || "chiefs") === k || !un || cmdLocked(n) ? "disabled" : ""}><b>${c.icon} ${c.name}</b><small>${c.d}</small><span class="tc">${(n.cmd || "chiefs") === k ? "Current" : !un ? `Needs ${TECH[c.tech].name}` : cmdLocked(n) ? `Locked until ${yearTxt(n.cmdUntil)}` : "Reorganize"}</span></button>`; }
   h += `</div></div>`;
   // regiments
   const parts = [["Age of " + ERAS[n.era], ERA_POW[n.era]]];
   h += `<div class="card"><h4>Regiments</h4>
-    ${line("Regiments", `${n.army} / ${ma} max`)}${line("Ready to fight this turn", n.army - n.used)}
+    ${line("Regiments", `${n.army} / ${ma} max`)}${line("Ready to fight", Math.floor(n.army - (n.used || 0)))}
     ${line("Strength per regiment", fmt(unitPower(n)))}${line("Attack bonus (generals & command)", `+${Math.round((attackMult(n) - 1) * 100)}%`)}${line("Defense bonus", `+${Math.round((defMult(n) - 1) * 100)}%`)}
     ${line("Total strength", fmt(power(n)))}
     ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiments${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
     ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
     <p class="muted small">New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
-  h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a turn). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
+  h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a month). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   // generals
   const gens = (n.generals || []).slice().sort((a, b) => b.skill - a.skill), best = bestGeneral(n);
   h += `<div class="card"><h4>🎖️ Officers & generals</h4>
     <div class="tiers two"><div><span>🎖️</span><b>${fmtP(n.officers || 0)}</b><small>Officer power</small></div><div><span>⭐</span><b>${generalPower(n)}</b><small>General power</small></div></div>
     ${line("Officers", `+${Math.round(officerBonus(n) * 100)}% army strength`)}${line("Generals", `+${Math.round(genBonus(n) * 100)}% attack`)}
-    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n))} officers a turn and a few retire. Each officer is paid ${fmt(offSalary(n))} 🪙 a turn.</p>
-    ${gens.length ? `<details><summary class="small"><b>${gens.length} general${gens.length > 1 ? "s" : ""}</b></summary>${gens.map(g => `<div class="ln"><span>General ${esc(g.name)} <small class="muted">from ${esc(g.from)}</small></span><b>${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)} · ${g.left} turns</b></div>`).join("")}</details>` : `<p class="small muted">No generals yet. Military academies graduate them over time.</p>`}</div>`;
+    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n) * TD * 12)} officers a year and a few retire. Each officer is paid ${fmt(offSalary(n) * TD)} 🪙 a month.</p>
+    ${gens.length ? `<details><summary class="small"><b>${gens.length} general${gens.length > 1 ? "s" : ""}</b></summary>${gens.map(g => `<div class="ln"><span>General ${esc(g.name)} <small class="muted">from ${esc(g.from)}</small></span><b>${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)} · ${durTxt(g.left)}</b></div>`).join("")}</details>` : `<p class="small muted">No generals yet. Military academies graduate them over time.</p>`}</div>`;
   // military academies
   const lim = milAcadLimit(n), cnt = milAcadCount(n), sites = setsOf(n).filter(x => canAcad(n, x));
   h += `<div class="card"><h4>🏰 Military academies <span class="pill">${cnt}/${lim}</span></h4><p class="small muted">Graduate officers (more in bigger cities) and, now and then, a general. You can run 1 plus 1 for every 6 units of nation size.${has(n, "bronze") ? "" : " Needs Bronze Working."}</p>`;
@@ -2195,16 +2212,16 @@ function panelMilitary() {
   return h;
 }
 function panelResearch() {
-  const n = P(), E = econ(n);
-  let h = ph("Research", `${fmt(E.sci)} science per turn · ${ERAS[n.era]}`);
+  const n = P(), E = econM(n);
+  let h = ph("Research", `${fmt(E.sci)} science a month · ${ERAS[n.era]}`);
   { const links = knowledgeLinks(n), big = links.filter(x => x.w === 1).length;
-    h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in your budget) adds ${fmt(E.resSci)} science per turn. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
+    h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in your budget) adds ${fmt(E.resSci)} science a month. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
   if (n.era < 7) { const got = eraTechs(n.era).filter(t => has(n, t.id)).length, miss = fieldsMissing(n);
     h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, got / eraNeed(n.era) * 100)}%;background:var(--accent)"></i></div><span>${got}/${eraNeed(n.era)}</span></div><p class="muted small">To enter the ${ERAS[n.era + 1]}: discover ${eraNeed(n.era)} technologies of the ${ERAS[n.era]} and bring every field to ${2 + 2 * n.era} levels.</p>${miss.length ? `<p class="small"><b class="warn">Fields still short:</b> ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")} (see Develop)</p>` : `<p class="small good">✓ Every field is developed enough</p>`}</div>`; }
   { const rate = +(3 * Math.pow(1.3, n.era)).toFixed(1), fg = Math.round(40 * Math.pow(1.7, n.era)), fs = Math.round(fg / rate);
     h += `<div class="card"><h4>Fund your scientists</h4><p class="muted small">Turn spare gold into research. ${rate} gold buys 1 science.</p><div class="row wrap">${[1, 4].map(k => `<button class="btn small" data-act="fund" data-g="${fg * k}" data-s="${fs * k}" ${n.gold >= fg * k ? "" : "disabled"}>🪙${fmt(fg * k)} → 🔬${fmt(fs * k)}</button>`).join("")}</div></div>`; }
   { const sites = setsOf(n).filter(x => canAcad(n, x));
-    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n))} a turn, more in bigger cities, and a few retire. Each scientist is paid ${fmt(sciSalary(n))} 🪙 a turn, and academies cost upkeep: you can't afford everything.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
+    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n) * TD * 12)} a year, more in bigger cities, and a few retire. Each scientist is paid ${fmt(sciSalary(n) * TD)} 🪙 a month, and academies cost upkeep: you can't afford everything.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
     if (!sites.length) h += `<p class="small muted">Only cities (and your capital once it's a town) can host academies.</p>`;
     for (const x of sites) { const lvl = x.acad || 0, c = acadCost(n, lvl + 1), can = lvl === 0 ? has(n, "writing") : lvl === 1 ? has(n, "printing") : false;
       h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${lvl === 2 ? "University" : lvl === 1 ? "Academy" : "No academy"}</small></span><b>${lvl < 2 ? `<button class="btn small" data-act="acad" data-s="${x.id}" ${can && afford(n, c) ? "" : "disabled"} title="${lvl === 1 && !has(n, "printing") ? "Needs Printing Press" : ""}">${lvl === 0 ? "Found" : "→ University"} · ${costTxt(c)}</button>` : ""}${lvl ? ` <button class="btn small ghost" data-act="acadclose" data-s="${x.id}">Close</button>` : ""}</b></div>`; }
@@ -2214,7 +2231,7 @@ function panelResearch() {
     if (dv.length) {
       h += `<details class="past" ${String(n.research || "").startsWith("d:") || !chooseTech(n) ? "open" : ""}><summary class="era-h">Develop fields with research</summary><p class="small muted">Fields still short for the next age can be developed with science instead of gold and materials.</p><div class="techs">`;
       for (const f of dv) { const cur = n.research === "d:" + f.k, dc = devSciCost(n, f), pct = cur ? Math.min(100, n.sciPts / dc * 100) : 0;
-        h += `<button class="tech ${cur ? "cur" : ""}" data-act="tech" data-t="d:${f.k}"><b>${f.chain.icon} ${f.name}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} · ${esc(f.chain.name)} ${chainHave(n, f.chain)}/${chainNeed(n, f.chain)}</small><span class="tc">${cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((dc - n.sciPts) / Math.max(.1, E.sci)))} turns` : `${fmt(dc)} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`; }
+        h += `<button class="tech ${cur ? "cur" : ""}" data-act="tech" data-t="d:${f.k}"><b>${f.chain.icon} ${f.name}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} · ${esc(f.chain.name)} ${chainHave(n, f.chain)}/${chainNeed(n, f.chain)}</small><span class="tc">${cur ? `${Math.floor(pct)}% · ${etaTxt(dc - n.sciPts, E.sci)}` : `${fmt(dc)} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`; }
       h += `</div></details>`;
     }
   }
@@ -2222,7 +2239,7 @@ function panelResearch() {
     if (ms.length) {
       h += `<details class="past" ${String(n.research || "").startsWith("m:") || !chooseTech(n) ? "open" : ""}><summary class="era-h">Field mastery (levels 6-50)</summary><p class="small muted">Keep deepening a field you've fully expanded. Each level adds less than the last, and level 50 equals level 5 of the next stage. Mastery stops once you set up that field's next stage.</p><div class="techs">`;
       for (const f of ms) { const cur = n.research === "m:" + f.k, mc = masteryCost(n, f), pct = cur ? Math.min(100, n.sciPts / mc * 100) : 0;
-        h += `<button class="tech ${cur ? "cur" : ""}" data-act="tech" data-t="m:${f.k}"><b>${f.chain.icon} ${f.name}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX}</small><span class="tc">${cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((mc - n.sciPts) / Math.max(.1, E.sci)))} turns` : `${fmt(mc)} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`; }
+        h += `<button class="tech ${cur ? "cur" : ""}" data-act="tech" data-t="m:${f.k}"><b>${f.chain.icon} ${f.name}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX}</small><span class="tc">${cur ? `${Math.floor(pct)}% · ${etaTxt(mc - n.sciPts, E.sci)}` : `${fmt(mc)} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`; }
       h += `</div></details>`;
     }
   }
@@ -2236,7 +2253,7 @@ function panelResearch() {
       const done = has(n, t.id), cur = n.research === t.id, early = e > n.era && e <= n.era + techAhead(n, t), locked = (e > n.era && !early) || (t.id === "mars" && lv(n, "marsmission") < 3);
       const tc = techCost(n, t), pct = cur ? Math.min(100, n.sciPts / tc * 100) : 0;
       h += `<button class="tech ${done ? "done" : cur ? "cur" : locked ? "locked" : ""}" data-act="tech" data-t="${t.id}" ${done || locked ? "disabled" : ""}>
-        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((tc - n.sciPts) / Math.max(.1, E.sci)))} turns` : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${diffusion(n, t) ? ` · ${Math.round(diffusion(n, t) * 100)}% from neighbors` : ""}${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
+        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${etaTxt(tc - n.sciPts, E.sci)}` : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${diffusion(n, t) ? ` · ${Math.round(diffusion(n, t) * 100)}% from neighbors` : ""}${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
     }
     h += `</div>`;
   }
@@ -2247,9 +2264,9 @@ function panelPolicy() {
   const n = P(), E = econ(n), tg = facTargets(n, E);
   let h = ph("Government & Laws", `Stability ${Math.round(n.stab)} · ${GOVS[n.gov].name} · ${cul(n).icon} ${cul(n).name} culture`);
   { const C1 = cul(n);
-    h += `<div class="card"><h4>${C1.icon} ${C1.name} culture</h4><p class="small muted">${C1.d}</p><p class="small muted">Culture changes slowly. Shifting it causes 8 turns of upheaval and can only happen every 30 turns.</p><div class="seg">${Object.entries(CULTURES).map(([k, c]) => `<button class="${n.cul === k ? "on" : ""}" data-act="cul" data-c="${k}" ${n.cul === k || n.culCool > 0 ? "disabled" : ""}>${c.icon} ${c.name}</button>`).join("")}</div>${n.culCool > 0 ? `<p class="small muted">Next shift possible in ${n.culCool} turns.</p>` : ""}</div>`; }
-  if (n.opposition) h += `<p class="note warn">The opposition controls the legislature for ${n.opposition} more turn${n.opposition > 1 ? "s" : ""}. Laws are locked.</p>`;
-  if (n.anarchy) h += `<p class="note warn">Your government is in transition (${n.anarchy} turn${n.anarchy > 1 ? "s" : ""}). Output is reduced.</p>`;
+    h += `<div class="card"><h4>${C1.icon} ${C1.name} culture</h4><p class="small muted">${C1.d}</p><p class="small muted">Culture changes slowly. Shifting it causes ${durTxt(8)} of upheaval and can only happen every ${durTxt(30)}.</p><div class="seg">${Object.entries(CULTURES).map(([k, c]) => `<button class="${n.cul === k ? "on" : ""}" data-act="cul" data-c="${k}" ${n.cul === k || n.culCool > 0 ? "disabled" : ""}>${c.icon} ${c.name}</button>`).join("")}</div>${n.culCool > 0 ? `<p class="small muted">Next shift possible in ${durTxt(n.culCool)}.</p>` : ""}</div>`; }
+  if (n.opposition) h += `<p class="note warn">The opposition controls the legislature for ${durTxt(n.opposition)} more. Laws are locked.</p>`;
+  if (n.anarchy) h += `<p class="note warn">Your government is in transition (${durTxt(n.anarchy)}). Output is reduced.</p>`;
   h += `<div class="card"><h4>Factions <span class="muted">who holds sway</span></h4>`;
   for (const k in FACTIONS) {
     if (!facActive(n, k)) continue; const f = FACTIONS[k], v = n.fac[k], t = tg[k];
@@ -2294,7 +2311,7 @@ function aiAccept(o, kind, n) {
   const d = dip(n.id, o.id), ratio = power(n) / Math.max(1, power(o));
   if (kind === "trade") return d.rel + (o.pers === "trader" ? 25 : 0) - n.warmonger > -5;
   if (kind === "ally") return d.rel - n.warmonger > 45 && ratio > .5;
-  if (kind === "peace") return wscore(o.id, n.id) < -6 || G.turn - d.wt > 8 && wscore(o.id, n.id) < 8 || ratio > 1.8;
+  if (kind === "peace") return wscore(o.id, n.id) < -6 || G.tt - d.wt > 8 && wscore(o.id, n.id) < 8 || ratio > 1.8;
   if (kind === "tribute") return ratio > 1.6 && d.rel < 40 + ratio * 10;
   return false;
 }
@@ -2316,7 +2333,7 @@ function openNationDetail(id) {
     if (!d.ally) h += `<button class="opt" data-act="dAlly" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Propose an alliance</b><small>Defend each other. ${aiAccept(o, "ally", n) ? "Likely yes" : "Needs friendlier relations"}</small></span></button>`;
     else h += `<button class="opt" data-act="dAllyEnd" data-id="${id}"><span class="oi">💔</span><span class="ot"><b>End the alliance</b><small>Hurts relations a lot</small></span></button>`;
     h += `<button class="opt" data-act="dTrib" data-id="${id}"><span class="oi">👊</span><span class="ot"><b>Demand ${fmt(trib)} gold tribute</b><small>${aiAccept(o, "tribute", n) ? "They fear you" : "They will likely refuse"}. Hurts relations.</small></span></button>`;
-    const blocked = n.opposition > 0 ? "The opposition blocks war" : d.truce > 0 ? `Truce for ${d.truce} more turns` : !bordersTouch(n, o) ? "Your borders don't touch yet. Grow toward them first" : "";
+    const blocked = n.opposition > 0 ? "The opposition blocks war" : d.truce > 0 ? `Truce for ${durTxt(d.truce)} more` : !bordersTouch(n, o) ? "Your borders don't touch yet. Grow toward them first" : "";
     h += `<button class="opt war" data-act="dWar" data-id="${id}" ${blocked ? "disabled" : ""}><span class="oi">⚔️</span><span class="ot"><b>Declare war</b><small>${blocked || "Breaks treaties. Then attack their settlements from the map."}</small></span></button>`;
   }
   h += `</div>`;
@@ -2353,8 +2370,8 @@ panel.addEventListener("click", e => {
       }
       confirmModal(`Reorganize under ${CMDS[k].name}?`, `${CMDS[k].d} You can't change your command structure again for ${CMD_YEARS} years.`, () => { setCommand(n, k); log(`Your army is now organized under a ${CMDS[k].name}.`, CMDS[k].icon); refresh(); }); break; }
     case "fund": { const g = +b.dataset.g, sc = +b.dataset.s; n.gold -= g; n.sciPts += sc; toast(`+${fmt(sc)} science`); refresh(); break; }
-    case "gov": confirmModal(`Switch to ${GOVS[b.dataset.g].name}?`, "Your people will go through 2 turns of turmoil with reduced output, and factions will need time to adjust.", () => { n.gov = b.dataset.g; n.anarchy = 2; n.govCool = 10; n.lastElect = G.turn; log(`Your people now live under a ${GOVS[n.gov].name}.`, "🏛️"); refresh(); }); break;
-    case "cul": { const ck = b.dataset.c; confirmModal(`Shift to a ${CULTURES[ck].name} culture?`, `${CULTURES[ck].d} Your people will go through 8 turns of upheaval, and you can't shift again for 30 turns.`, () => { n.cul = ck; n.culCool = 30; n.culShift = 8; G.fv = (G.fv || 0) + 1; log(`Your people embrace a ${CULTURES[ck].name} culture.`, CULTURES[ck].icon); refresh(); }); break; }
+    case "gov": confirmModal(`Switch to ${GOVS[b.dataset.g].name}?`, `Your people will go through ${durTxt(2)} of turmoil with reduced output, and factions will need time to adjust.`, () => { n.gov = b.dataset.g; n.anarchy = 2; n.govCool = 10; n.lastElect = G.turn; log(`Your people now live under a ${GOVS[n.gov].name}.`, "🏛️"); refresh(); }); break;
+    case "cul": { const ck = b.dataset.c; confirmModal(`Shift to a ${CULTURES[ck].name} culture?`, `${CULTURES[ck].d} Your people will go through ${durTxt(8)} of upheaval, and you can't shift again for ${durTxt(30)}.`, () => { n.cul = ck; n.culCool = 30; n.culShift = 8; G.fv = (G.fv || 0) + 1; log(`Your people embrace a ${CULTURES[ck].name} culture.`, CULTURES[ck].icon); refresh(); }); break; }
     case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
     case "nat": openNationDetail(id); break;
     case "world": openPanel("world"); break;
@@ -2402,7 +2419,7 @@ function afterTurnFlow() {
     return true;
   };
   const askBudget = () => {
-    const n = P(); if (!n.alive || n.budNoAsk) return false;
+    const n = P(); if (!n.alive || n.budNoAsk || (G.month || 0) !== 0) return false;
     openBudget(true);
     return true;
   };
@@ -2411,7 +2428,7 @@ function afterTurnFlow() {
     const dev = []; for (const c of fieldsMissing(n)) for (const [k] of c.f) { const f = FIELDS[k]; if (devOk(n, f)) dev.push(f); }
     const opts = Object.values(FIELDS).filter(f => masteryOk(n, f)).sort((a, b) => masteryCost(n, a) - masteryCost(n, b));
     if (!opts.length && !dev.length) return;
-    const E = econ(n), turns = c => { const t = Math.max(1, Math.ceil(c / Math.max(.1, E.sci))); return `about ${t} turn${t > 1 ? "s" : ""}`; };
+    const E = econM(n), turns = c => `about ${etaTxt(c - n.sciPts, E.sci)}`;
     showModal(`<div class="mi">🎓</div><h2>Choose what to study</h2><p>You've researched every technology your people can reach in the ${ERAS[n.era]}. Until you enter the ${ERAS[n.era + 1] || "next age"}, what should your scholars work on?</p>
       ${dev.length ? `<h4>Toward the next age</h4><div class="choices">${dev.sort((a, b) => devSciCost(n, a) - devSciCost(n, b)).map(f => { const c = devSciCost(n, f); return `<button class="choice" data-m="d:${f.k}"><b>${f.chain.icon} Develop ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} · ${fmt(c)} 🔬 (${turns(c)}) · ${esc(f.chain.name)} ${chainHave(n, f.chain)}/${chainNeed(n, f.chain)}</small></button>`; }).join("")}</div>` : ""}
       ${opts.length ? `<h4>Mastery</h4><div class="choices">${opts.map(f => { const c = masteryCost(n, f); return `<button class="choice" data-m="m:${f.k}"><b>${f.chain.icon} Master ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX} · ${fmt(c)} 🔬 (${turns(c)})</small></button>`; }).join("")}</div>` : ""}
@@ -2428,7 +2445,7 @@ function afterTurnFlow() {
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
       const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); askMastery() || askBudget(); });
   };
-  if (items.length) showModal(`<h2>${G.year < 0 ? -G.year + " BCE" : G.year + " CE"}</h2><div class="news">${items.map(x => `<div class="nw ${x.p === true || x.p === null ? "" : "far"}"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div><div class="row"><button class="btn" data-m="ok">Continue</button></div>`, showEvent);
+  if (items.length) showModal(`<h2>${dateTxt()}</h2><div class="news">${items.map(x => `<div class="nw ${x.p === true || x.p === null ? "" : "far"}"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div><div class="row"><button class="btn" data-m="ok">Continue</button></div>`, showEvent);
   else showEvent();
   if (G.pendingPeace) toast("A peace offer awaits in World");
 }
@@ -2440,11 +2457,12 @@ $("endTurn").onclick = () => {
 };
 function showEnd() {
   const o = G.outcome;
-  showModal(`<div class="mi">${o.win ? "🏆" : "🏚️"}</div><h2>${o.win ? "Victory!" : "The End"}</h2><p>${esc(o.why)}</p><p class="muted">Final score ${score(P())} · Turn ${G.turn} · ${G.year < 0 ? -G.year + " BCE" : G.year + " CE"}</p><div class="row"><button class="btn ghost" data-m="look">Look at the map</button><button class="btn" data-m="new">New game</button></div>`,
+  showModal(`<div class="mi">${o.win ? "🏆" : "🏚️"}</div><h2>${o.win ? "Victory!" : "The End"}</h2><p>${esc(o.why)}</p><p class="muted">Final score ${score(P())} · ${dateTxt()}</p><div class="row"><button class="btn ghost" data-m="look">Look at the map</button><button class="btn" data-m="new">New game</button></div>`,
     a => { if (a === "new") { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} G = null; showTitle(); } });
 }
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
+  <p><b>Months.</b> Every turn is one month, from January 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. Each January you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
   <p><b>Towns & cities.</b> ${VILLAGES_FOR_TOWN} villages close together (in one territory or neighboring ones) can merge into one town with all their people (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>

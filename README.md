@@ -1,6 +1,6 @@
 # Cradle to Cosmos
 
-A turn-based nation-building strategy game for phones and computers. Lead your people from a Stone Age village to a colony on Mars, on a map of the real world.
+A turn-based nation-building strategy game (each turn is one month) for phones and computers. Lead your people from a Stone Age village to a colony on Mars, on a map of the real world.
 
 ## Play
 Open `index.html` in a browser. No build step or install needed. Progress saves automatically in your browser.
