@@ -691,7 +691,39 @@ const SECTORS = {
 const ERA_NAME_OF = e => ERAS[e];
 const secOf = (n, k) => { if (!n.sec) n.sec = {}; const st = n.sec[k] || (n.sec[k] = { inv: 0, sub: 0, tar: 0, nat: false }); if (st.base == null) st.base = 1; return st; };
 // workers' wages: not paid by you, but set by how productive your economy is compared with the rest of the world
-function wageOf(n) { let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return c && n.prodPU > 0 ? clamp(n.prodPU / (sum / c), .3, 2.5) : 1; }
+// world rankings of each sector by output (from last quarter). The top 5 are global powerhouses
+let rankKey = null, rankMap = {};
+function secRank(n, k) {
+  if (rankKey !== G.turn) { rankKey = G.turn; rankMap = {}; }
+  let r = rankMap[k];
+  if (!r) { r = rankMap[k] = G.nations.filter(o => o.alive && o.secOut && o.secOut[k] > 0).sort((a, b) => b.secOut[k] - a.secOut[k]).map(o => o.id); }
+  const i = r.indexOf(n.id); return i < 0 ? 99 : i + 1;
+}
+const isPowerhouse = (n, k) => secUnlocked(n, k) && secRank(n, k) <= 5;
+const phBonus = n => Object.keys(SECTORS).reduce((a, k) => { const r = isPowerhouse(n, k) ? secRank(n, k) : 0; return a + (r ? .12 - .02 * (r - 1) : 0); }, 0); // being known for an industry lifts wages
+// workers' wages: not paid by you, but set by how productive your economy is compared with the rest of the world, plus world-famous industries
+function wageOf(n) { let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return clamp((c && n.prodPU > 0 ? n.prodPU / (sum / c) : 1) * (1 + phBonus(n)), .3, 2.5); }
+const spendMult = n => clamp(.75 + .25 * wageOf(n), .6, 1.4); // well-paid workers spend more, and their spending is taxed
+// where each industry lives: the city whose land and size suit it best becomes its hub
+function regionSuit(R, k) { const T = TER[R.t];
+  return k === "agri" ? T.food / 1.15 : k === "constr" ? .6 + .4 * T.prod / 1.2 : k === "mining" ? .45 + (METALS.includes(R.r) ? 1.5 : 0) + (R.t === "mountain" ? .4 : 0) : k === "infra" ? FLAT[R.t] || 1 : k === "ships" ? (R.c ? 1.45 : .15) : k === "mach" ? .6 + (R.r === "coal" || R.r === "iron" ? 1.2 : 0) : k === "oil" ? (R.r === "oil" ? 3.15 : .15) : 1; }
+let hubKey = null, hubCache = new Map();
+function hubsOf(n) { // { byK: {k: {s, share, d}}, bySet: Map(id -> {tax, other, unrest, ks}) }
+  const key = G.turn + ":" + G.sv; if (hubKey !== key) { hubKey = key; hubCache = new Map(); }
+  let h = hubCache.get(n.id); if (h) return h;
+  h = { byK: {}, bySet: new Map() };
+  const sets = setsOf(n).filter(x => x.t >= 1); if (!sets.length) { hubCache.set(n.id, h); return h; }
+  for (const k in SECTORS) { if (!secUnlocked(n, k)) continue;
+    let tot = 0, best = null, bs = 0;
+    for (const x of setsOf(n)) { const sc = U(x.pop) * regionSuit(W.regions[x.r], k) * (k === "elec" && x.acad ? 1 + .5 * x.acad : 1); tot += sc; if (x.t >= 1 && sc > bs) { bs = sc; best = x; } }
+    if (!best || tot <= 0) continue;
+    const share = bs / tot, r = isPowerhouse(n, k) ? secRank(n, k) : 0;
+    const d = r ? clamp(share * (1.3 - .1 * (r - 1)), 0, .8) : 0; // a world-famous industry comes to dominate its city
+    h.byK[k] = { s: best.id, share, d, rank: r };
+    if (d > 0) { const e = h.bySet.get(best.id) || { tax: 1, other: 1, unrest: 0, ks: [] }; e.tax *= 1 + .5 * d; e.other *= 1 - .35 * d; e.unrest += 10 * d; e.ks.push(k); h.bySet.set(best.id, e); }
+  }
+  hubCache.set(n.id, h); return h;
+}
 const wageWord = w => w < .8 ? "Low" : w < 1.2 ? "Fair" : w < 1.6 ? "High" : "Very high";
 const secLvl = (o, k) => o.sec && o.sec[k] && o.sec[k].lvl != null ? o.sec[k].lvl : 1; // industry level 1-10: earned by steady production and good wages
 const secBase = (o, k) => o.sec && o.sec[k] && o.sec[k].base != null ? o.sec[k].base : 1; // industrial strength: grows when you supply yourself, hollows out when imports dominate
@@ -807,6 +839,7 @@ function econ(n) {
   const prodLaw = (C0.prod || 0) + (L.trade === "prot" ? .1 : 0) + (L.labor === "unreg" ? .1 : L.labor === "rights" ? -.05 : 0) + (L.focus === "ind" ? .15 : 0) + (gov.prod || 0);
   const goldLaw = (gov.gold || 0) + (L.focus === "com" ? .15 : 0) + (C0.gold || 0);
   const sciLaw = (C0.sci || 0) + (gov.sci || 0) + (L.focus === "sci" ? .15 : 0) + (L.rel === "sec" ? .1 : 0) + (L.press === "free" ? .05 : 0);
+  const HB = hubsOf(n).bySet, spendM = spendMult(n);
   const rb = new Map();
   for (const ri of P0) rb.set(ri, { food: bonus(n, ri, "food"), gold: bonus(n, ri, "gold"), prod: bonus(n, ri, "prod"), sci: bonus(n, ri, "sci") });
   let food = 0, need = 0, tax = 0, mat = 0, sci = 1 + n.era, pop = 0, trade = 0, bUp = 0, tierTrade = 0, utot = 0;
@@ -814,10 +847,12 @@ function econ(n) {
   for (const s of sets) {
     const R = W.regions[s.r], T = TER[R.t], tier = TIERS[s.t], u = U(s.pop), b = rb.get(s.r);
     const unrestM = 1 - s.u / 250;
-    const f = s.pop * T.food * tier.food * (1 + b.food + (C0.food || 0) + subFoodOf(n) + (R.r === "fish" ? .3 : 0) + (s.id === n.cap ? .3 : 0)) * (1 + .05 * n.era);
-    const g = (u * T.gold * .5 * tier.gold + tier.base) * taxM * (1 + b.gold + goldLaw) * stabM * unrestM * anarchy;
-    const m = (u * T.prod * .6 * tier.mat + tier.base) * (1 + b.prod + prodLaw) * stabM * unrestM * anarchy;
-    const sc = u * .2 * tier.sci * (1 + b.sci + sciLaw) * stabM * anarchy;
+    let f = s.pop * T.food * tier.food * (1 + b.food + (C0.food || 0) + subFoodOf(n) + (R.r === "fish" ? .3 : 0) + (s.id === n.cap ? .3 : 0)) * (1 + .05 * n.era);
+    let g = (u * T.gold * .5 * tier.gold + tier.base) * taxM * (1 + b.gold + goldLaw) * stabM * unrestM * anarchy;
+    let m = (u * T.prod * .6 * tier.mat + tier.base) * (1 + b.prod + prodLaw) * stabM * unrestM * anarchy;
+    let sc = u * .2 * tier.sci * (1 + b.sci + sciLaw) * stabM * anarchy;
+    g *= spendM; // consumer spending: better wages mean more taxed spending
+    const hb = HB.get(s.id); if (hb) { g *= hb.tax; f *= hb.other; m *= hb.other; sc *= hb.other; } // a dominant industry enriches its city but crowds out everything else there
     food += f; need += s.pop * .8; tax += g; mat += m; sci += sc; pop += s.pop; tierTrade += tier.trade; utot += u;
     per.set(s.id, { food: f, gold: g, mat: m, sci: sc });
   }
@@ -892,17 +927,18 @@ function econ(n) {
     let M = 0, X = 0;
     if (Sx < D) { if (canImport) M = D - Sx; } else if (open) X = Math.min(Sx - D, D * expCap);
     const f = D > 0 ? (Sx + M) / D : 1, unitP = 1 / ce;
-    sectors[k] = { lvl, stable: st.stable == null ? .5 : st.stable, wage: wage * (.85 + .15 * base), su, suE, base, comp, compBy: compBy ? compBy.id : -1, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP * unitP, expInc: X * expP * (suE >= comp ? 1 : .8), tarRev: M * impP * unitP * tr, sub, stateNet, ig, drag };
+    sectors[k] = { lvl, stable: st.stable == null ? .5 : st.stable, wage: wage * (.85 + .15 * base), su, suE, base, comp, compBy: compBy ? compBy.id : -1, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP * unitP, expInc: X * expP * (suE >= comp ? 1 : .8) * (isPowerhouse(n, k) ? 1.15 : 1), tarRev: M * impP * unitP * tr, sub, stateNet, ig, drag };
     n.secF[k] = f;
     secImp += sectors[k].impCost; secExp += sectors[k].expInc; secTar += sectors[k].tarRev; secSub += sub; secState += stateNet; secInv += ig;
   }
   const natTar = 0;
-  n.prodPU = utot > 0 ? (tax + routeGold + luxGold + mat * .5) / utot : 0;
+  n.prodPU = utot > 0 ? (tax / spendM + routeGold + luxGold + mat * .5) / utot : 0;
+  n.secOut = {}; for (const k in sectors) n.secOut[k] = sectors[k].S;
   const secNet = secExp + secTar + secState - secImp - secSub;
   const fixed = bUp + imports + govUp + acadUp + sciPay + offPay;
   const spend = milGold + resGold + prodGold + travelGold + subGold + propGold + incGold + healthGold + secInv;
   const goldNet = gross + foodGold - fixed - spend + secNet;
-  return { wage, drag, sectors, secImp, secExp, secTar, secSub, secState, secInv, secNet, natTar, tariffedBy, gross, fixed, spend, milGold, milFund, milQual, qtyGold, qualGold, armyTarget, manpower, spare, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
+  return { spendM, wage, drag, sectors, secImp, secExp, secTar, secSub, secState, secInv, secNet, natTar, tariffedBy, gross, fixed, spend, milGold, milFund, milQual, qtyGold, qualGold, armyTarget, manpower, spare, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
 }
 
 // ================= POLITICS =================
@@ -983,8 +1019,8 @@ function stabilityOf(n, fac) {
 // fog of war: what the player's people know about the world
 function addDisc(x, y, r) {
   const F = G.fog;
-  for (const d of F) if (Math.hypot(d.x - x, d.y - y) + r <= d.r + 1e-6) return;
-  for (let i = F.length - 1; i >= 0; i--) if (Math.hypot(F[i].x - x, F[i].y - y) + F[i].r <= r) F.splice(i, 1);
+  for (const d of F) if (Math.hypot(d.x - x, d.y - y) + r <= d.r + .003) return; // stored circles are rounded, so allow a little slack
+  for (let i = F.length - 1; i >= 0; i--) if (Math.hypot(F[i].x - x, F[i].y - y) + F[i].r <= r + .003) F.splice(i, 1);
   F.push({ x: +x.toFixed(3), y: +y.toFixed(3), r: +r.toFixed(3) });
   const bb = G.fogBB || [x - r, y - r, x + r, y + r];
   G.fogBB = [Math.min(bb[0], x - r), Math.min(bb[1], y - r), Math.max(bb[2], x + r), Math.max(bb[3], y + r)];
@@ -997,6 +1033,10 @@ function addDisc(x, y, r) {
 function updateExplore() {
   const n = P(); if (!n || !G.exp) return;
   if (!G.fog) G.fog = [];
+  if (G.fog.length > 1500 && (G.fogPruned || 0) + 40 < G.turn) { // drop circles that others already cover (older saves piled up duplicates)
+    G.fogPruned = G.turn; const keep = [];
+    for (const d of G.fog.slice().sort((a, b) => b.r - a.r)) if (!keep.some(k => Math.hypot(k.x - d.x, k.y - d.y) + d.r <= k.r + .003)) keep.push(d);
+    G.fog = keep; }
   if (has(n, "flight")) { G.fogAll = true; G.exp.fill(1); return; }
   const sight = .8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0);
   for (const s of setsOf(n)) addDisc(s.x, s.y, (s.h || .1) * 1.5 + sight * (1 + s.t * .6));
@@ -1044,6 +1084,10 @@ function processNation(n) {
     if (k > 0) { n.army += k; n.mat -= k * uc.m; n.armyAcc -= k; } }
   else { n.armyAcc = (n.armyAcc || 0) + Math.max(1, (n.army - E.armyTarget) * .5) * TD; const k = Math.min(n.army - E.armyTarget, Math.floor(n.armyAcc)); if (k > 0) { n.army -= k; n.armyAcc -= k; } }
   // debt: nobody quits, the nation simply borrows. Interest piles up and the people's trust drains away
+  for (const k in E.sectors) { const st0 = secOf(n, k), ph = isPowerhouse(n, k);
+    if (ph && !st0.ph && !n.ai) log(`Your ${SECTORS[k].name.toLowerCase()} industry is now one of the world's top 5 (#${secRank(n, k)}). The world knows you for it: wages and exports rise.`, "🏆");
+    else if (!ph && st0.ph && !n.ai) log(`Your ${SECTORS[k].name.toLowerCase()} industry has dropped out of the world's top 5.`, "📉");
+    st0.ph = ph; }
   for (const k in E.sectors) { const x = E.sectors[k], st = secOf(n, k), share = x.D > 0 ? Math.min(1.5, x.S / x.D) : 1;
     const lvl = st.lvl || 1, target = clamp(.3 + .8 * share, .3, 1.5); st.base += (target - st.base) * pr(.1 * (1 + .1 * lvl)); // skilled industries ramp up faster
     // steady production builds stability: swings, shrinking output and a shaky nation wear it down
@@ -1176,7 +1220,8 @@ function processNation(n) {
   for (const s of setsOf(n)) {
     const foreign = s.c !== n.id && s.c >= 0 ? (n.laws.rel === "tol" ? 15 : 25) : 0;
     const b = B(n.id, s.r); let roads = 0; for (const k in b) roads += BK[k].unrest || 0;
-    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
+    const hbU = hubsOf(n).bySet.get(s.id);
+    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q + (hbU ? hbU.unrest : 0) - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
     s.u += (clamp(target, 0, 100) - s.u) * pr(.3);
     if (s.q > 0) s.q = Math.max(0, s.q - 3 * TD);
     if (s.c !== n.id && s.c >= 0 && s.u < 25 && rnd() < pr(.06)) { s.c = n.id; if (!n.ai) log(`${s.name} now considers itself part of your nation.`, "🫶"); }
@@ -2095,6 +2140,8 @@ function setRow(s, n) {
       acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
     else if (s.t === 1) { const c = cityCheck(n, s);
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
+    { const hb = hubsOf(n).bySet.get(s.id), hk = Object.entries(hubsOf(n).byK).filter(([, v]) => v.s === s.id).map(([k, v]) => `${SECTORS[k].icon} ${SECTORS[k].name}${v.rank ? ` (#${v.rank} in the world)` : ""}`);
+      if (hk.length) acts += `<span class="why">🏭 Industry hub: ${hk.join(", ")}${hb ? `. It dominates the city: taxes +${Math.round((hb.tax - 1) * 100)}%, other output −${Math.round((1 - hb.other) * 100)}%.` : ""}</span>`; }
     if (canEmph(n, s)) {
       const opts = CHAINS.filter(c => fieldOpen(n, FIELDS[c.f[0][0]]) || c.f.some(([k]) => lv(n, k)));
       acts += `<span class="why">${x2(s)}</span><label class="emph">${s.id === n.cap ? "⭐ Capital" : "🏙️ City"} emphasis <select data-s="${s.id}"><option value="">None</option>${opts.map(c => `<option value="${c.k}" ${s.focus === c.k ? "selected" : ""}>${c.icon} ${esc(c.name)}</option>`).join("")}</select></label><span class="why">${s.focus ? `${s.id === n.cap ? "+15%" : "+1.5%"} to ${esc(CHAINS.find(c => c.k === s.focus).name)} bonuses, faster research for it, and it can reach ${s.id === n.cap ? "3 ages" : "1 age"} ahead.` : `Pick a field for this ${s.id === n.cap ? "capital" : "city"} to specialize in.`}</span>`;
@@ -2250,7 +2297,7 @@ function panelNation() {
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
   h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per quarter</span></h4>
-    ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
+    ${line(`Taxes${E.spendM !== 1 ? ` <small class="muted">(spending ${E.spendM >= 1 ? "+" : "−"}${Math.round(Math.abs(E.spendM - 1) * 100)}%)</small>` : ""}`, sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Military budget (${bud(n).mil}%)`, sgn(-E.milGold))}${line(`Research budget (${bud(n).res}%)`, sgn(-E.resGold))}${E.prodGold ? line(`Production (${bud(n).prod}%)`, sgn(-E.prodGold)) : ""}${E.travelGold ? line(`Travel (${bud(n).travel}%)`, sgn(-E.travelGold)) : ""}${E.subGold ? line(`Subsidies (${bud(n).sub}%)`, sgn(-E.subGold)) : ""}${E.incGold ? line(WELFARE.inc.lv[bud(n).inc], sgn(-E.incGold)) : ""}${E.healthGold ? line(WELFARE.health.lv[bud(n).health], sgn(-E.healthGold)) : ""}${line("Trade sectors (net)", sgn(E.secNet - E.secInv))}
     ${E.acadUp ? line("Academies upkeep", sgn(-E.acadUp)) : ""}${E.sciPay ? line(`Scientists' pay (${fmtP(n.scientists)})`, sgn(-E.sciPay)) : ""}${E.offPay ? line(`Officers' pay (${fmtP(n.officers)})`, sgn(-E.offPay)) : ""}
     ${line("Building upkeep", sgn(-E.bUp))}${E.imports ? line("Resource imports", sgn(-E.imports)) : ""}${E.govUp ? line("Overextension costs", sgn(-E.govUp), "bad") : ""}
@@ -2399,7 +2446,10 @@ function panelTrade() {
   if (!open) h += `<p class="note warn">Establish <b>Barter Markets</b> (the first Trade field, in Develop) to open your markets. Until then you can't import, export, sign trade agreements, set tariffs or embargo anyone, and every sector must make do with what your own land produces.</p>`;
   const emb = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).emb), tar = G.nations.filter(o => o.alive && n.tariffOn && n.tariffOn[o.id]);
   { const w = E.wage;
-    h += `<div class="card"><h4>👷 Workers' wages <span class="pill ${w < .8 ? "bad" : w >= 1.2 ? "good" : ""}">${wageWord(w)}</span></h4>${line("Compared with the world", `${Math.round(w * 100)}%`)}<p class="small muted">Wages aren't paid by you; they follow how productive your economy is. Good wages draw skilled workers, so industries level up, but they also make what you produce dearer than in cheap-labor nations.</p></div>`; }
+    const known = Object.keys(SECTORS).filter(k => isPowerhouse(n, k)), pb = phBonus(n);
+    h += `<div class="card"><h4>👷 Workers' wages <span class="pill ${w < .8 ? "bad" : w >= 1.2 ? "good" : ""}">${wageWord(w)}</span></h4>${line("Compared with the world", `${Math.round(w * 100)}%`)}${pb ? line("From world-famous industries", `+${Math.round(pb * 100)}%`, "good") : ""}${line("Consumer spending → taxes", `${E.spendM >= 1 ? "+" : "−"}${Math.round(Math.abs(E.spendM - 1) * 100)}%`, E.spendM >= 1 ? "good" : "bad")}
+      ${known.length ? line("🏆 Known worldwide for", known.map(k => `${SECTORS[k].icon} ${SECTORS[k].name} #${secRank(n, k)}`).join(", "), "good") : ""}
+      <p class="small muted">Wages aren't paid by you; they follow how productive your economy is, and they rise further when one of your industries is among the world's top 5. Well-paid workers spend more, and their spending is taxed, so strong industries mean more revenue. High wages do make your goods dearer than goods from cheap-labor nations.</p></div>`; }
   h += `<div class="card"><h4>Balance of trade <span class="muted">per quarter</span></h4>${line("Exports", sgn(E.secExp), "good")}${line("Imports", sgn(-E.secImp), E.secImp ? "bad" : "")}${line("Tariff revenue", sgn(E.secTar))}${E.secSub ? line("Subsidies", sgn(-E.secSub)) : ""}${E.secState ? line("State-run sectors", sgn(E.secState), E.secState < 0 ? "bad" : "good") : ""}${line("Public investment", sgn(-E.secInv))}${line("Net", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad total" : "good total")}${E.drag ? line("Tariffs raise your production costs", `+${(E.drag * 100).toFixed(1)}%`, "bad") : ""}
     ${line("Trade agreements", parts.length ? parts.map(o => esc(o.name)).join(", ") : "None")}${emb.length ? line("Embargoes", emb.map(o => `${esc(o.name)}${dip(n.id, o.id).emb === n.id ? "" : " (theirs)"}`).join(", "), "bad") : ""}${tar.length ? line("Your tariffs on", tar.map(o => esc(o.name)).join(", ")) : ""}${E.tariffedBy ? line("Peoples taxing your goods", E.tariffedBy, "bad") : ""}
     <p class="small muted">Sign trade agreements, set tariffs on a people's goods, or embargo them from the World tab. Imports are cheaper with more trade agreements, and they let you export more.</p></div>`;
@@ -2416,6 +2466,8 @@ function panelTrade() {
       ${line("Demand", q(x.D))}${line(st.nat ? "Made at home (state-run)" : "Made at home", q(x.S))}${x.M ? line("Imported", `${q(x.M)} · costs ${q(x.impCost)} 🪙`) : ""}${x.X ? line("Exported", `${q(x.X)} · earns ${q(x.expInc)} 🪙`) : ""}
       ${x.S < x.D * .999 && !x.M ? `<p class="small bad">Short by ${q(x.D - x.S)} and you can't import it.</p>` : ""}
       <p class="small"><b class="${effP < 0 ? "bad" : effP > 0 ? "good" : ""}">${effP >= 0 ? "+" : ""}${effP}% ${S0.eff}</b> <span class="muted">from how well it's supplied.</span></p>
+      ${(() => { const r = secRank(n, k), hb = hubsOf(n).byK[k], hs = hb && setById(hb.s);
+        return line("World rank", r <= 5 ? `<b class="good">#${r} 🏆 Powerhouse</b>` : r < 99 ? `#${r}` : "—") + (hs ? line("Centered in", `${esc(hs.name)} (${Math.round(hb.share * 100)}% of it)`) + (hb.d > 0 ? `<p class="small"><b>${esc(hs.name)} is dominated by it:</b> <span class="good">+${Math.round(50 * hb.d)}% taxes there</span>, <span class="bad">−${Math.round(35 * hb.d)}% food, materials and science there</span>, and more unrest.</p>` : "") : ""); })()}
       ${line("Industry level", `<b>${x.lvl.toFixed(1)}</b> / 10 · steady ${Math.round(x.stable * 100)}% · wages ${Math.round(x.wage * 100)}%`)}
       ${line("Your industry", `${Math.round(x.base * 100)}% strength ${x.S / Math.max(1e-9, x.D) < .875 ? '<span class="bad">▼ shrinking</span>' : x.base < 1.4 ? '<span class="good">▲ growing</span>' : ""}`)}
       ${line("Your cost", `${Math.round(100 / x.suE)}% of the world average`)}${open && x.compBy >= 0 ? line("Best foreign producer", `${esc(G.nations[x.compBy].name)} at ${Math.round(100 / x.comp)}%${x.comp > x.suE ? ' <span class="bad">cheaper than you</span>' : ' <span class="good">you\'re cheaper</span>'}`) : ""}
@@ -2783,6 +2835,7 @@ function showHelp() {
   <p><b>Simulate 10 years.</b> Tap ⏩ to let a governor run your nation for ten years. Pick a focus (balanced, growth, economy, research or military) and what it must honor: your culture, your government and laws, your budget, and whether it may start wars. It stops early for civil war or, if you like, when someone declares war on you.</p>
   <p><b>Trade.</b> Establish Barter Markets (the first Trade field) to open your markets. Then you can sign trade agreements, put tariffs on a people's goods or embargo them (World tab). Cheap imports from peoples with stronger industries undercut your own producers, and an industry left to imports hollows out over time; tariffs make foreign goods dearer so yours can compete and build up, at the cost of slightly higher production costs everywhere and possible retaliation. The Trade tab shows your economy's sectors: Housing, Agriculture, and later Construction, Mining, Infrastructure, Shipbuilding, Machinery, Oil and Electronics. Each has a demand, and your land decides how cheaply you can make it. Fall short and you import (or go without); make extra and you export. Steer each sector with public investment, subsidies, tariffs, or by nationalizing it.</p>
   <p><b>Industry levels.</b> Each sector climbs from level 1 to 10 when its production is steady and its workers are well paid. Higher levels make more, more cheaply, and ramp up faster. Wages aren't paid by you: they follow how productive your economy is. Well-paid workers level industries up, but they make your goods dearer than those from cheap-labor nations.</p>
+  <p><b>Powerhouses.</b> Strong industries pay well, and well-paid workers spend more, which you collect in taxes. If one of your industries ranks among the world's top 5, the world knows you for it: wages rise further and its exports sell at a premium. Each industry is centered in the city best suited to it. A world-famous one comes to dominate that city, bringing in rich taxes but crowding out its other output and stirring unrest there.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
@@ -2876,7 +2929,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot };
+window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, secRank };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
