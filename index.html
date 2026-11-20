@@ -77,8 +77,8 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 /* bottom nav */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 10px) max(10px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: flex-end; pointer-events: none; z-index: 6; }
 .nav > * { pointer-events: auto; }
-.tabs { flex: 1; display: grid; grid-template-columns: repeat(6, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
-.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 10px var(--body); position: relative; min-width: 0; }
+.tabs { flex: 1; display: grid; grid-template-columns: repeat(7, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
+.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 9px var(--body); position: relative; min-width: 0; letter-spacing: -.02em; overflow: hidden; }
 .tab span { font-size: 19px; line-height: 1.1; }
 .tab.on { background: #ffe6d8; }
 .tab.alert::after { content: ""; position: absolute; top: 6px; right: 22%; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); border: 2px solid var(--paper); }
@@ -199,6 +199,11 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 .budget .wh { margin: 14px 0 2px; }
 .budget .bl.sub { margin-top: -4px; padding-left: 10px; border-left: 3px solid var(--accent); }
 .budget .qq { display: flex; justify-content: space-between; font-size: 11px; font-weight: 700; opacity: .7; margin-top: -2px; }
+.secrow { display: grid; grid-template-columns: 62px 1fr; align-items: center; gap: 6px; margin: 6px 0; }
+.secrow small { font-weight: 800; }
+.secrow .seg button { padding: 5px 8px; font-size: 12px; }
+.pill.bad { background: #fde3e1; color: var(--bad); }
+.pill.good { background: #def5e4; color: var(--good); }
 .askrow { display: flex; gap: 8px; align-items: center; font-weight: 700; font-size: 14px; margin: 8px 0; }
 .nat { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; text-align: left; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 14px; padding: 9px 10px; margin-bottom: 8px; box-shadow: 0 3px 0 var(--ink); }
 .nat .nt { min-width: 0; }
@@ -326,11 +331,12 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
       <button class="tab" data-p="nation"><span>🏛️</span>Nation</button>
       <button class="tab" data-p="develop"><span>🏗️</span>Develop</button>
       <button class="tab" data-p="research"><span>🔬</span>Research</button>
+      <button class="tab" data-p="trade"><span>⚖️</span>Trade</button>
       <button class="tab" data-p="army"><span>⚔️</span>Army</button>
       <button class="tab" data-p="policy"><span>📜</span>Laws</button>
       <button class="tab" id="tabWorld" data-p="world"><span>🌍</span>World</button>
     </div>
-    <button id="endTurn">End Turn<small>Next quarter ›</small></button>
+    <button id="endTurn">End Turn<small>Next ›</small></button>
   </div>
 </div>
 
