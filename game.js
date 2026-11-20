@@ -689,7 +689,8 @@ const SECTORS = {
   elec:   { name: "Electronics", icon: "💻", era: 6, w: .08, chain: "sci", amp: .15, eff: "science", d: "Electronics, computers and networks." },
 };
 const ERA_NAME_OF = e => ERAS[e];
-const secOf = (n, k) => { if (!n.sec) n.sec = {}; return n.sec[k] || (n.sec[k] = { inv: 0, sub: 0, tar: 0, nat: false }); };
+const secOf = (n, k) => { if (!n.sec) n.sec = {}; const st = n.sec[k] || (n.sec[k] = { inv: 0, sub: 0, tar: 0, nat: false }); if (st.base == null) st.base = 1; return st; };
+const secBase = (o, k) => o.sec && o.sec[k] && o.sec[k].base != null ? o.sec[k].base : 1; // industrial strength: grows when you supply yourself, hollows out when imports dominate
 const secUnlocked = (n, k) => SECTORS[k].era <= n.era;
 const secF = (n, k) => secUnlocked(n, k) && n.secF && n.secF[k] != null ? Math.min(1.3, n.secF[k]) : 1; // how well supplied a sector is (1 = demand met)
 const secMult = (n, k) => 1 + SECTORS[k].amp * (secF(n, k) - 1);
@@ -865,27 +866,37 @@ function econ(n) {
   const impP = pc >= 3 ? .95 : pc ? 1 : 1.25, expP = pc ? .9 : .7, expCap = .15 + .15 * pc;
   const sectors = {}; let secImp = 0, secExp = 0, secTar = 0, secSub = 0, secState = 0, secInv = 0;
   n.secF = n.secF || {};
+  // tariffs protect, but they also raise what your own industries pay for tools and inputs
+  let tarLv = 0; for (const k in SECTORS) if (secUnlocked(n, k) && open) tarLv += secOf(n, k).tar;
+  const natTars = open && n.tariffOn ? Object.keys(n.tariffOn).filter(id => G.nations[id] && G.nations[id].alive).length : 0;
+  const drag = Math.min(.15, .015 * tarLv + .005 * natTars);
+  mat *= 1 - drag / 2;
+  const rivals = open ? G.nations.filter(o => canTradeWith(n, o)) : [];
   for (const k in SECTORS) { if (!secUnlocked(n, k)) continue;
-    const S0 = SECTORS[k], st = secOf(n, k), su = SU[k], D = S0.w * utot * (1 + .3 * n.era), C = D * (1 + .05 * chainLevels(n, S0.chain));
+    const S0 = SECTORS[k], st = secOf(n, k), su = SU[k], base = st.base, D = S0.w * utot * (1 + .3 * n.era), C = D * (1 + .05 * chainLevels(n, S0.chain)) * base;
+    const suE = su * (.8 + .2 * base) * (1 - drag); // a strong industrial base produces cheaper
+    // the best foreign producer you trade with sets the price your own producers must beat (your tariffs on them make their goods dearer)
+    let comp = 0, compBy = null;
+    for (const o of rivals) { if (!secUnlocked(o, k)) continue; let c = suitOf(o)[k] * (.8 + .2 * secBase(o, k)); if (n.tariffOn && n.tariffOn[o.id]) c /= 1.3; if (!dip(n.id, o.id).trade) c *= .85; if (c > comp) { comp = c; compBy = o; } }
+    const ce = open && comp > 0 ? clamp(comp, .7, 1.6) : 1;
     const tr = open ? [0, .2, .5][st.tar] : 0, sr = [0, .25, .5][st.sub];
     let priv = 0, state = 0, stateNet = 0, sub = 0;
-    if (st.nat) { state = C * Math.min(1.1, .5 + .5 * su); stateNet = state * (1 - 1 / su); } // the state runs it: steady output, but it eats the losses on poor land
-    else { priv = C * clamp((su * (1 + tr + sr) - .4) / .6, 0, 1.15); sub = priv * sr; } // private producers make what pays
-    const ig = gross * st.inv / 100, invOut = ig * su * 1.3, Sx = priv + state + invOut;
+    if (st.nat) { state = C * Math.min(1.1, .5 + .5 * suE); stateNet = state * (1 / ce - 1 / suE); } // the state runs it: steady output, but it eats the losses
+    else { priv = C * clamp((suE * (1 + tr + sr) / ce - .4) / .6, 0, 1.15); sub = priv * sr / ce; } // private producers make what pays against foreign competition
+    const ig = gross * st.inv / 100, invOut = ig * suE * 1.3, Sx = priv + state + invOut;
     let M = 0, X = 0;
     if (Sx < D) { if (canImport) M = D - Sx; } else if (open) X = Math.min(Sx - D, D * expCap);
-    const f = D > 0 ? (Sx + M) / D : 1;
-    sectors[k] = { su, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP, expInc: X * expP, tarRev: M * tr, sub, stateNet, ig };
+    const f = D > 0 ? (Sx + M) / D : 1, unitP = 1 / ce;
+    sectors[k] = { su, suE, base, comp, compBy: compBy ? compBy.id : -1, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP * unitP, expInc: X * expP * (suE >= comp ? 1 : .8), tarRev: M * impP * unitP * tr, sub, stateNet, ig, drag };
     n.secF[k] = f;
-    secImp += M * impP; secExp += X * expP; secTar += M * tr; secSub += sub; secState += stateNet; secInv += ig;
+    secImp += sectors[k].impCost; secExp += sectors[k].expInc; secTar += sectors[k].tarRev; secSub += sub; secState += stateNet; secInv += ig;
   }
-  let natTar = 0; if (n.tariffOn) for (const id in n.tariffOn) { const o = G.nations[id]; if (o && canTradeWith(n, o)) natTar += gross * .015; }
-  secTar += natTar;
+  const natTar = 0;
   const secNet = secExp + secTar + secState - secImp - secSub;
   const fixed = bUp + imports + govUp + acadUp + sciPay + offPay;
   const spend = milGold + resGold + prodGold + travelGold + subGold + propGold + incGold + healthGold + secInv;
   const goldNet = gross + foodGold - fixed - spend + secNet;
-  return { sectors, secImp, secExp, secTar, secSub, secState, secInv, secNet, natTar, tariffedBy, gross, fixed, spend, milGold, milFund, milQual, qtyGold, qualGold, armyTarget, manpower, spare, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
+  return { drag, sectors, secImp, secExp, secTar, secSub, secState, secInv, secNet, natTar, tariffedBy, gross, fixed, spend, milGold, milFund, milQual, qtyGold, qualGold, armyTarget, manpower, spare, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
 }
 
 // ================= POLITICS =================
@@ -1026,6 +1037,10 @@ function processNation(n) {
     if (k > 0) { n.army += k; n.mat -= k * uc.m; n.armyAcc -= k; } }
   else { n.armyAcc = (n.armyAcc || 0) + Math.max(1, (n.army - E.armyTarget) * .5) * TD; const k = Math.min(n.army - E.armyTarget, Math.floor(n.armyAcc)); if (k > 0) { n.army -= k; n.armyAcc -= k; } }
   // debt: nobody quits, the nation simply borrows. Interest piles up and the people's trust drains away
+  for (const k in E.sectors) { const x = E.sectors[k], st = secOf(n, k), share = x.D > 0 ? Math.min(1.5, x.S / x.D) : 1;
+    const target = clamp(.3 + .8 * share, .3, 1.5); st.base += (target - st.base) * pr(.1);
+    if (!n.ai && st.base < .6 && !st.hollow) { st.hollow = true; log(`Cheap imports are hollowing out your ${SECTORS[k].name.toLowerCase()} industry (${Math.round(st.base * 100)}% strength). Tariffs, subsidies or investment can rebuild it.`, "🏚️"); }
+    else if (st.base > .75) st.hollow = false; }
   if (n.trust == null) n.trust = 100;
   if (n.gold < 0) n.gold *= Math.pow(1.02, TD);
   n.trustDelta = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
@@ -1412,11 +1427,14 @@ function aiTurn(n) {
   // trade sectors: prop up what the land is bad at, protect weak producers, and shut out bitter enemies
   for (const k in E.sectors) { const x = E.sectors[k], st = secOf(n, k);
     st.nat = false; st.sub = x.su < .75 && n.gold > 0 ? 1 : 0;
-    st.tar = tradeOpen(n) && x.su < 1 && (n.laws.trade === "prot" || n.pers === "zealot") ? 1 : 0;
+    st.tar = tradeOpen(n) && x.comp > x.suE * 1.15 && (n.laws.trade === "prot" || n.pers === "zealot" || x.base < .65) ? (x.base < .5 ? 2 : 1) : 0;
     st.inv = x.f < .8 && !x.M && n.gold > 0 ? 3 : 0; }
   if (tradeOpen(n)) for (const o of G.nations) { if (!o.alive || o.id === n.id) continue; const d = dip(n.id, o.id); if (!d.met || d.war) continue;
     if (!d.emb && d.rel < -70 && rnd() < pr(.05)) { d.emb = n.id; d.trade = false; if (o.id === G.player) log(`The ${nm(n)} placed an embargo on your goods.`, "🚫"); }
-    else if (d.emb === n.id && d.rel > -30 && rnd() < pr(.2)) d.emb = null; }
+    else if (d.emb === n.id && d.rel > -30 && rnd() < pr(.2)) d.emb = null;
+    const theyTax = o.tariffOn && o.tariffOn[n.id], weTax = n.tariffOn && n.tariffOn[o.id];
+    if (theyTax && !weTax && !d.emb && rnd() < pr(.3)) { (n.tariffOn || (n.tariffOn = {}))[o.id] = true; if (o.id === G.player) log(`The ${nm(n)} retaliated with tariffs on your goods.`, "🧾"); }
+    else if (weTax && !theyTax && n.laws.trade !== "prot" && rnd() < pr(.1)) delete n.tariffOn[o.id]; }
   // develop fields
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
@@ -2299,7 +2317,7 @@ function panelTrade() {
   let h = ph("Trade", open ? `${parts.length} trade agreement${parts.length === 1 ? "" : "s"} · net ${sgn(E.secNet - E.secInv)} a quarter` : "Markets not open yet");
   if (!open) h += `<p class="note warn">Establish <b>Barter Markets</b> (the first Trade field, in Develop) to open your markets. Until then you can't import, export, sign trade agreements, set tariffs or embargo anyone, and every sector must make do with what your own land produces.</p>`;
   const emb = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).emb), tar = G.nations.filter(o => o.alive && n.tariffOn && n.tariffOn[o.id]);
-  h += `<div class="card"><h4>Balance of trade <span class="muted">per quarter</span></h4>${line("Exports", sgn(E.secExp), "good")}${line("Imports", sgn(-E.secImp), E.secImp ? "bad" : "")}${line("Tariff revenue", sgn(E.secTar))}${E.secSub ? line("Subsidies", sgn(-E.secSub)) : ""}${E.secState ? line("State-run sectors", sgn(E.secState), E.secState < 0 ? "bad" : "good") : ""}${line("Public investment", sgn(-E.secInv))}${line("Net", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad total" : "good total")}
+  h += `<div class="card"><h4>Balance of trade <span class="muted">per quarter</span></h4>${line("Exports", sgn(E.secExp), "good")}${line("Imports", sgn(-E.secImp), E.secImp ? "bad" : "")}${line("Tariff revenue", sgn(E.secTar))}${E.secSub ? line("Subsidies", sgn(-E.secSub)) : ""}${E.secState ? line("State-run sectors", sgn(E.secState), E.secState < 0 ? "bad" : "good") : ""}${line("Public investment", sgn(-E.secInv))}${line("Net", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad total" : "good total")}${E.drag ? line("Tariffs raise your production costs", `+${(E.drag * 100).toFixed(1)}%`, "bad") : ""}
     ${line("Trade agreements", parts.length ? parts.map(o => esc(o.name)).join(", ") : "None")}${emb.length ? line("Embargoes", emb.map(o => `${esc(o.name)}${dip(n.id, o.id).emb === n.id ? "" : " (theirs)"}`).join(", "), "bad") : ""}${tar.length ? line("Your tariffs on", tar.map(o => esc(o.name)).join(", ")) : ""}${E.tariffedBy ? line("Peoples taxing your goods", E.tariffedBy, "bad") : ""}
     <p class="small muted">Sign trade agreements, set tariffs on a people's goods, or embargo them from the World tab. Imports are cheaper with more trade agreements, and they let you export more.</p></div>`;
   for (const k in SECTORS) { if (!secUnlocked(n, k)) continue;
@@ -2310,12 +2328,14 @@ function panelTrade() {
       <div class="bar-row"><small>${pct}%</small><div class="bar"><i style="width:${Math.min(100, pct / 1.3)}%;background:${col}"></i></div><span>of demand</span></div>
       ${line("Demand", q(x.D))}${line(st.nat ? "Made at home (state-run)" : "Made at home", q(x.S))}${x.M ? line("Imported", `${q(x.M)} · costs ${q(x.impCost)} 🪙`) : ""}${x.X ? line("Exported", `${q(x.X)} · earns ${q(x.expInc)} 🪙`) : ""}
       ${x.S < x.D * .999 && !x.M ? `<p class="small bad">Short by ${q(x.D - x.S)} and you can't import it.</p>` : ""}
-      <p class="small"><b class="${effP < 0 ? "bad" : effP > 0 ? "good" : ""}">${effP >= 0 ? "+" : ""}${effP}% ${S0.eff}</b> <span class="muted">from how well it's supplied. Your land makes it at about ${Math.round(100 / x.su)}% of the world price.</span></p>
+      <p class="small"><b class="${effP < 0 ? "bad" : effP > 0 ? "good" : ""}">${effP >= 0 ? "+" : ""}${effP}% ${S0.eff}</b> <span class="muted">from how well it's supplied.</span></p>
+      ${line("Your industry", `${Math.round(x.base * 100)}% strength ${x.S / Math.max(1e-9, x.D) < .875 ? '<span class="bad">▼ shrinking</span>' : x.base < 1.4 ? '<span class="good">▲ growing</span>' : ""}`)}
+      ${line("Your cost", `${Math.round(100 / x.suE)}% of the world average`)}${open && x.compBy >= 0 ? line("Best foreign producer", `${esc(G.nations[x.compBy].name)} at ${Math.round(100 / x.comp)}%${x.comp > x.suE ? ' <span class="bad">cheaper than you</span>' : ' <span class="good">you\'re cheaper</span>'}`) : ""}
       <div class="budget"><div class="bl"><label><span>Public investment</span><b data-sv="${k}">${st.inv}% · ${q(x.ig)} 🪙</b></label><input type="range" min="0" max="25" step="1" value="${st.inv}" data-sinv="${k}" aria-label="${S0.name} investment"></div></div>
       <div class="secrow"><small>Subsidy</small>${seg("sub", ["None", "Some", "Heavy"], st.nat)}</div>
       <div class="secrow"><small>Tariff</small>${seg("tar", ["None", "Low", "High"], !open)}</div>
       <div class="secrow"><small>Owner</small>${seg("nat", ["Private", "Nationalized"], false)}</div>
-      ${st.sub && !st.nat ? `<p class="small muted">Subsidies cost ${q(x.sub)} 🪙 a quarter.</p>` : ""}${st.nat ? `<p class="small muted">The state runs it: steady output whatever the cost, ${x.stateNet < 0 ? `losing ${q(-x.stateNet)}` : `earning ${q(x.stateNet)}`} 🪙 a quarter. Merchants dislike it; workers approve.</p>` : ""}${st.tar && open ? `<p class="small muted">Tariffs help your own producers and earn ${q(x.tarRev)} 🪙, but raise prices for your people and annoy merchants.</p>` : ""}</div>`; }
+      ${st.sub && !st.nat ? `<p class="small muted">Subsidies cost ${q(x.sub)} 🪙 a quarter.</p>` : ""}${st.nat ? `<p class="small muted">The state runs it: steady output whatever the cost, ${x.stateNet < 0 ? `losing ${q(-x.stateNet)}` : `earning ${q(x.stateNet)}`} 🪙 a quarter. Merchants dislike it; workers approve.</p>` : ""}${open ? `<p class="small muted">${st.tar ? `Your tariff makes foreign ${S0.name.toLowerCase()} dearer so your own producers can compete and build up (it brings in ${q(x.tarRev)} 🪙). ${x.priv < x.D * .05 && !st.nat ? "<b>Even so, your land is too poor for private producers to compete: add subsidies or public investment.</b> " : ""}` : x.comp > x.suE ? "Cheaper foreign producers are undercutting yours; left alone, imports will hollow this industry out. A tariff lets your producers compete. " : ""}Every tariff raises production costs a little across your economy and prices for your people.</p>` : ""}</div>`; }
   const later = Object.values(SECTORS).filter(x => x.era > n.era);
   if (later.length) h += `<div class="card"><h4>Later sectors</h4>${later.map(x => line(`${x.icon} ${x.name}`, ERAS[x.era])).join("")}</div>`;
   return h;
@@ -2442,7 +2462,7 @@ function openNationDetail(id) {
     else if (d.emb) h += `<button class="opt" data-act="dEmbEnd" data-id="${id}" ${d.emb !== n.id ? "disabled" : ""}><span class="oi">🔓</span><span class="ot"><b>${d.emb === n.id ? "Lift your embargo" : "They embargo you"}</b><small>${d.emb === n.id ? "Lets trade resume" : "Only they can lift it"}</small></span></button>`;
     else {
       h += `<button class="opt" data-act="dEmb" data-id="${id}"><span class="oi">🚫</span><span class="ot"><b>Embargo</b><small>Stop all trade with them</small></span></button>`;
-      h += n.tariffOn && n.tariffOn[id] ? `<button class="opt" data-act="dTarEnd" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Remove tariff</b><small>Their goods enter freely again</small></span></button>` : `<button class="opt" data-act="dTar" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Put a tariff on their goods</b><small>You earn a little; their trade income suffers. Hurts relations.</small></span></button>`;
+      h += n.tariffOn && n.tariffOn[id] ? `<button class="opt" data-act="dTarEnd" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Remove tariff</b><small>Their goods enter freely again</small></span></button>` : `<button class="opt" data-act="dTar" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Put a tariff on their goods</b><small>Makes their goods dearer in your markets so your industries can compete where theirs are stronger. Raises your costs slightly, hurts their trade and relations, and they may retaliate.</small></span></button>`;
     }
     if (!tOpen || d.emb) {}
     else if (!d.trade) h += `<button class="opt" data-act="dTrade" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Propose a trade agreement</b><small>More trade income for both. ${!tradeOpen(o) ? "Their markets aren't open yet" : aiAccept(o, "trade", n) ? "Likely yes" : "Likely no"}</small></span></button>`;
@@ -2669,7 +2689,7 @@ function showEnd() {
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
   <p><b>Simulate 10 years.</b> Tap ⏩ to let a governor run your nation for ten years. Pick a focus (balanced, growth, economy, research or military) and what it must honor: your culture, your government and laws, your budget, and whether it may start wars. It stops early for civil war or, if you like, when someone declares war on you.</p>
-  <p><b>Trade.</b> Establish Barter Markets (the first Trade field) to open your markets. Then you can sign trade agreements, put tariffs on a people's goods or embargo them (World tab). The Trade tab shows your economy's sectors: Housing, Agriculture, and later Construction, Mining, Infrastructure, Shipbuilding, Machinery, Oil and Electronics. Each has a demand, and your land decides how cheaply you can make it. Fall short and you import (or go without); make extra and you export. Steer each sector with public investment, subsidies, tariffs, or by nationalizing it.</p>
+  <p><b>Trade.</b> Establish Barter Markets (the first Trade field) to open your markets. Then you can sign trade agreements, put tariffs on a people's goods or embargo them (World tab). Cheap imports from peoples with stronger industries undercut your own producers, and an industry left to imports hollows out over time; tariffs make foreign goods dearer so yours can compete and build up, at the cost of slightly higher production costs everywhere and possible retaliation. The Trade tab shows your economy's sectors: Housing, Agriculture, and later Construction, Mining, Infrastructure, Shipbuilding, Machinery, Oil and Electronics. Each has a demand, and your land decides how cheaply you can make it. Fall short and you import (or go without); make extra and you export. Steer each sector with public investment, subsidies, tariffs, or by nationalizing it.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
