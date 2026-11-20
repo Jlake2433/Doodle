@@ -687,7 +687,7 @@ function unitPower(n) {
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
-  m *= milMult(n.milFund == null ? 1 : n.milFund);
+  m *= milMult(n.milFund == null ? 1 : n.milFund) * qualMult(n.milQual || 0);
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
   return ERA_POW[n.era] * m;
 }
@@ -713,7 +713,7 @@ function capOf(s, n) {
 }
 // ---- the national budget: set every year as a share of gross income (taxes, trade and luxuries) ----
 const BUDGET = {
-  mil:    { name: "Military", icon: "🛡️", d: "Pays and equips the army. Below what your regiments need, they fight poorly paid and poorly equipped (down to half strength). Above it, extra drilling and gear make them stronger." },
+  mil:    { name: "Military", icon: "🛡️", d: "Decides your army. Split it between quantity (how many regiments you keep) and quality (arms, training and drill for each one)." },
   res:    { name: "Research", icon: "🔬", d: "Funds scholars, labs and expeditions. Also uses materials: half the same share of your materials output." },
   prod:   { name: "Production", icon: "🏭", d: "Invests in workshops, mines and factories for more materials." },
   travel: { name: "Travel", icon: "🧭", d: "Sends your people abroad to study, trade and see the world. Raises the odds of skilled generals and commanders." },
@@ -725,11 +725,12 @@ const WELFARE = {
   health: { name: "Healthcare", icon: "🏥", lv: ["None", "Basic care", "Public clinics", "National healthcare", "Advanced healthcare"], era: [0, 0, 3, 5, 6], cost: [0, .04, .08, .13, .2] },
 };
 const RP_PCT = { low: 5, std: 15, high: 30, max: 50, bal: 15, sch: 30, acad: 50 };
-function bud(n) { if (!n.budget) n.budget = { mil: 0, res: RP_PCT[n.laws.rp] || 15, prod: 0, travel: 0, sub: 0, prop: 0, inc: 0, health: 0, init: true }; if (n.budget.prop == null) n.budget.prop = 0; return n.budget; }
+function bud(n) { if (!n.budget) n.budget = { mil: 0, res: RP_PCT[n.laws.rp] || 15, prod: 0, travel: 0, sub: 0, prop: 0, inc: 0, health: 0, init: true }; if (n.budget.prop == null) n.budget.prop = 0; if (n.budget.qual == null) n.budget.qual = n.budget.init ? 25 : 0; return n.budget; }
 const welfareMax = (n, k) => WELFARE[k].era.reduce((m, e, i) => e <= n.era ? i : m, 0);
 const welfareLv = n => bud(n).inc + bud(n).health;
 const budgetPct = n => bud(n).res / 100;
-const milMult = f => f < 1 ? .5 + .5 * Math.max(0, f) : 1 + .2 * Math.sqrt(f - 1); // underpaid armies fight badly; extra funding has diminishing returns
+const milMult = f => f < 1 ? .5 + .5 * Math.max(0, f) : 1; // regiments the budget can't pay fight badly until they're stood down
+const qualMult = q => 1 + .9 * Math.sqrt(Math.max(0, q)); // better arms, training and drill per regiment, with diminishing returns
 const prodBoostOf = n => 1.2 * Math.pow(bud(n).prod / 100, .7);
 const subFoodOf = n => .8 * Math.pow(bud(n).sub / 100, .7);
 const subGrowOf = n => .04 * Math.sqrt(bud(n).sub / 100);
@@ -782,10 +783,15 @@ function econ(n) {
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
   const armyUp = n.army * unitUpkeep(n);
   const gross = Math.max(0, tax + routeGold + luxGold), Bd = bud(n);
-  if (Bd.init) { delete Bd.init; Bd.mil = clamp(Math.ceil(armyUp * 1.05 / Math.max(1, gross) * 20) * 5, 5, 60); }
+  if (Bd.init) { delete Bd.init; Bd.mil = clamp(Math.ceil(armyUp * 1.05 / Math.max(1, gross * (1 - Bd.qual / 100)) * 20) * 5, 5, 60); }
   const pctG = k => gross * Bd[k] / 100;
-  const milGold = pctG("mil"), milFund = armyUp > 0 ? milGold / armyUp : 1 + (milGold > 0 ? 1 : 0);
-  n.milFund = milFund;
+  // the military budget decides the army: the quantity share pays for regiments, the quality share makes each one better
+  const milGold = pctG("mil"), up1 = unitUpkeep(n), manpower = maxArmy(n);
+  let qtyGold = milGold * (1 - Bd.qual / 100), qualGold = milGold - qtyGold;
+  const armyTarget = Math.min(manpower, Math.floor(qtyGold / up1 + 1e-9));
+  const spare = Math.max(0, qtyGold - manpower * up1); qtyGold -= spare; qualGold += spare; // more money than men: it goes into quality
+  const milFund = armyUp > 0 ? qtyGold / armyUp : 1, milQual = qualGold / (Math.max(1, n.army, armyTarget) * up1);
+  n.milFund = milFund; n.milQual = milQual;
   const prodGold = pctG("prod"), prodBoost = prodBoostOf(n); mat *= 1 + prodBoost + welfareWork(n);
   const travelGold = pctG("travel"), subGold = pctG("sub"), propGold = pctG("prop");
   const incGold = gross * WELFARE.inc.cost[Bd.inc], healthGold = gross * WELFARE.health.cost[Bd.health];
@@ -799,7 +805,7 @@ function econ(n) {
   const fixed = bUp + imports + govUp + acadUp + sciPay + offPay;
   const spend = milGold + resGold + prodGold + travelGold + subGold + propGold + incGold + healthGold;
   const goldNet = gross + foodGold - fixed - spend;
-  return { gross, fixed, spend, milGold, milFund, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
+  return { gross, fixed, spend, milGold, milFund, milQual, qtyGold, qualGold, armyTarget, manpower, spare, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
 }
 
 // ================= POLITICS =================
@@ -930,6 +936,10 @@ function processNation(n) {
   if (!n.alive) return;
   const E = econ(n);
   n.gold += E.goldNet; n.mat += E.mat;
+  // the army grows or shrinks toward what the military budget pays for. New regiments need materials to equip
+  if (n.army < E.armyTarget) { const uc = unitCost(n), k = Math.min(E.armyTarget - n.army, Math.max(1, Math.ceil(E.manpower * .25)), Math.max(0, Math.floor(n.mat / uc.m)));
+    if (k > 0) { n.army += k; n.mat -= k * uc.m; } }
+  else if (n.army > E.armyTarget) n.army -= Math.max(1, Math.ceil((n.army - E.armyTarget) * .5));
   // debt: nobody quits, the nation simply borrows. Interest piles up and the people's trust drains away
   if (n.trust == null) n.trust = 100;
   if (n.gold < 0) n.gold *= 1.02;
@@ -1273,7 +1283,9 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
-    B0.mil = clamp(Math.ceil(E.armyUp * want / g * 100), 3, 70); B0.res = RP_PCT[n.laws.rp] || 15;
+    const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
+    B0.qual = n.pers === "aggressive" ? 20 : n.cul === "martial" ? 30 : 15;
+    B0.mil = clamp(Math.ceil(wantA * unitUpkeep(n) * (want > 1.1 ? 1.1 : 1) / (g * (1 - B0.qual / 100)) * 100), 2, 80); B0.res = RP_PCT[n.laws.rp] || 15;
     B0.prod = n.pers === "builder" ? 8 : 4; B0.travel = n.pers === "trader" ? 6 : 2; B0.sub = 3; B0.prop = 0;
     const wl = n.era >= 5 ? 2 : n.era >= 3 ? 1 : 0; B0.inc = Math.min(wl, welfareMax(n, "inc")); B0.health = Math.min(wl + (n.era >= 6 ? 1 : 0), welfareMax(n, "health"));
     if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); }
@@ -1303,7 +1315,7 @@ function aiTurn(n) {
   const ratio = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers]) * (wars.length ? 1.6 : 1);
   const want = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratio + 1));
   const uc = unitCost(n);
-  while (n.army < want && n.gold > uc.g * 1.5 + (saving ? villageCost(n).g : 0) && n.mat > uc.m) recruit(n, 1);
+  void want; void uc; // regiments now come from the military budget (set above)
   // academies and command (close the least useful ones when money runs short)
   if (E.goldNet < 0 && n.gold < 50 * Math.pow(1.5, n.era)) { const x = setsOf(n).filter(x => x.acad || x.mil).sort((a, b) => a.pop - b.pop)[0];
     if (x) { if (x.acad && !(n.cul === "scholarly" && !x.mil)) x.acad = 0; else x.mil = false; } }
@@ -2029,7 +2041,8 @@ const line = (label, v, cls = "") => `<div class="ln ${cls}"><span>${label}</spa
 function budgetHTML(n) {
   const B0 = bud(n);
   let h = `<div class="budget"><div class="bsum" data-bx="sum"></div>`;
-  for (const [k, b] of Object.entries(BUDGET)) h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="60" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p></div>`;
+  for (const [k, b] of Object.entries(BUDGET)) { h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="${k === "mil" ? 80 : 60}" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p></div>`;
+    if (k === "mil") h += `<div class="bl sub"><label><span>⚖️ Quantity ↔ Quality</span><b data-bx="v-qual"></b></label><input type="range" min="0" max="90" step="5" value="${B0.qual}" data-bud="qual" aria-label="Quantity versus quality"><div class="qq"><small>More regiments</small><small>Better regiments</small></div><p class="bx" data-bx="qual"></p></div>`; }
   h += `<h4 class="wh">Welfare</h4><p class="small muted">Makes your people happier, healthier and harder to turn against you: raises public trust every turn, calms unrest and helps workers. It costs a share of gross income. The more educated your people become, the more welfare they demand; falling short drains trust unless propaganda talks them down.</p>`;
   for (const [k, w] of Object.entries(WELFARE)) { const mx = welfareMax(n, k);
     h += `<div class="bl"><label><span>${w.icon} ${w.name}</span><b data-bx="v-${k}"></b></label><div class="seg">${w.lv.map((l, i) => `<button class="${B0[k] === i ? "on" : ""}" data-wel="${k}" data-l="${i}" ${i > mx ? "disabled" : ""}>${l}${i > mx ? " 🔒" : ""}</button>`).join("")}</div><p class="bx" data-bx="${k}"></p></div>`; }
@@ -2038,11 +2051,13 @@ function budgetHTML(n) {
 function budgetFill(root) {
   if (!root) return;
   const n = P(), E = econ(n), B0 = bud(n), set = (k, v) => { const el = root.querySelector(`[data-bx="${k}"]`); if (el) el.innerHTML = v; };
-  const need = Math.ceil(E.armyUp / Math.max(1, E.gross) * 100), mm = milMult(E.milFund) - 1;
+  const mm = milMult(E.milFund) - 1;
   for (const k in BUDGET) set("v-" + k, `${B0[k]}% · ${fmt(E[{ mil: "milGold", res: "resGold", prod: "prodGold", travel: "travelGold", sub: "subGold", prop: "propGold" }[k]])} 🪙`);
   { const ed = Math.round(eduOf(n)), sw = propSway(n), ex = k => WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))];
     set("prop", `${B0.prop ? `Talks demand down by ${sw.toFixed(2)} level${sw >= .995 && sw < 1.005 ? "" : "s"} per program. ` : ""}Education ${ed}/100: ${welfareExpect(n, "inc") < .25 && welfareExpect(n, "health") < .25 ? "your people expect nothing from the state yet." : `your people expect ${ex("inc")} and ${ex("health")}.`}${B0.prop ? ` Intellectuals −${Math.round(1.5 * Math.sqrt(B0.prop))}.` : ""}`); }
-  set("mil", `Your ${n.army} regiment${n.army === 1 ? "" : "s"} need ${need}% (${fmt(E.armyUp)} 🪙). ${E.milFund < 1 ? `<span class="bad">Underpaid: ${Math.round(mm * 100)}% army strength.</span>` : mm > 0.005 ? `<span class="good">+${Math.round(mm * 100)}% army strength from extra training.</span>` : "Fully paid."}`);
+  set("mil", `Pays for <b>${E.armyTarget}</b> regiment${E.armyTarget === 1 ? "" : "s"} (you have ${n.army}; manpower allows ${E.manpower}). ${E.armyTarget > n.army ? "New regiments are raised each turn as materials allow." : E.armyTarget < n.army ? `<span class="bad">${n.army - E.armyTarget} will be stood down; until then they're underpaid (${Math.round(mm * 100)}% strength).</span>` : ""}${E.spare > .01 ? ` Manpower is maxed out, so ${fmt(E.spare)} 🪙 extra goes into quality.` : ""}`);
+  set("v-qual", `${100 - B0.qual}% · ${B0.qual}%`);
+  set("qual", `${fmt(E.qtyGold)} 🪙 on regiments, ${fmt(E.qualGold)} 🪙 on arms and training: <span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% strength per regiment</span> · total strength about ${fmt(Math.max(n.army, E.armyTarget) * unitPower(n))}.`);
   set("res", `+${fmt(E.resSci)} 🔬 science a turn · uses ${fmt(E.resMat)} 🪵 materials.`);
   set("prod", B0.prod ? `+${Math.round(E.prodBoost * 100)}% materials.` : BUDGET.prod.d);
   set("travel", B0.travel ? `Generals and commanders: up to +${(travelQ(n)).toFixed(1)}★ better odds, and generals emerge ${Math.round(.6 * travelQ(n) * 100)}% more often.` : BUDGET.travel.d);
@@ -2053,6 +2068,11 @@ function budgetFill(root) {
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100);
   const td = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
   set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a turn)`, td < 0 ? "bad" : "")}`);
+}
+function openBudget(yearly) {
+  const n = P();
+  showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
+  budgetFill(modal.querySelector(".budget"));
 }
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
 function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b.disabled || !G) return; e.stopPropagation(); bud(P())[b.dataset.wel] = +b.dataset.l; const box = b.closest(".budget"); box.querySelectorAll(`[data-wel="${b.dataset.wel}"]`).forEach(x => x.classList.toggle("on", x === b)); budgetFill(box); hud(); }
@@ -2073,7 +2093,7 @@ function panelNation() {
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each turn", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing 2% a turn in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every turn. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
-  h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}</div>`;
+  h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Military budget (${bud(n).mil}%)`, sgn(-E.milGold))}${line(`Research budget (${bud(n).res}%)`, sgn(-E.resGold))}${E.prodGold ? line(`Production (${bud(n).prod}%)`, sgn(-E.prodGold)) : ""}${E.travelGold ? line(`Travel (${bud(n).travel}%)`, sgn(-E.travelGold)) : ""}${E.subGold ? line(`Subsidies (${bud(n).sub}%)`, sgn(-E.subGold)) : ""}${E.incGold ? line(WELFARE.inc.lv[bud(n).inc], sgn(-E.incGold)) : ""}${E.healthGold ? line(WELFARE.health.lv[bud(n).health], sgn(-E.healthGold)) : ""}
@@ -2089,9 +2109,8 @@ function panelNation() {
     ${E.strat.map(s => line(`${RES[s.res].icon} ${RES[s.res].name} for the army`, s.st === "have" ? '<span class="good">Own supply</span>' : s.st === "import" ? `<span class="warn">Imported from ${esc(s.from.name)} (−${s.cost}🪙)</span>` : `<span class="bad">Missing${s.pen ? ` (−${s.pen * 100}% army)` : ""}</span>`)).join("")}</div>`;
   h += `<div class="card"><h4>Army</h4>
     ${line("Regiments", `${n.army} / ${ma} max`)}${line("Strength per regiment", fmt(unitPower(n)))}${line("Total strength", fmt(power(n)))}${line("Ready to fight this turn", n.army - n.used)}
-    <div class="row wrap">${[1, 3].map(k => { const c = { g: uc.g * k, m: uc.m * k }; return `<button class="btn small" data-act="recruit" data-k="${k}" ${afford(n, c) && n.army + k <= ma ? "" : "disabled"}>Recruit ${k} · ${costTxt(c)}</button>`; }).join("")}
-    <button class="btn small ghost" data-act="disband" ${n.army > 0 ? "" : "disabled"}>Disband 1</button></div>
-    <p class="muted small">Each regiment needs ${fmt(unitUpkeep(n))} gold a turn, paid from your military budget. Bigger populations and the Conscription law raise your maximum.</p></div>`;
+    ${line("Budget pays for", `${E.armyTarget} regiments`)}
+    <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n))} gold a turn, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
   h += `<div class="card"><h4>Paths to victory</h4>
     ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? (lv(n, "marsmission") >= 3 ? "Mars Mission ready" : "Develop the Space field") : ERAS[n.era])}
     ${line("🌍 Control 40% of the world", `${terr.length} / ${Math.ceil(NR * .4)} territories`)}
@@ -2150,9 +2169,11 @@ function panelMilitary() {
   h += `<div class="card"><h4>Regiments</h4>
     ${line("Regiments", `${n.army} / ${ma} max`)}${line("Ready to fight this turn", n.army - n.used)}
     ${line("Strength per regiment", fmt(unitPower(n)))}${line("Attack bonus (generals & command)", `+${Math.round((attackMult(n) - 1) * 100)}%`)}${line("Defense bonus", `+${Math.round((defMult(n) - 1) * 100)}%`)}
-    ${line("Total strength", fmt(power(n)))}${line("Pay needed", `${fmt(E.armyUp)} 🪙 per turn`)}${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙 · <span class="${E.milFund < 1 ? "bad" : "good"}">${E.milFund < 1 ? `underpaid, ${Math.round((milMult(E.milFund) - 1) * 100)}% strength` : `${milMult(E.milFund) > 1.005 ? "+" + Math.round((milMult(E.milFund) - 1) * 100) + "% strength" : "fully paid"}`}</span>`)}
-    <div class="row wrap">${[1, 3, 5].map(k => { const c = { g: uc.g * k, m: uc.m * k }; return `<button class="btn small" data-act="recruit" data-k="${k}" ${afford(n, c) && n.army + k <= ma ? "" : "disabled"}>Recruit ${k} · ${costTxt(c)}</button>`; }).join("")}
-    <button class="btn small ghost" data-act="disband" ${n.army > 0 ? "" : "disabled"}>Disband 1</button></div></div>`;
+    ${line("Total strength", fmt(power(n)))}
+    ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiments${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
+    ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
+    <div class="row wrap"><button class="btn small" data-act="budget">📒 Change military budget</button></div>
+    <p class="muted small">Your army's size follows your budget. Raise the military share for more regiments, or shift it toward quality for better-armed, better-drilled ones. New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
   // generals
   const gens = (n.generals || []).slice().sort((a, b) => b.skill - a.skill), best = bestGeneral(n);
   h += `<div class="card"><h4>🎖️ Officers & generals</h4>
@@ -2303,8 +2324,7 @@ panel.addEventListener("click", e => {
   const n = P(), a = b.dataset.act, id = +b.dataset.id, o = G.nations[id];
   switch (a) {
     case "pclose": closePanel(); break;
-    case "recruit": recruit(n, +b.dataset.k); toast(`Recruited ${b.dataset.k} regiment${b.dataset.k > 1 ? "s" : ""}`); refresh(); break;
-    case "disband": n.army--; refresh(); break;
+    case "budget": openBudget(false); break;
     case "goto": { const s = setById(+b.dataset.sid); closePanel(); sel = s.r; centerOn(s.x, s.y, Math.max(view.k, 7)); openRegion(s.r); break; }
     case "tech": n.research = b.dataset.t; n.resManual = /^[md]:/.test(b.dataset.t); refresh(); break;
     case "field": { const f = FIELDS[b.dataset.k]; if (f && afford(n, fieldCost(n, f))) { expandField(n, f); const msg = G.news.filter(x => /open/.test(x.t)).map(x => x.t); G.news = []; toast(msg[0] || `${f.name} level ${lv(n, f.k)}`); } refresh(); break; }
@@ -2379,8 +2399,7 @@ function afterTurnFlow() {
   };
   const askBudget = () => {
     const n = P(); if (!n.alive || n.budNoAsk) return false;
-    showModal(`<div class="mi">📒</div><h2>Budget for ${yearTxt(G.year)}</h2><p class="small">Decide where this year's money goes. You can also change it any time from the Nation tab.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" checked> Ask me every year</label><div class="row"><button class="btn" data-m="ok">Approve budget</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
-    budgetFill(modal.querySelector(".budget"));
+    openBudget(true);
     return true;
   };
   const askMastery = () => {
@@ -2436,7 +2455,7 @@ function showHelp() {
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>Borders.</b> Each settlement holds land around it, and your borders grow as you add villages, towns and cities. Borders stop where they meet another people's, and you can't settle inside someone else's borders.</p>
   <p><b>Academies & the army.</b> Cities can found academies, later universities, which graduate scientists (+1% research each, more for Scholarly cultures). Military academies (limited by nation size) train officers and graduate generals. The Army tab shows your forces and lets you choose how they're commanded.</p>
-  <p><b>Budget.</b> Every year you split your gross income between Military (pays the army; underpaid regiments fight at up to half strength, extra money trains them harder), Research, Production (more materials), Travel (better odds of skilled generals and commanders) and Subsidies (food, growth and happier commoners).</p>
+  <p><b>Budget.</b> Every year you split your gross income between Military (your army's size follows it: split it between quantity, the number of regiments, and quality, better arms and training for each), Research, Production (more materials), Travel (better odds of skilled generals and commanders) and Subsidies (food, growth and happier commoners).</p>
   <p><b>Welfare.</b> Basic income and healthcare, from simple relief up to advanced programs in later ages, make your people happier, healthier and more productive, raise public trust every turn and calm unrest. They cost a share of your income.</p>
   <p><b>Education & propaganda.</b> Educated people demand more from the state. As your people learn (each age, Knowledge fields and academies), they expect higher levels of basic income and healthcare, and every level you fall short drains public trust. Propaganda holds that demand down, costs almost nothing while your people are uneducated, but buys less and less as they learn.</p>
   <p><b>Debt & trust.</b> Your treasury can go into debt; nobody quits. But debt grows with interest and drains public trust, the revolt meter. Welfare pushes it back up. If trust hits zero, civil war splits your nation in two, and you choose which side to lead.</p>
