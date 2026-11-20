@@ -720,9 +720,12 @@ const CPOL = { none: { name: "Hands off", icon: "—" }, export: { name: "Export
 function ensureLeader(x, n) {
   if (x.t < 1) return null;
   if (!x.lead || x.lead.left <= 0) { const tq = n ? travelQ(n) : 0, ed = n ? eduOf(n) / 100 : 0;
-    x.lead = { name: genName(7), trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), left: 2 + rnd() * 3, pol: {} }; }
+    x.lead = { name: genName(7), trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), loyal: 1 + Math.floor(rnd() * 5), left: 2 + rnd() * 3, pol: {} }; } // loyalty is hidden from you
+  if (x.lead.loyal == null) x.lead.loyal = 1 + Math.floor(rnd() * 5);
   return x.lead;
 }
+// a disloyal leader may sneak cheap goods past your tariff to win over the city's poor
+function loopholeShare(n, k) { let ut = 0, lp = 0; for (const x of setsOf(n)) { const u = U(x.pop); ut += u; if (x.lead && x.lead.loop === k) lp += u; } return ut > 0 ? clamp(lp / ut * 1.5, 0, 1) : 0; }
 const leadEff = L => L ? .4 + .15 * L.trade : 0; // how well a leader's policies actually work
 function cityPolicyPick(n, x, it, E) { // what the national direction calls for, which a leader gets right more often the more skilled they are
   const dir = n.tradeDir || "bal", sx = E.sectors[it.k], st = secOf(n, it.k), b = cityBrand(x, it.k);
@@ -965,7 +968,7 @@ function econ(n) {
     let comp = 0, compBy = null;
     for (const o of rivals) { if (!secUnlocked(o, k)) continue; let c = suitOf(o)[k] * (.8 + .2 * secBase(o, k)) * (1 + .02 * (secLvl(o, k) - 1)) * clamp(1 - .08 * (wageOf(o) - 1), .85, 1.06); if (n.tariffOn && n.tariffOn[o.id]) c /= 1.3; if (!dip(n.id, o.id).trade) c *= .85; if (c > comp) { comp = c; compBy = o; } }
     const ce = open && comp > 0 ? clamp(comp, .7, 1.6) : 1;
-    const tr = open ? [0, .2, .5][st.tar] : 0, sr = [0, .25, .5][st.sub];
+    const leak = st.tar ? loopholeShare(n, k) : 0, tr = open ? [0, .2, .5][st.tar] * (1 - leak) : 0, sr = [0, .25, .5][st.sub]; // cities dodging the tariff leak cheap goods past it
     let priv = 0, state = 0, stateNet = 0, sub = 0;
     let stWage = 0;
     if (st.nat) { state = C * Math.min(1.1, .5 + .5 * suE); stWage = state * .35 / suE * wage; stateNet = state * (1 / ce - .65 / suE); } // the state runs it: steady output, but it pays the workers and eats the losses
@@ -977,7 +980,7 @@ function econ(n) {
     let M = 0, X = 0;
     if (Sx < D) { if (canImport) M = D - Sx; } else if (open) X = Math.min(Sx - D, D * expCap * (1 + NB.fame / 40)); // famous city brands reach further
     const f = D > 0 ? (Sx + M) / D : 1, unitP = 1 / ce;
-    sectors[k] = { lvl, stable: st.stable == null ? .5 : st.stable, wage: wage * (.85 + .15 * base), su, suE, base, comp, compBy: compBy ? compBy.id : -1, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP * unitP, expInc: X * expP * (suE >= comp ? 1 : .8) * (.75 + .5 * rep) * (1 + .15 * NB.prem), q, fame, rep, stWage, tarRev: M * impP * unitP * tr, sub, stateNet, ig, drag };
+    sectors[k] = { leak, lvl, stable: st.stable == null ? .5 : st.stable, wage: wage * (.85 + .15 * base), su, suE, base, comp, compBy: compBy ? compBy.id : -1, D, priv, state, invOut, S: Sx, M, X, f, impCost: M * impP * unitP, expInc: X * expP * (suE >= comp ? 1 : .8) * (.75 + .5 * rep) * (1 + .15 * NB.prem), q, fame, rep, stWage, tarRev: M * impP * unitP * tr, sub, stateNet, ig, drag };
     n.secF[k] = f;
     secImp += sectors[k].impCost; secExp += sectors[k].expInc; secTar += sectors[k].tarRev; secSub += sub; secState += stateNet; secInv += ig;
   }
@@ -1053,7 +1056,8 @@ function facTargets(n, E) {
         if (cheapSrc && st.tar) cheapTax += st.tar * 2.5 * (x.comp > x.suE ? 1.5 : 1); else if (cheapSrc && x.M > x.D * .2) cheapIn++; }
       if (n.tariffOn) for (const id in n.tariffOn) { const o = G.nations[id]; if (o && o.alive && Object.keys(SECTORS).some(k => cheapFlood(o, k))) cheapTax += 3; }
       let buyLocal = 0; for (const x of setsOf(n)) if (x.lead && x.lead.pol) buyLocal += Object.values(x.lead.pol).filter(v => v === "protect").length;
-      add("commoners", -Math.round(Math.min(18, cheapTax + buyLocal * .5)), "Tariffs on cheap goods"); add("commoners", Math.min(5, cheapIn), "Cheap imports"); add("commoners", Math.min(10, 3 * nat + sub) - Math.min(10, 2 * tar), "Sector policy"); }
+      let loops = 0; for (const x of setsOf(n)) if (x.lead && x.lead.loop) loops++;
+      add("commoners", -Math.round(Math.min(18, cheapTax + buyLocal * .5) * (loops ? .7 : 1)), "Tariffs on cheap goods"); if (loops) add("commoners", Math.min(6, 2 * loops), "Cheap goods slipping past tariffs"); add("commoners", Math.min(5, cheapIn), "Cheap imports"); add("commoners", Math.min(10, 3 * nat + sub) - Math.min(10, 2 * tar), "Sector policy"); }
     const gap = welfareGap(n, "inc") + welfareGap(n, "health"); add("commoners", -Math.round(4 * gap), "Unmet welfare demand"); add("intellectuals", -Math.round(3 * gap), "Unmet welfare demand");
     if (B0.prop) add("intellectuals", -Math.round(1.5 * Math.sqrt(B0.prop)), "Propaganda"); }
   add("intellectuals", { democracy: 12, technocracy: 20, party: -18, theocracy: -15 }[g] || 0, "Government");
@@ -1147,7 +1151,15 @@ function processNation(n) {
     for (const [id, list] of CI.bySet) { const x = setById(id); if (!x) continue; const L = ensureLeader(x, n);
       L.left -= TD;
       if (L.left <= 0) { const old = L.name; ensureLeader(x, n); if (!n.ai) log(`${x.name} has a new leader, ${x.lead.name} (trade skill ${"★".repeat(x.lead.trade)}${"☆".repeat(5 - x.lead.trade)}), after ${old} stepped down.`, "👤"); }
-      if (q1 || !x.lead.pol || !Object.keys(x.lead.pol).length) { x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, E); } }
+      if (q1 || !x.lead.pol || !Object.keys(x.lead.pol).length) { x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, E); }
+      const Lx = x.lead;
+      if (Lx.loop && (!secOf(n, Lx.loop).tar || !tradeOpen(n))) { Lx.loop = null; Lx.loopKnown = false; } // the tariff is gone, so there's nothing to dodge
+      if (q1 && !Lx.loop && tradeOpen(n) && (Lx.crack || 0) < G.tt) {
+        const cheapK = Object.keys(E.sectors).filter(k => { const sx = E.sectors[k]; return secOf(n, k).tar && sx.compBy >= 0 && (sx.comp > sx.suE || nationBrand(G.nations[sx.compBy], k).rep <= .45); });
+        const grumble = clamp((60 - (n.fac.commoners || 50)) / 40, 0, 1) + .3;
+        if (cheapK.length && rnd() < (5 - Lx.loyal) * .1 * grumble) { Lx.loop = pick(cheapK); Lx.loopKnown = false; } }
+      if (Lx.loop && !Lx.loopKnown && rnd() < .085 /* word gets out: about a 30% chance each year */) { Lx.loopKnown = true; if (!n.ai) log(`${Lx.name}, leader of ${x.name}, has found a loophole in your ${SECTORS[Lx.loop].name.toLowerCase()} tariff and is letting cheap goods in to win over the city's poor. Crack down from the city's sheet, or look the other way.`, "🕳️"); }
+    }
   }
   { const CI = cityInds(n);
     for (const k in E.sectors) { const x = E.sectors[k];
@@ -1296,8 +1308,8 @@ function processNation(n) {
   for (const s of setsOf(n)) {
     const foreign = s.c !== n.id && s.c >= 0 ? (n.laws.rel === "tol" ? 15 : 25) : 0;
     const b = B(n.id, s.r); let roads = 0; for (const k in b) roads += BK[k].unrest || 0;
-    const hbU = hubsOf(n).bySet.get(s.id);
-    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q + (hbU ? hbU.unrest : 0) - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
+    const hbU = hubsOf(n).bySet.get(s.id), loopU = s.lead && s.lead.loop ? -6 : 0;
+    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q + (hbU ? hbU.unrest : 0) + loopU - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
     s.u += (clamp(target, 0, 100) - s.u) * pr(.3);
     if (s.q > 0) s.q = Math.max(0, s.q - 3 * TD);
     if (s.c !== n.id && s.c >= 0 && s.u < 25 && rnd() < pr(.06)) { s.c = n.id; if (!n.ai) log(`${s.name} now considers itself part of your nation.`, "🫶"); }
@@ -2220,6 +2232,7 @@ function setRow(s, n) {
     else if (s.t === 1) { const c = cityCheck(n, s);
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
     if (s.t >= 1) { const L = ensureLeader(s, n), pol = Object.entries(L.pol || {}).filter(([, v]) => v !== "none");
+      if (L.loop && L.loopKnown) acts += `<span class="why bad">🕳️ ${esc(L.name)} is sneaking cheap ${esc(SECTORS[L.loop].name.toLowerCase())} past your tariff. The city's poor love it; your producers lose protection.</span><button class="btn small" data-act="crack" data-s="${s.id}">Crack down</button>`;
       acts += `<span class="why">👤 Leader ${esc(L.name)} · trade skill ${"★".repeat(L.trade)}${"☆".repeat(5 - L.trade)}${pol.length ? ` · ${pol.map(([k, v]) => `${CPOL[v].icon} ${CPOL[v].name} for ${SECTORS[k].name.toLowerCase()}`).join(", ")}` : " · hands off"}</span><button class="btn small ghost" data-act="newLead" data-s="${s.id}" ${(L.cool || 0) > G.tt ? "disabled" : ""}>Replace leader · 🪙${fmt(Math.round(30 * Math.pow(1.5, n.era)))}</button>`; }
     { const hb = hubsOf(n).bySet.get(s.id), runs = cityInds(n).bySet.get(s.id) || [];
       if (runs.length) acts += `<span class="why">🏭 Industries: ${runs.map(it => { const b = cityBrand(s, it.k), r = cityRank(s, it.k); return `${SECTORS[it.k].icon} ${SECTORS[it.k].name} (${Math.round(it.share * 100)}% of the nation's${b.fame >= 1 ? ` · fame ${Math.round(b.fame)} · ${repWord(b.rep).toLowerCase()}` : ""}${r <= 5 ? ` · #${r} in the world 🏆` : ""})`; }).join(", ")}${hb ? `. Its famous industry dominates the city: taxes +${Math.round((hb.tax - 1) * 100)}%, other output −${Math.round((1 - hb.other) * 100)}%, more unrest.` : ""}</span>`; }
@@ -2531,7 +2544,7 @@ function panelTrade() {
     h += `<div class="card"><h4>🏙️ City trade policy</h4><p class="small muted">Your cities set their own local trade policies so you don't have to: export drives, quality pushes or buy-local programs for their industries. They follow your direction, your tariffs and your national policy, but each leader only gets it right as often as their trade skill allows.</p>
       <div class="seg">${Object.entries(TRADE_DIRS).map(([k, t]) => `<button class="${dir === k ? "on" : ""}" data-act="tdir" data-v="${k}">${t.icon} ${t.name}</button>`).join("")}</div><p class="small">${TRADE_DIRS[dir].d}</p>
       ${cities.length ? cities.slice(0, 12).map(x => { const L = ensureLeader(x, n), pol = Object.entries((L && L.pol) || {}).filter(([, v]) => v !== "none");
-        return line(`${x.t === 2 ? "🏙️" : "🏘️"} ${esc(x.name)} <small class="muted">${esc(L.name)} ${"★".repeat(L.trade)}${"☆".repeat(5 - L.trade)}</small>`, pol.length ? pol.map(([k, v]) => `${SECTORS[k].icon}${CPOL[v].icon}`).join(" · ") : '<span class="muted">Hands off</span>'); }).join("") + (cities.length > 12 ? `<p class="small muted">…and ${cities.length - 12} more.</p>` : "") : `<p class="small muted">You have no towns or cities yet. Villages don't set trade policy.</p>`}
+        return line(`${x.t === 2 ? "🏙️" : "🏘️"} ${esc(x.name)} <small class="muted">${esc(L.name)} ${"★".repeat(L.trade)}${"☆".repeat(5 - L.trade)}</small>${L.loop && L.loopKnown ? ` <span class="bad" title="Dodging your tariff">🕳️</span>` : ""}`, pol.length ? pol.map(([k, v]) => `${SECTORS[k].icon}${CPOL[v].icon}`).join(" · ") : '<span class="muted">Hands off</span>'); }).join("") + (cities.length > 12 ? `<p class="small muted">…and ${cities.length - 12} more.</p>` : "") : `<p class="small muted">You have no towns or cities yet. Villages don't set trade policy.</p>`}
       <p class="small muted">📣 Export drive spreads a city's name abroad · 💎 Quality push improves its goods · 🛒 Buy local favors local producers but raises prices for ordinary people. Each costs a little of the city's taxes. Leaders review their policies every Q1, and each serves a few decades.</p></div>`; }
   const emb = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).emb), tar = G.nations.filter(o => o.alive && n.tariffOn && n.tariffOn[o.id]);
   { const w = E.wage;
@@ -2555,6 +2568,7 @@ function panelTrade() {
     h += `<div class="card sec"><h4>${S0.icon} ${S0.name} <span class="pill ${x.su < .85 ? "bad" : x.su >= 1.15 ? "good" : ""}">${suitWord(x.su)} land</span></h4><p class="small muted">${S0.d}</p>
       <div class="bar-row"><small>${pct}%</small><div class="bar"><i style="width:${Math.min(100, pct / 1.3)}%;background:${col}"></i></div><span>of demand</span></div>
       ${line("Demand", q(x.D))}${line(st.nat ? "Made at home (state-run)" : "Made at home", q(x.S))}${x.M ? line("Imported", `${q(x.M)} · costs ${q(x.impCost)} 🪙`) : ""}${x.X ? line("Exported", `${q(x.X)} · earns ${q(x.expInc)} 🪙`) : ""}
+      ${st.tar && setsOf(n).some(c => c.lead && c.lead.loop === k && c.lead.loopKnown) ? `<p class="small bad">🕳️ Some cities are dodging this tariff: it only works at about ${Math.round((1 - x.leak) * 100)}% strength.</p>` : ""}
       ${x.S < x.D * .999 && !x.M ? `<p class="small bad">Short by ${q(x.D - x.S)} and you can't import it.</p>` : ""}
       <p class="small"><b class="${effP < 0 ? "bad" : effP > 0 ? "good" : ""}">${effP >= 0 ? "+" : ""}${effP}% ${S0.eff}</b> <span class="muted">from how well it's supplied.</span></p>
       ${(() => { const cs = cityInds(n).byK[k] || [], shown = cs.slice(0, 4), rest = 1 - cs.reduce((a, c) => a + c.share, 0);
@@ -2719,6 +2733,8 @@ panel.addEventListener("click", e => {
   switch (a) {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
+    case "crack": { const x = setById(+b.dataset.s), L = x.lead; confirmModal(`Crack down on ${L.name}?`, `The loophole in ${x.name} closes and your tariff works again there. The city's poor will be angry, and ${L.name} will resent it.`, () => {
+        L.loop = null; L.loopKnown = false; L.crack = G.tt + 2; L.loyal = Math.max(1, L.loyal - 1); x.u = Math.min(100, x.u + 12); n.facMods.push({ k: "commoners", v: -4, why: `Crackdown in ${x.name}`, t: 1.5 }); toast("Loophole closed"); hud(); closeSheet(); }); break; }
     case "tdir": n.tradeDir = b.dataset.v; for (const x of setsOf(n)) if (x.lead) { const list = cityInds(n).bySet.get(x.id) || []; x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); } save(); refresh(); break;
     case "newLead": { const x = setById(+b.dataset.s), c = Math.round(30 * Math.pow(1.5, n.era)); if (n.gold < c) { toast("Not enough gold"); break; }
       confirmModal(`Replace ${x.lead.name}?`, `Costs ${c} gold and stirs unrest in ${x.name}. The new leader's skill is a gamble.`, () => { n.gold -= c; x.u = Math.min(100, x.u + 12); x.lead.left = 0; ensureLeader(x, n); x.lead.cool = G.tt + 4; const list = cityInds(n).bySet.get(x.id) || []; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); toast(`${x.lead.name} takes over (${"★".repeat(x.lead.trade)})`); hud(); closeSheet(); }); break; }
@@ -2936,6 +2952,7 @@ function showHelp() {
   <p><b>City industries & brands.</b> Each town or city runs the 1-3 industries its land suits best, and all of them together with the countryside make up your national industry. Exporting makes a city's industry known abroad, like Hollywood's films or Maranello's cars; the more it exports, the further its name spreads, and the world's 5 best-known city brands in each sector are powerhouses. Buyers judge quality from your industry level, wages and strength. A famous premium brand is the holy grail: it sells at a premium and lifts wages. Flooding markets with cheap goods also pays, but richer nations resent it, may tariff you, and the cheap label takes a long time to shake.</p>
   <p><b>Cheap goods & the lower class.</b> Ordinary people love cheap, plentiful goods. Tariffs that keep out cheap imports protect your industries but make commoners unhappy, so you can't just tariff everything and call it good.</p>
   <p><b>City leaders.</b> Every town and city has a leader with a trade skill from 1 to 5 stars. Leaders set local trade policy for their city's industries (export drives, quality pushes, buy-local programs) following your national direction and tariffs, but they only get it right as often as their skill allows, and a weak leader's programs do less. Leaders serve a few decades; you can replace one, at a price and with unrest, and the new one's skill is a gamble.</p>
+  <p><b>Loopholes.</b> Leaders have a loyalty you can't see. When your tariffs keep out cheap goods their people want, a disloyal leader may quietly open a loophole and let them in to win over the poor. That weakens your tariff and you may not notice for a while. Once you find out, you can crack down (angering the poor and the leader) or look the other way.</p>
   <p><b>Public wages.</b> You don't pay private wages, but you do pay everyone the state employs at the going wage: civil servants, scientists, officers, and the workers in nationalized sectors and public projects.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
