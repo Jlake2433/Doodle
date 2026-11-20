@@ -1357,8 +1357,8 @@ function aiTurn(n) {
     if (!o.alive || o.id === n.id) continue;
     const d = dip(n.id, o.id); if (!d.met) continue;
     if (o.ai && o.id > n.id) {
-      if (!d.war && !d.trade && d.rel > 5 && rnd() < pr(.15)) d.trade = true;
-      if (!d.war && !d.ally && d.rel > 60 && rnd() < pr(.08)) d.ally = true;
+      if (!d.war && !d.trade && d.rel > 5 && rnd() < pr(.15) && (n.ai || aiAccept(o, "trade", n))) d.trade = true;
+      if (!d.war && !d.ally && d.rel > 60 && rnd() < pr(.08) && (n.ai || aiAccept(o, "ally", n))) d.ally = true;
     }
     if (d.war) {
       const myScore = wscore(n.id, o.id), dur = G.tt - d.wt;
@@ -1377,7 +1377,7 @@ function aiTurn(n) {
       const border = bordersTouch(n, o);
       const chance = { aggressive: .22, zealot: .12, builder: .06, trader: .05 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1);
       const grace = (o.id === G.player && G.tt < [60, 35, 20][G.diff]) || G.tt < 12;
-      if (!grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) && rnd() < pr(chance)) declareWar(n, o);
+      if (!n.noWar && !grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) && rnd() < pr(chance)) declareWar(n, o);
     }
   }
   // attack
@@ -2404,6 +2404,89 @@ function confirmModal(title, text, yes) { showModal(`<h2>${esc(title)}</h2><p>${
 let toastT = 0;
 function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 1900); }
 
+// ---- simulate 10 years: a governor runs your nation and honors the focus and limits you set ----
+const GOV_FOCUS = {
+  bal:  { name: "Balanced", icon: "⚖️", pers: "builder", rp: "std", d: "A bit of everything." },
+  grow: { name: "Grow & expand", icon: "🌱", pers: "builder", rp: "low", lawFocus: "grow", d: "Found villages, merge towns, spread out." },
+  econ: { name: "Economy", icon: "💰", pers: "trader", rp: "std", d: "Trade, gold and industry." },
+  sci:  { name: "Research", icon: "🔬", pers: "builder", rp: "high", lawFocus: "sci", d: "Fund scholars and academies." },
+  mil:  { name: "Military", icon: "⚔️", pers: "aggressive", rp: "low", d: "A big army. With wars allowed, it may attack weaker neighbors." },
+};
+const SIM_TURNS = 10 * TPY;
+let simState = null;
+function governTurn(n, o) { // the governor plays this quarter as an AI would, then puts back whatever you told it to keep
+  const F = GOV_FOCUS[o.focus] || GOV_FOCUS.bal;
+  const keep = { gov: n.gov, anarchy: n.anarchy, govCool: n.govCool, laws: { ...n.laws }, budget: JSON.parse(JSON.stringify(bud(n))), cul: n.cul, cmd: n.cmd, commander: n.commander, cmdUntil: n.cmdUntil };
+  const pers = n.pers;
+  n.pers = F.pers; n.laws.rp = F.rp; n.noWar = !!o.peace;
+  try { aiTurn(n); } finally { n.pers = pers; n.noWar = false; }
+  if (o.keepGov) { n.gov = keep.gov; n.anarchy = keep.anarchy; n.govCool = keep.govCool; n.laws = keep.laws; n.cmd = keep.cmd; n.commander = keep.commander; n.cmdUntil = keep.cmdUntil; }
+  else if (F.lawFocus && (F.lawFocus !== "sci" || has(n, "writing"))) n.laws.focus = F.lawFocus;
+  if (o.keepBud) n.budget = keep.budget;
+  if (o.keepCul) n.cul = keep.cul;
+}
+function openSim() {
+  if (!G || G.over || G.demo || !P().alive || simState) return;
+  const n = P(), o = G.simOpts || { focus: "bal", keepCul: true, keepGov: true, keepBud: false, peace: true, pauseWar: true };
+  const chk = (k, t) => `<label class="askrow"><input type="checkbox" data-so="${k}" ${o[k] ? "checked" : ""}> ${t}</label>`;
+  showModal(`<div class="mi">⏩</div><h2>Simulate 10 years</h2><p class="small">Your governor runs the nation for ${SIM_TURNS} quarters, following the focus you set. Events are decided for you. You can stop at any time.</p>
+    <h4>Focus</h4><div class="choices">${Object.entries(GOV_FOCUS).map(([k, f]) => `<label class="choice simf"><input type="radio" name="simf" value="${k}" ${o.focus === k ? "checked" : ""}><b>${f.icon} ${f.name}</b><small>${f.d}</small></label>`).join("")}</div>
+    <h4>Honor these</h4>${chk("keepCul", `Stay a ${cul(n).name} culture`)}${chk("keepGov", `Keep my government (${GOVS[n.gov].name}), laws and army command`)}${chk("keepBud", "Keep my budget exactly as I set it")}${chk("peace", "Don't start any new wars")}${chk("pauseWar", "Stop if someone declares war on me")}
+    <div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="go">Start</button></div>`, a => {
+      if (a !== "go") return;
+      const box = modal.querySelector(".mbox"), r = box.querySelector('input[name="simf"]:checked'), nw = { focus: r ? r.value : "bal" };
+      box.querySelectorAll("[data-so]").forEach(c => nw[c.dataset.so] = c.checked);
+      G.simOpts = nw; runSim(nw);
+    });
+}
+function runSim(o) {
+  const n0 = P(), start = { pop: popOf(n0), terr: terrCount(n0), era: n0.era, techs: n0.techs.length, gold: n0.gold, sets: setsOf(n0).length, army: n0.army, trust: n0.trust == null ? 100 : n0.trust, date: dateTxt() };
+  const news = []; let turns = 0, stopped = null;
+  const prevAuto = n0.autoResearch; n0.autoResearch = true;
+  simState = { stop: false };
+  closePanel(); closeSheet();
+  showModal(`<div class="mi">⏩</div><h2>Simulating…</h2><p class="center" id="simDate">${dateTxt()}</p><div class="bar simbar"><i id="simBar" style="width:0%"></i></div><p class="small muted center">Focus: ${GOV_FOCUS[o.focus].icon} ${GOV_FOCUS[o.focus].name}</p><div class="row"><button class="btn ghost" data-m="stop">Stop</button></div>`, () => { if (simState) { simState.stop = true; stopped = stopped || "You stopped the simulation."; } });
+  const finish = () => {
+    if (!simState) return; simState = null;
+    const n = P(); if (!prevAuto && n.id === n0.id) n.autoResearch = prevAuto || false;
+    save(); hud(); dirty = true;
+    const d = (a, b, f = fmt) => { const x = b - a; return `${f(b)} <small class="${x >= 0 ? "good" : "bad"}">(${x >= 0 ? "+" : "−"}${f(Math.abs(x))})</small>`; };
+    const keepNews = news.filter(x => x.p === true || x.p === null || x.p === undefined).slice(-40);
+    const pending = !!(G.pendingCivil || G.over);
+    showModal(`<div class="mi">📜</div><h2>${start.date} → ${dateTxt()}</h2>${stopped ? `<p class="note warn">${esc(stopped)}</p>` : `<p class="small">Ten years have passed under your governor.</p>`}
+      <div class="card">${line("People", d(start.pop, popOf(n), fmtP))}${line("Settlements", d(start.sets, setsOf(n).length, x => x))}${line("Territories", d(start.terr, terrCount(n), x => x))}${line("Technologies", d(start.techs, n.techs.length, x => x))}${line("Age", ERAS[n.era])}${line("Regiments", d(start.army, n.army, x => x))}${line("Gold", d(start.gold, n.gold))}${line("Public trust", d(start.trust, n.trust == null ? 100 : n.trust, x => Math.round(x)))}</div>
+      ${keepNews.length ? `<details><summary class="small"><b>What happened (${keepNews.length})</b></summary><div class="news">${keepNews.map(x => `<div class="nw"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div></details>` : ""}
+      <div class="row">${pending ? "" : `<button class="btn ghost" data-m="again">⏩ 10 more years</button>`}<button class="btn" data-m="ok">Continue</button></div>`, a => {
+        if (curPanel) refresh();
+        if (G.over) return showEnd();
+        if (G.pendingCivil) { G.lastReport = []; return afterTurnFlow(); }
+        if (a === "again") runSim(o);
+      });
+  };
+  const step = () => {
+    if (!simState) return;
+    if (simState.stop) return finish();
+    if (turns >= SIM_TURNS || G.over || !P().alive) return finish();
+    const me = P();
+    try {
+      governTurn(me, o);
+      const before = new Set(G.nations.filter(x => x.alive && atWar(me.id, x.id)).map(x => x.id));
+      endTurn(); turns++;
+      for (const x of G.lastReport) if (x.p !== false) news.push(x);
+      G.lastReport = [];
+      if (G.event) { const e = EVENTS.find(x => x.id === G.event.id), i = Math.floor(rnd() * e.ch.length), c = e.ch[i]; G.news = []; c.f(P()); news.push({ i: e.icon, t: `${e.title}: your governor chose "${c.t}".`, p: true }); news.push(...G.news); G.news = []; G.event = null; P().stab = stabilityOf(P(), P().fac); }
+      if (G.pendingPeace) { const pp = G.pendingPeace, f = G.nations[pp.from]; G.pendingPeace = null; if (f && f.alive && atWar(P().id, f.id)) { makePeace(P(), f, pp.tribute, G.nations[pp.payer] || null); news.push({ i: "🕊️", t: `Your governor accepted peace with the ${nm(f)}.`, p: true }); } }
+      if (G.pendingCivil) { stopped = "Civil war broke out. You must choose a side."; return finish(); }
+      const nw = G.nations.find(x => x.alive && atWar(P().id, x.id) && !before.has(x.id));
+      if (nw && o.pauseWar) { stopped = `The ${nm(nw)} declared war on you.`; return finish(); }
+    } catch (err) { stopped = "The simulation hit a problem and stopped."; console.error(err); return finish(); }
+    const bar = document.getElementById("simBar"), dt = document.getElementById("simDate");
+    if (bar) bar.style.width = (turns / SIM_TURNS * 100) + "%"; if (dt) dt.textContent = dateTxt();
+    hud(); dirty = true;
+    setTimeout(step, 0);
+  };
+  setTimeout(step, 30);
+}
 function afterTurnFlow() {
   hud(); dirty = true;
   if (G.over) return showEnd();
@@ -2451,6 +2534,7 @@ function afterTurnFlow() {
   else showEvent();
   if (G.pendingPeace) toast("A peace offer awaits in World");
 }
+$("zsim").onclick = () => openSim();
 $("endTurn").onclick = () => {
   if (!G || G.over || G.demo) return;
   if (G.event) return afterTurnFlow();
@@ -2464,6 +2548,7 @@ function showEnd() {
 }
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
+  <p><b>Simulate 10 years.</b> Tap ⏩ to let a governor run your nation for ten years. Pick a focus (balanced, growth, economy, research or military) and what it must honor: your culture, your government and laws, your budget, and whether it may start wars. It stops early for civil war or, if you like, when someone declares war on you.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>

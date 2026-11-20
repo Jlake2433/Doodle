@@ -65,6 +65,14 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 
 .zoom { position: absolute; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); display: grid; gap: 8px; }
 .zoom button { width: 42px; height: 42px; border-radius: 12px; background: var(--paper); border: 2.5px solid var(--ink); box-shadow: 0 3px 0 rgba(29,42,77,.9); font: 600 20px var(--display); display: grid; place-items: center; }
+#zsim { flex-direction: column; font-size: 16px; line-height: 1; }
+#zsim small { display: block; font: 800 9px var(--body); }
+.choice.simf { display: block; cursor: pointer; }
+.choice.simf input { float: right; width: 20px; height: 20px; accent-color: var(--accent); }
+.choice.simf:has(input:checked) { background: #fff3e8; border-color: var(--accent); }
+.simbar { height: 14px; margin: 10px 0; }
+.simbar i { background: var(--accent); }
+.center { text-align: center; }
 
 /* bottom nav */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 10px) max(10px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: flex-end; pointer-events: none; z-index: 6; }
@@ -310,7 +318,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
       <button class="chip" id="cArmy" data-open="nation" aria-label="Army"></button>
     </div>
   </div>
-  <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zhome" aria-label="Go to capital">⭐</button></div>
+  <div class="zoom"><button id="zsim" aria-label="Simulate 10 years">⏩<small>10y</small></button><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zhome" aria-label="Go to capital">⭐</button></div>
   <div class="sheet" id="sheet" hidden></div>
   <div class="panel" id="panel" hidden></div>
   <div class="nav">
