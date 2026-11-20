@@ -282,7 +282,7 @@ function samplePoint(ri, nearPt, owner = -1) {
       if (!sampler.isPointInPath(S.path, x, y, "evenodd")) continue;
       let ok = true, crowd = 0;
       for (const o of nearSets(x, y, 4)) {
-        const cheb = Math.max(Math.abs(o.x - x), Math.abs(o.y - y)), oh = o.h || .08;
+        const cheb = Math.hypot(o.x - x, o.y - y), oh = o.h || .08;
         if (o.o !== owner && owner >= 0 && cheb < oh + h0 + .03) { ok = false; break; } // can't settle inside another people's borders
         if (cheb < Math.min(oh, .3) + h0 + .12) { ok = false; break; }
         if (cheb < 1) crowd++;
@@ -295,6 +295,20 @@ function samplePoint(ri, nearPt, owner = -1) {
   }
   if (best || (owner >= 0 && G.sets.length && nearPt)) return best;
   return [S.lx + (rnd() - .5) * .3, S.ly + (rnd() - .5) * .3];
+}
+// an irregular, rounded outline for a settlement's land (never larger than its radius, so neighbors never overlap)
+function blobPts(x, y, r, seed, n = 22) {
+  const a = (seed * 2.399) % 6.283, b = (seed * 1.731) % 6.283, c = (seed * .917) % 6.283, out = [];
+  for (let i = 0; i < n; i++) { const t = i / n * Math.PI * 2;
+    const f = .86 + .05 * Math.sin(3 * t + a) + .04 * Math.sin(5 * t + b) + .03 * Math.sin(2 * t + c);
+    out.push([x + Math.cos(t) * r * f, y + Math.sin(t) * r * f]); }
+  return out;
+}
+function smoothPoly(path, pts) { // closed curve through midpoints
+  const m = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], N = pts.length;
+  const s0 = m(pts[N - 1], pts[0]); path.moveTo(s0[0], s0[1]);
+  for (let i = 0; i < N; i++) { const p = pts[i], q = m(p, pts[(i + 1) % N]); path.quadraticCurveTo(p[0], p[1], q[0], q[1]); }
+  path.closePath();
 }
 // spatial lookup of settlements near a point
 let gridKey = null, grid = null;
@@ -323,7 +337,7 @@ function getLandPath() {
   if (!landPath) { landPath = new Path2D(); for (const poly of W.land) for (const rg of poly) { landPath.moveTo(rg[0][0], rg[0][1]); for (let i = 1; i < rg.length; i++) landPath.lineTo(rg[i][0], rg[i][1]); landPath.closePath(); } }
   return landPath;
 }
-function hOf(s) { const n = G.nations[s.o]; const apc = APC[s.t] / (1 + .05 * (n ? n.era : 0)); return Math.max(.05, Math.sqrt(s.pop * apc) / 48); }
+function hOf(s) { const n = G.nations[s.o]; const apc = APC[s.t] / (1 + .05 * (n ? n.era : 0)); return Math.max(.05, Math.sqrt(s.pop * apc) / 48 * 1.13); }
 function growBorders() {
   for (const s of G.sets) { if (s.hp == null) s.hp = HP[s.t];
     if (s.hp < HP[s.t] && G.turn - (s.hit || 0) > 3) s.hp++;
@@ -335,12 +349,12 @@ function growBorders() {
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
     let lim = Math.min(target, s.h + Math.max(.03, s.h * .2));
     for (const o of near) { if (o.o === s.o) continue;
-      lim = Math.min(lim, Math.max(Math.abs(o.x - s.x), Math.abs(o.y - s.y)) - o.h - .01); }
+      lim = Math.min(lim, Math.hypot(o.x - s.x, o.y - s.y) - o.h - .01); }
     s.h = Math.max(.04, lim);
   }
   G.sv++;
 }
-const chebGap = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) - a.h - b.h;
+const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - a.h - b.h;
 function touchesSet(n, s) { return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < .25); }
 let touchKey = null, touchPairs = new Set();
 function bordersTouch(a, b) {
@@ -1309,12 +1323,12 @@ function hull(pts) {
   for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
   return lo.slice(0, -1).concat(up.slice(0, -1));
 }
-function linkOk(a, b) {
-  const L = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(2, Math.ceil(L / .35)), w = Math.min(a.h, b.h);
+function linkOk(a, b, hw) {
+  const L = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(2, Math.ceil(L / .35)), w = hw * 2;
   for (let i = 1; i < steps; i++) {
     const x = a.x + (b.x - a.x) * i / steps, y = a.y + (b.y - a.y) * i / steps;
     if (!onLand(x, y)) return false; // separated by water
-    for (const o of nearSets(x, y, 6)) if (o.o !== a.o && Math.abs(o.x - x) < o.h + w * .5 && Math.abs(o.y - y) < o.h + w * .5) return false; // another people's land in between
+    for (const o of nearSets(x, y, 6)) if (o.o !== a.o && Math.hypot(o.x - x, o.y - y) < o.h + w * .5) return false; // another people's land in between
   }
   return true;
 }
@@ -1338,13 +1352,19 @@ function corridors(n, key = G.sv + ":" + G.turn) {
       const k2 = i + "," + j; if (seen.has(k2)) continue; seen.add(k2);
       const a = find(i), b = find(j); if (a === b) continue;
       const A = S[i], Bs = S[j];
-      if (Math.max(Math.abs(A.x - Bs.x), Math.abs(A.y - Bs.y)) <= A.h + Bs.h) { par[a] = b; continue; } // already overlapping
-      if (!linkOk(A, Bs)) continue;
+      if (Math.hypot(A.x - Bs.x, A.y - Bs.y) <= (A.h + Bs.h) * .85) { par[a] = b; continue; } // already overlapping
+      // a broad swath of land between the two, narrowed if a neighbor is too close
+      const L0 = Math.hypot(Bs.x - A.x, Bs.y - A.y), wide = clamp(L0 * .32, Math.min(A.h, Bs.h) * .6, 2.5);
+      let hw = wide;
+      if (!linkOk(A, Bs, hw)) { hw = Math.min(A.h, Bs.h) * .5; if (!linkOk(A, Bs, hw)) continue; }
       par[a] = b;
-      const w = Math.min(A.h, Bs.h), pts = [];
-      for (const T of [A, Bs]) { const h = T === A ? Math.min(A.h, w * 1.6) : Math.min(Bs.h, w * 1.6); pts.push([T.x - h, T.y - h], [T.x + h, T.y - h], [T.x + h, T.y + h], [T.x - h, T.y + h]); }
-      const hl = hull(pts), path = new Path2D();
-      hl.forEach((p, k) => k ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1])); path.closePath();
+      const w = Math.max(Math.min(A.h, Bs.h), hw), pts = [];
+      for (const T of [A, Bs]) pts.push(...blobPts(T.x, T.y, T.h * .92, T.id + 7, 16));
+      const L = Math.hypot(Bs.x - A.x, Bs.y - A.y), nx = -(Bs.y - A.y) / L, ny = (Bs.x - A.x) / L;
+      for (const f of [.3, .7]) { const qx = A.x + (Bs.x - A.x) * f, qy = A.y + (Bs.y - A.y) * f, hh = hw * .85; pts.push([qx + nx * hh, qy + ny * hh], [qx - nx * hh, qy - ny * hh]); }
+      const mx = (A.x + Bs.x) / 2, my = (A.y + Bs.y) / 2, pinch = hw, bend = Math.sin(A.id + Bs.id) * hw * .3;
+      const hl = hull(pts.concat([[mx + nx * (pinch + bend), my + ny * (pinch + bend)], [mx - nx * (pinch - bend), my - ny * (pinch - bend)]])), path = new Path2D();
+      smoothPoly(path, hl);
       list.push({ path, bb: [Math.min(A.x, Bs.x) - w * 1.6, Math.min(A.y, Bs.y) - w * 1.6, Math.max(A.x, Bs.x) + w * 1.6, Math.max(A.y, Bs.y) + w * 1.6] });
     }
   }
@@ -1367,13 +1387,13 @@ function inForeignCorridor(x, y, owner) {
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn;
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
-    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); const h = s.h || .05; p.rect(s.x - h, s.y - h, h * 2, h * 2); }
+    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, blobPts(s.x, s.y, s.h || .05, s.id)); }
     for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
   for (const [o, p] of bordPaths) { const n = G.nations[o]; if (!n || !n.alive) continue; const war = atWar(me, o);
     // outline trick: stroke every square thick and dark, then fill the union so only the outer edge shows
-    ctx.lineJoin = "miter"; ctx.lineWidth = bw * (war ? 3 : 2); ctx.strokeStyle = war ? "#b3261e" : shade(n.color, -.42); ctx.stroke(p);
+    ctx.lineJoin = "round"; ctx.lineWidth = bw * (war ? 3 : 2); ctx.strokeStyle = war ? "#b3261e" : shade(n.color, -.42); ctx.stroke(p);
     ctx.fillStyle = shade(n.color, .25); ctx.fill(p); }
   ctx.restore();
 }
@@ -1499,9 +1519,19 @@ function shapePath(t, x, y, z) {
 function drawSettlements(k, me) {
   const x0 = -view.x / k - 1, y0 = -view.y / k - 1, x1 = (cw - view.x) / k + 1, y1 = (ch - view.y) / k + 1;
   ctx.lineJoin = "round";
-  for (let t = 0; t < 3; t++) for (const s of G.sets) {
-    if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
-    const n = G.nations[s.o], px = clamp((s.h || .05) * k * .14, 1.4, 4.5 + t * 1.8), z = px / k;
+  // most important first: capitals, then cities, towns, villages; anything that would overlap is left out
+  const vis = G.sets.filter(s => s.x >= x0 && s.x <= x1 && s.y >= y0 && s.y <= y1)
+    .sort((a, b) => (G.nations[b.o].cap === b.id) - (G.nations[a.o].cap === a.id) || b.t - a.t || b.pop - a.pop);
+  const taken = new Map(), labels = [];
+  const cell = (x, y) => (x / 24 | 0) + "," + (y / 24 | 0);
+  const free = (sx, sy, r) => { const gx = sx / 24 | 0, gy = sy / 24 | 0;
+    for (let a = gx - 1; a <= gx + 1; a++) for (let b = gy - 1; b <= gy + 1; b++) { const l = taken.get(a + "," + b); if (l) for (const q of l) if (Math.hypot(q[0] - sx, q[1] - sy) < q[2] + r + 1.5) return false; }
+    return true; };
+  for (const s of vis) {
+    const t = s.t, n = G.nations[s.o], px = clamp((s.h || .05) * k * .14, 1.4, 4.5 + t * 1.8), z = px / k;
+    const sx = s.x * k + view.x, sy = s.y * k + view.y, rr = px * (t === 2 ? 1.15 : 1);
+    if (!free(sx, sy, rr)) continue;
+    const key = cell(sx, sy); (taken.get(key) || taken.set(key, []).get(key)).push([sx, sy, rr]);
     if (px < 2.4) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill(); continue; }
     const base = shade(n.color, .62);
     shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
@@ -1513,9 +1543,12 @@ function drawSettlements(k, me) {
     if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = z * .12; ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
     if (n.cap === s.id) { starPath(s.x + z * .95, s.y - z * .95, z * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = z * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
     if ((s.h || .05) * k > (t >= 1 ? 45 : 80)) {
+      const txt = `${s.name} · ${fmt(s.pop)}`, w = txt.length * 6.2, lx = sx - w / 2, ly = sy + px * 1.3 + 2;
+      if (labels.some(b => lx < b[2] && lx + w > b[0] && ly < b[3] && ly + 13 > b[1])) continue;
+      labels.push([lx, ly, lx + w, ly + 13]);
       const fs = 11 / k;
       ctx.font = `800 ${fs}px Nunito, system-ui, sans-serif`; ctx.lineWidth = fs * .3; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
-      const txt = `${s.name} · ${fmt(s.pop)}`, ty = s.y + z * 1.3 + fs * .7;
+      const ty = s.y + z * 1.3 + fs * .7;
       ctx.strokeText(txt, s.x, ty); ctx.fillText(txt, s.x, ty);
     }
   }
