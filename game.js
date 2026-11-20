@@ -17,7 +17,7 @@ const ERAS = ["Stone Age", "Bronze Age", "Classical Age", "Medieval Age", "Renai
 const YEARS_PER_TURN = [25, 70, 45, 32, 12, 6, 4, 3];
 const ERA_YEAR = [-4000, -3000, -800, 500, 1450, 1750, 1900, 1990, 2100];
 const ERA_POW = [1, 1.6, 2.6, 4, 6.5, 11, 18, 30];
-const TECH_BASE = [10, 36, 100, 250, 580, 1300, 2800, 5500];
+const TECH_BASE = [10, 36, 100, 260, 850, 2300, 6500, 14000];
 
 // settlements
 const TIERS = [
@@ -122,7 +122,7 @@ const TECHS = [
 ].map(([id, era, name, desc], i) => ({ id, era, name, desc, idx: i }));
 const TECH = Object.fromEntries(TECHS.map(t => [t.id, t]));
 TECHS.forEach(t => { const k = TECHS.filter(x => x.era === t.era).indexOf(t); t.cost = Math.round(TECH_BASE[t.era] * (1 + 0.1 * k)); });
-TECH.mars.cost = 14000;
+TECH.mars.cost = 45000;
 const eraTechs = e => TECHS.filter(t => t.era === e && t.id !== "mars");
 const eraNeed = e => eraTechs(e).length - 1;
 
@@ -192,16 +192,20 @@ function emph(n, ck) { // how strongly a field is emphasized: { cities, cap }
   if (!c || c.key !== key) { c = { key, m: {} }; for (const s of G.sets) if (s.o === n.id && s.focus && canEmph(n, s)) { const e = c.m[s.focus] || (c.m[s.focus] = { cities: 0, cap: false }); if (s.id === n.cap) e.cap = true; else e.cities++; } emphCache.set(n.id, c); }
   return c.m[ck] || { cities: 0, cap: false };
 }
-const emphMult = (n, ck) => { const e = emph(n, ck); return 1 + Math.min(.4, .03 * e.cities) + (e.cap ? .15 : 0); };
+const emphMult = (n, ck) => { const e = emph(n, ck); return 1 + .015 * e.cities + (e.cap ? .15 : 0); };
 const reachAhead = (n, ck) => { const e = emph(n, ck); return e.cap ? 3 : e.cities ? 1 : 0; };
 const TECH_CHAINS = {}; // which fields each technology belongs to
 function techChains(t) { if (!TECH_CHAINS[t]) TECH_CHAINS[t] = [...new Set(Object.values(FIELDS).filter(f => f.tech === t).map(f => f.chain.k))]; return TECH_CHAINS[t]; }
 const techAhead = (n, t) => Math.max(0, ...techChains(t.id).map(ck => reachAhead(n, ck)));
-const techCost = (n, t) => { let b = 0; for (const ck of techChains(t.id)) { const e = emph(n, ck); b = Math.max(b, Math.min(.3, .02 * e.cities) + (e.cap ? .15 : 0)); } return Math.round(t.cost / (1 + b)); };
+const techCost = (n, t) => { let b = 0; for (const ck of techChains(t.id)) { const e = emph(n, ck); b = Math.max(b, .01 * e.cities + (e.cap ? .15 : 0)); } return Math.round(t.cost / (1 + b)); };
 // a field stage is capped to the current age, unless cities push that field ahead
 function fieldOpen(n, f) { return (!f.tech || has(n, f.tech)) && (!f.prev || lv(n, f.prev) >= FIELD_NEXT) && f.tier <= n.era + reachAhead(n, f.chain.k); }
 // to enter a new age, every field you can develop needs at least a base level
-function fieldsMissing(n) { return CHAINS.filter(c => { const f0 = FIELDS[c.f[0][0]]; return fieldOpen(n, f0) && !c.f.some(([k]) => lv(n, k) > 0); }); }
+// base level needed in each field to leave the current age: 2 levels per age, counted across the field's stages,
+// never more than the stages you've unlocked so far allow
+const chainNeed = (n, c) => { let avail = 0; for (const [k] of c.f) { const f = FIELDS[k]; if (f.tier <= n.era && (!f.tech || has(n, f.tech))) avail += FIELD_MAX; } return Math.min(2 + 2 * n.era, avail); };
+const chainHave = (n, c) => c.f.reduce((a, [k]) => a + lv(n, k), 0);
+function fieldsMissing(n) { return CHAINS.filter(c => fieldOpen(n, FIELDS[c.f[0][0]]) || chainHave(n, c)).filter(c => chainHave(n, c) < chainNeed(n, c)); }
 function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
 const fieldUp = f => .08 * Math.pow(1.5, f.tier);
 function fb(n, key) { let v = 0; if (!n.fields) return 0; for (const k in n.fields) { const f = FIELDS[k]; if (f && f.chain.eff[key]) v += n.fields[k] * f.chain.eff[key] * f.mult * emphMult(n, f.chain.k); } return v; }
@@ -1063,7 +1067,7 @@ function aiTurn(n) {
   // develop fields
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
-  for (const c of fieldsMissing(n)) { const f = FIELDS[c.f[0][0]], cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
+  for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
   let builds = 0;
   for (let tries = 0; tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
     const opts = Object.values(FIELDS).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX);
@@ -1682,7 +1686,7 @@ function setRow(s, n) {
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
     if (canEmph(n, s)) {
       const opts = CHAINS.filter(c => fieldOpen(n, FIELDS[c.f[0][0]]) || c.f.some(([k]) => lv(n, k)));
-      acts += `<label class="emph">${s.id === n.cap ? "⭐ Capital" : "🏙️ City"} emphasis <select data-s="${s.id}"><option value="">None</option>${opts.map(c => `<option value="${c.k}" ${s.focus === c.k ? "selected" : ""}>${c.icon} ${esc(c.name)}</option>`).join("")}</select></label><span class="why">${s.focus ? `${s.id === n.cap ? "+15%" : "+3%"} to ${esc(CHAINS.find(c => c.k === s.focus).name)} bonuses, faster research for it, and it can reach ${s.id === n.cap ? "3 ages" : "1 age"} ahead.` : `Pick a field for this ${s.id === n.cap ? "capital" : "city"} to specialize in.`}</span>`;
+      acts += `<label class="emph">${s.id === n.cap ? "⭐ Capital" : "🏙️ City"} emphasis <select data-s="${s.id}"><option value="">None</option>${opts.map(c => `<option value="${c.k}" ${s.focus === c.k ? "selected" : ""}>${c.icon} ${esc(c.name)}</option>`).join("")}</select></label><span class="why">${s.focus ? `${s.id === n.cap ? "+15%" : "+1.5%"} to ${esc(CHAINS.find(c => c.k === s.focus).name)} bonuses, faster research for it, and it can reach ${s.id === n.cap ? "3 ages" : "1 age"} ahead.` : `Pick a field for this ${s.id === n.cap ? "capital" : "city"} to specialize in.`}</span>`;
     }
   } else if (atWar(n.id, o.id) && !touchesSet(n, s)) {
     acts += `<span class="why">Not on the front line. Only settlements touching your borders can be attacked.</span>`;
@@ -1809,7 +1813,7 @@ function panelNation() {
 function panelDevelop() {
   const n = P(); let h = ph("Develop", "Set up fields, then expand them. Level 3 opens the next stage.");
   const miss = fieldsMissing(n);
-  if (miss.length) h += `<p class="note">To enter the next age, set up every field at least once. Still missing: ${miss.map(c => c.icon + " " + esc(c.name)).join(", ")}.</p>`;
+  if (miss.length && n.era < 7) h += `<p class="note">To enter the ${ERAS[n.era + 1]}, each field needs ${2 + 2 * n.era} levels (or all its unlocked stages full). Still short: ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")}.</p>`;
   h += `<p class="small muted">Tip: tap one of your cities on the map to make it emphasize a field. Your capital can do this as soon as it's a town.</p>`;
   for (const c of CHAINS) {
     const total = c.f.reduce((a, [k]) => a + lv(n, k) * FIELDS[k].mult, 0);
@@ -1820,7 +1824,8 @@ function panelDevelop() {
       continue;
     }
     const em = emph(n, c.k), emTxt = em.cap || em.cities ? `<p class="emtag">Emphasized by ${[em.cap ? "your capital" : "", em.cities ? `${em.cities} cit${em.cities === 1 ? "y" : "ies"}` : ""].filter(Boolean).join(" and ")}: ×${emphMult(n, c.k).toFixed(2)} bonuses, up to ${reachAhead(n, c.k)} age${reachAhead(n, c.k) > 1 ? "s" : ""} ahead</p>` : "";
-    h += `<div class="card fcard ${par ? "branch" : ""}">${par ? `<div class="from">🌿 Branch of ${par.name}</div>` : ""}<h4><span>${c.icon}</span> ${c.name}</h4><p class="small muted">${total ? effTxt : "Boosts " + c.d + "."}</p>${emTxt}<div class="stages">`;
+    const need = chainNeed(n, c), have = chainHave(n, c);
+    h += `<div class="card fcard ${par ? "branch" : ""}">${par ? `<div class="from">🌿 Branch of ${par.name}</div>` : ""}<h4><span>${c.icon}</span> ${c.name}${n.era < 7 && need ? ` <span class="pill ${have >= need ? "good" : ""}">${Math.min(have, need)}/${need} for next age</span>` : ""}</h4><p class="small muted">${total ? effTxt : "Boosts " + c.d + "."}</p>${emTxt}<div class="stages">`;
     let shown = 0;
     for (const [k] of c.f) {
       const f = FIELDS[k], L = lv(n, k), open = fieldOpen(n, f);
@@ -1843,7 +1848,7 @@ function panelResearch() {
   const n = P(), E = econ(n);
   let h = ph("Research", `${fmt(E.sci)} science per turn · ${ERAS[n.era]}`);
   if (n.era < 7) { const got = eraTechs(n.era).filter(t => has(n, t.id)).length, miss = fieldsMissing(n);
-    h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, got / eraNeed(n.era) * 100)}%;background:var(--accent)"></i></div><span>${got}/${eraNeed(n.era)}</span></div><p class="muted small">To enter the ${ERAS[n.era + 1]}: discover ${eraNeed(n.era)} technologies of the ${ERAS[n.era]} and give every field a base level.</p>${miss.length ? `<p class="small"><b class="warn">Fields not set up yet:</b> ${miss.map(c => c.icon + " " + esc(c.name)).join(", ")} (see Develop)</p>` : `<p class="small good">✓ Every field has a base level</p>`}</div>`; }
+    h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, got / eraNeed(n.era) * 100)}%;background:var(--accent)"></i></div><span>${got}/${eraNeed(n.era)}</span></div><p class="muted small">To enter the ${ERAS[n.era + 1]}: discover ${eraNeed(n.era)} technologies of the ${ERAS[n.era]} and bring every field to ${2 + 2 * n.era} levels.</p>${miss.length ? `<p class="small"><b class="warn">Fields still short:</b> ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")} (see Develop)</p>` : `<p class="small good">✓ Every field is developed enough</p>`}</div>`; }
   { const rate = +(3 * Math.pow(1.3, n.era)).toFixed(1), fg = Math.round(40 * Math.pow(1.7, n.era)), fs = Math.round(fg / rate);
     h += `<div class="card"><h4>Fund your scientists</h4><p class="muted small">Turn spare gold into research. ${rate} gold buys 1 science.</p><div class="row wrap">${[1, 4].map(k => `<button class="btn small" data-act="fund" data-g="${fg * k}" data-s="${fs * k}" ${n.gold >= fg * k ? "" : "disabled"}>🪙${fmt(fg * k)} → 🔬${fmt(fs * k)}</button>`).join("")}</div></div>`; }
   h += `<label class="toggle"><input type="checkbox" id="autoR" ${n.autoResearch ? "checked" : ""}> Let advisors pick the next research automatically</label>`;
@@ -2016,7 +2021,7 @@ function showHelp() {
   <p><b>Room.</b> Each territory has room for a set number of settlements and of towns and cities, based on its size and land. Big fertile plains hold the most.</p>
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Develop.</b> Instead of single buildings, you grow whole fields: Food, Industry, Weapons, Trade, Knowledge and more. Set a field up, then expand it level by level. Level 3 opens its next stage once you have the matching technology, from Weapon Making all the way to a Nuclear Arsenal.</p>
-  <p><b>Ages & emphasis.</b> Fields are capped to your current age, and you can't enter a new age until every field has at least a base level. Each city can emphasize one field: it boosts that field's bonuses, speeds up its research, and lets it reach 1 age ahead. Your capital lets its field reach 3 ages ahead.</p>
+  <p><b>Ages & emphasis.</b> Fields are capped to your current age, and you can't enter a new age until every field reaches a base level that grows each age (2 levels per age). Each city can emphasize one field: it gives a small boost to that field's bonuses (+1.5% per city) and research (+1%), and lets it reach 1 age ahead. Your capital lets its field reach 3 ages ahead.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>Borders.</b> Each settlement holds land around it, and your borders grow as you add villages, towns and cities. Borders stop where they meet another people's, and you can't settle inside someone else's borders.</p>
