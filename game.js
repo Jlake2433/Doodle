@@ -288,6 +288,7 @@ function samplePoint(ri, nearPt, owner = -1) {
         if (cheb < 1) crowd++;
       }
       if (!ok) continue;
+      if (owner >= 0 && inForeignCorridor(x, y, owner)) continue;
       const sc = d + crowd * .02 + rnd() * .1;
       if (sc < bd) { bd = sc; best = [x, y]; }
     }
@@ -1292,10 +1293,82 @@ function clampView() {
 function centerOn(x, y, k) { if (k) view.k = k; view.x = cw / 2 - x * view.k; view.y = ch * .42 - y * view.k; clampView(); dirty = true; }
 const centerRegion = (ri, k) => centerOn(W.regions[ri].lx, W.regions[ri].ly, k);
 let bordKey = null, bordPaths = new Map();
+// ---- keep each people's land in one piece: link settlements with filled corridors unless water or foreign land is in the way ----
+let landMask = null;
+function onLand(x, y) {
+  if (!landMask) { const c = document.createElement("canvas"); c.width = Math.ceil(W.w); c.height = Math.ceil(W.h); const g = c.getContext("2d"); g.fill(getLandPath(), "evenodd");
+    const d = g.getImageData(0, 0, c.width, c.height).data; landMask = { w: c.width, h: c.height, m: new Uint8Array(c.width * c.height) }; for (let i = 0; i < landMask.m.length; i++) landMask.m[i] = d[i * 4 + 3] > 60 ? 1 : 0; }
+  const xi = x | 0, yi = y | 0; if (xi < 0 || yi < 0 || xi >= landMask.w || yi >= landMask.h) return false;
+  return landMask.m[yi * landMask.w + xi] === 1;
+}
+function hull(pts) {
+  pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const p of pts) { while (lo.length >= 2 && cr(lo[lo.length - 2], lo[lo.length - 1], p) <= 0) lo.pop(); lo.push(p); }
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (up.length >= 2 && cr(up[up.length - 2], up[up.length - 1], p) <= 0) up.pop(); up.push(p); }
+  return lo.slice(0, -1).concat(up.slice(0, -1));
+}
+function linkOk(a, b) {
+  const L = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(2, Math.ceil(L / .35)), w = Math.min(a.h, b.h);
+  for (let i = 1; i < steps; i++) {
+    const x = a.x + (b.x - a.x) * i / steps, y = a.y + (b.y - a.y) * i / steps;
+    if (!onLand(x, y)) return false; // separated by water
+    for (const o of nearSets(x, y, 6)) if (o.o !== a.o && Math.abs(o.x - x) < o.h + w * .5 && Math.abs(o.y - y) < o.h + w * .5) return false; // another people's land in between
+  }
+  return true;
+}
+const corrCache = new Map();
+function corridors(n, key = G.sv + ":" + G.turn) {
+  const c = corrCache.get(n.id); if (c && c.key === key) return c.list;
+  const S = G.sets.filter(s => s.o === n.id), N = S.length, list = [];
+  if (N > 1) {
+    // candidate links: each settlement to its 6 nearest, then Kruskal so the network is as short as possible
+    const edges = [];
+    for (let i = 0; i < N; i++) {
+      const near = [];
+      for (let j = 0; j < N; j++) if (j !== i) near.push([Math.hypot(S[i].x - S[j].x, S[i].y - S[j].y), j]);
+      near.sort((a, b) => a[0] - b[0]);
+      for (const [d, j] of near.slice(0, 6)) if (i < j || !near.slice(0, 6).length) edges.push([d, i, j]); else edges.push([d, j, i]);
+    }
+    edges.sort((a, b) => a[0] - b[0]);
+    const par = S.map((_, i) => i), find = i => par[i] === i ? i : (par[i] = find(par[i]));
+    const seen = new Set();
+    for (const [d, i, j] of edges) {
+      const k2 = i + "," + j; if (seen.has(k2)) continue; seen.add(k2);
+      const a = find(i), b = find(j); if (a === b) continue;
+      const A = S[i], Bs = S[j];
+      if (Math.max(Math.abs(A.x - Bs.x), Math.abs(A.y - Bs.y)) <= A.h + Bs.h) { par[a] = b; continue; } // already overlapping
+      if (!linkOk(A, Bs)) continue;
+      par[a] = b;
+      const w = Math.min(A.h, Bs.h), pts = [];
+      for (const T of [A, Bs]) { const h = T === A ? Math.min(A.h, w * 1.6) : Math.min(Bs.h, w * 1.6); pts.push([T.x - h, T.y - h], [T.x + h, T.y - h], [T.x + h, T.y + h], [T.x - h, T.y + h]); }
+      const hl = hull(pts), path = new Path2D();
+      hl.forEach((p, k) => k ? path.lineTo(p[0], p[1]) : path.moveTo(p[0], p[1])); path.closePath();
+      list.push({ path, bb: [Math.min(A.x, Bs.x) - w * 1.6, Math.min(A.y, Bs.y) - w * 1.6, Math.max(A.x, Bs.x) + w * 1.6, Math.max(A.y, Bs.y) + w * 1.6] });
+    }
+  }
+  corrCache.set(n.id, { key, list }); return list;
+}
+// spatial index of every people's corridors, rebuilt once per turn
+let corrIdx = null, corrIdxTurn = -1;
+function inForeignCorridor(x, y, owner) {
+  if (!sampler) sampler = document.createElement("canvas").getContext("2d");
+  if (corrIdxTurn !== G.turn || !corrIdx) {
+    corrIdxTurn = G.turn; corrIdx = new Map();
+    for (const n of G.nations) { if (!n.alive) continue;
+      for (const c of corridors(n, "t" + G.turn)) for (let gx = c.bb[0] / 4 | 0; gx <= (c.bb[2] / 4 | 0); gx++) for (let gy = c.bb[1] / 4 | 0; gy <= (c.bb[3] / 4 | 0); gy++) {
+        const k = gx + "," + gy; (corrIdx.get(k) || corrIdx.set(k, []).get(k)).push([n.id, c]); } }
+  }
+  const a = corrIdx.get((x / 4 | 0) + "," + (y / 4 | 0)); if (!a) return false;
+  for (const [o, c] of a) if (o !== owner && x > c.bb[0] && x < c.bb[2] && y > c.bb[1] && y < c.bb[3] && sampler.isPointInPath(c.path, x, y)) return true;
+  return false;
+}
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn;
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
-    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); const h = s.h || .05; p.rect(s.x - h, s.y - h, h * 2, h * 2); } }
+    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); const h = s.h || .05; p.rect(s.x - h, s.y - h, h * 2, h * 2); }
+    for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
   for (const [o, p] of bordPaths) { const n = G.nations[o]; if (!n || !n.alive) continue; const war = atWar(me, o);
