@@ -16,16 +16,17 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 const ERAS = ["Stone Age", "Bronze Age", "Classical Age", "Medieval Age", "Renaissance", "Industrial Age", "Modern Age", "Information Age"];
 const YEARS_PER_TURN = [25, 70, 45, 32, 12, 6, 4, 3];
 const ERA_YEAR = [-4000, -3000, -800, 500, 1450, 1750, 1900, 1990, 2100];
-// ---- time: every turn is one month. The game's rates are written per "span" (the old turn length of each age,
-// YEARS_PER_TURN years), and each month runs TD of a span: flows scale by TD, chances and drifts compound by TD ----
+// ---- time: every turn is one quarter of a year. The game's rates are written per "span" (the old turn length of each age,
+// YEARS_PER_TURN years), and each quarter runs TD of a span: flows scale by TD, chances and drifts compound by TD ----
+const TPY = 4; // turns per year
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const calEra = y => { let e = 0; while (e < 7 && y >= ERA_YEAR[e + 1]) e++; return e; };
-let TD = 1 / (12 * YEARS_PER_TURN[0]);
-function setTD() { if (G && G.year != null) TD = 1 / (12 * YEARS_PER_TURN[calEra(G.year)]); return TD; }
-const pr = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), TD); // a chance (or drift rate) per span, as a monthly chance
+let TD = 1 / (TPY * YEARS_PER_TURN[0]);
+function setTD() { if (G && G.year != null) TD = 1 / (TPY * YEARS_PER_TURN[calEra(G.year)]); return TD; }
+const pr = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), TD); // a chance (or drift rate) per span, as a chance each quarter
 const dec = x => { const v = (x || 0) - TD; return v < 1e-6 ? 0 : v; }; // count down a timer measured in spans
-const monthsOf = t => Math.max(1, Math.round(t / TD));
-const durTxt = t => { const m = monthsOf(t); return m < 24 ? `${m} month${m > 1 ? "s" : ""}` : `${Math.round(m / 12)} years`; };
+const turnsOf = t => Math.max(1, Math.round(t / TD));
+const durTxt = t => { const q = turnsOf(t); return q < 8 ? `${q} quarter${q > 1 ? "s" : ""}` : `${Math.round(q / TPY)} years`; };
 const etaTxt = (left, rate) => rate <= 0 ? "stalled" : durTxt(Math.max(0, left) / rate * TD);
 const ERA_POW = [1, 1.6, 2.6, 4, 6.5, 11, 18, 30];
 const TECH_BASE = [10, 40, 115, 330, 1100, 3000, 8500, 18000];
@@ -753,7 +754,7 @@ const welfareExpect = (n, k) => Math.min(welfareMax(n, k), Math.max(0, (eduOf(n)
 const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propSway(n));
 const welfareWork = n => .02 * welfareLv(n); // healthier, steadier people work better
 const FLOWS = ["tax", "routeGold", "luxGold", "foodGold", "bUp", "armyUp", "imports", "govUp", "goldNet", "mat", "sci", "resGold", "resMat", "resSci", "acadUp", "sciPay", "offPay", "gross", "fixed", "spend", "milGold", "qtyGold", "qualGold", "prodGold", "travelGold", "subGold", "propGold", "incGold", "healthGold", "spare"];
-function econM(n) { setTD(); const E = econ(n), M = { ...E, raw: E }; for (const k of FLOWS) M[k] = E[k] * TD; return M; } // what a month brings in and costs
+function econM(n) { setTD(); const E = econ(n), M = { ...E, raw: E }; for (const k of FLOWS) M[k] = E[k] * TD; return M; } // what a quarter brings in and costs
 function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
@@ -1586,7 +1587,8 @@ function endTurn() {
   growBorders();
   updateContacts(); updateExplore();
   G.turn++; G.tt += TD;
-  if (++G.month >= 12) { G.month = 0; G.year++; if (G.year === 0) G.year = 1; } // there is no year 0
+  G.month = Math.floor((G.month || 0) / 3) * 3 + 3; // months 0, 3, 6, 9 start each quarter
+  if (G.month >= 12) { G.month = 0; G.year++; if (G.year === 0) G.year = 1; } // there is no year 0
   setTD();
   const me = P();
   if (me.alive && terrCount(me) >= Math.ceil(NR * .4)) victory(me, "domination");
@@ -1929,7 +1931,7 @@ function zoomBy(f) { const cx = cw / 2, cy = ch / 2, mx = (cx - view.x) / view.k
 
 // ================= UI =================
 const sheet = $("sheet"), panel = $("panel"), modal = $("modal");
-const dateTxt = () => `${MONTHS[G.month || 0]} ${yearTxt(G.year)}`;
+const dateTxt = () => `Q${Math.floor((G.month || 0) / 3) + 1} ${yearTxt(G.year)}`;
 function hud() {
   const n = P(), E = econM(n);
   $("hName").textContent = nm(n);
@@ -2075,15 +2077,15 @@ function budgetFill(root) {
   set("mil", `Pays for <b>${E.armyTarget}</b> regiment${E.armyTarget === 1 ? "" : "s"} (you have ${n.army}; manpower allows ${E.manpower}). ${E.armyTarget > n.army ? "New regiments are raised each turn as materials allow." : E.armyTarget < n.army ? `<span class="bad">${n.army - E.armyTarget} will be stood down; until then they're underpaid (${Math.round(mm * 100)}% strength).</span>` : ""}${E.spare > .01 ? ` Manpower is maxed out, so ${fmt(E.spare)} 🪙 extra goes into quality.` : ""}`);
   set("v-qual", `${100 - B0.qual}% · ${B0.qual}%`);
   set("qual", `${fmt(E.qtyGold)} 🪙 on regiments, ${fmt(E.qualGold)} 🪙 on arms and training: <span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% strength per regiment</span> · total strength about ${fmt(Math.max(n.army, E.armyTarget) * unitPower(n))}.`);
-  set("res", `+${fmt(E.resSci)} 🔬 science a month · uses ${fmt(E.resMat)} 🪵 materials.`);
+  set("res", `+${fmt(E.resSci)} 🔬 science a quarter · uses ${fmt(E.resMat)} 🪵 materials.`);
   set("prod", B0.prod ? `+${Math.round(E.prodBoost * 100)}% materials.` : BUDGET.prod.d);
   set("travel", B0.travel ? `Generals and commanders: up to +${(travelQ(n)).toFixed(1)}★ better odds, and generals emerge ${Math.round(.6 * travelQ(n) * 100)}% more often.` : BUDGET.travel.d);
   set("sub", B0.sub ? `+${Math.round(subFoodOf(n) * 100)}% food · +${(subGrowOf(n) * 100).toFixed(1)}% growth · commoners +${Math.round(2 * Math.sqrt(B0.sub))}, merchants +${Math.round(1.5 * Math.sqrt(B0.sub))}.` : BUDGET.sub.d);
   for (const k in WELFARE) { const l = B0[k], g = k === "inc" ? E.incGold : E.healthGold, gp = welfareGap(n, k);
     set("v-" + k, l ? `${Math.round(WELFARE[k].cost[l] * 100)}% · ${fmt(g)} 🪙` : "Off");
-    set(k, l ? `+${(.75 * l * TD * 12).toFixed(2).replace(/\.?0+$/, "")} trust a year · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp * TD * 12).toFixed(2)} trust a year.</span>` : ""}`); }
+    set(k, l ? `+${(.75 * l * TD * TPY).toFixed(2).replace(/\.?0+$/, "")} trust a year · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp * TD * TPY).toFixed(2)} trust a year.</span>` : ""}`); }
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100);
-  const td = trustFactors(n, E.raw).reduce((a, x) => a + x[1], 0) * TD * 12;
+  const td = trustFactors(n, E.raw).reduce((a, x) => a + x[1], 0) * TD * TPY;
   set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a year)`, td < 0 ? "bad" : "")}`);
 }
 // the army tab splits whatever the yearly budget gives the military between quantity and quality
@@ -2110,12 +2112,12 @@ function panelNation() {
     ${full ? line("Overcrowded", `<span class="bad">${full} with no room nearby</span>`) : ""}
     ${line("Settlements you can manage", `${fmt(sizeOf(n))} / ${adminCap(n)}${E.over ? ' <span class="bad">overextended</span>' : ""}`)}
     <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages close together can merge into one town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
-  { const t = Math.round(Math.max(0, n.trust == null ? 100 : n.trust)), tf = trustFactors(n, E.raw).map(x => [x[0], x[1] * TD * 12]), td = tf.reduce((a, x) => a + x[1], 0);
+  { const t = Math.round(Math.max(0, n.trust == null ? 100 : n.trust)), tf = trustFactors(n, E.raw).map(x => [x[0], x[1] * TD * TPY]), td = tf.reduce((a, x) => a + x[1], 0);
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
-      <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * 12) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every month. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
+      <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
   h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
-  h += `<div class="card"><h4>Treasury <span class="muted">per month</span></h4>
+  h += `<div class="card"><h4>Treasury <span class="muted">per quarter</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Military budget (${bud(n).mil}%)`, sgn(-E.milGold))}${line(`Research budget (${bud(n).res}%)`, sgn(-E.resGold))}${E.prodGold ? line(`Production (${bud(n).prod}%)`, sgn(-E.prodGold)) : ""}${E.travelGold ? line(`Travel (${bud(n).travel}%)`, sgn(-E.travelGold)) : ""}${E.subGold ? line(`Subsidies (${bud(n).sub}%)`, sgn(-E.subGold)) : ""}${E.incGold ? line(WELFARE.inc.lv[bud(n).inc], sgn(-E.incGold)) : ""}${E.healthGold ? line(WELFARE.health.lv[bud(n).health], sgn(-E.healthGold)) : ""}
     ${E.acadUp ? line("Academies upkeep", sgn(-E.acadUp)) : ""}${E.sciPay ? line(`Scientists' pay (${fmtP(n.scientists)})`, sgn(-E.sciPay)) : ""}${E.offPay ? line(`Officers' pay (${fmtP(n.officers)})`, sgn(-E.offPay)) : ""}
@@ -2131,7 +2133,7 @@ function panelNation() {
   h += `<div class="card"><h4>Army</h4>
     ${line("Regiments", `${n.army} / ${ma} max`)}${line("Strength per regiment", fmt(unitPower(n)))}${line("Total strength", fmt(power(n)))}${line("Ready to fight", Math.floor(n.army - (n.used || 0)))}
     ${line("Budget pays for", `${E.armyTarget} regiments`)}
-    <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n) * TD)} gold a month, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
+    <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n) * TD)} gold a quarter, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
   h += `<div class="card"><h4>Paths to victory</h4>
     ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? (lv(n, "marsmission") >= 3 ? "Mars Mission ready" : "Develop the Space field") : ERAS[n.era])}
     ${line("🌍 Control 40% of the world", `${terr.length} / ${Math.ceil(NR * .4)} territories`)}
@@ -2194,13 +2196,13 @@ function panelMilitary() {
     ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiments${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
     ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
     <p class="muted small">New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
-  h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a month). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
+  h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a quarter). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   // generals
   const gens = (n.generals || []).slice().sort((a, b) => b.skill - a.skill), best = bestGeneral(n);
   h += `<div class="card"><h4>🎖️ Officers & generals</h4>
     <div class="tiers two"><div><span>🎖️</span><b>${fmtP(n.officers || 0)}</b><small>Officer power</small></div><div><span>⭐</span><b>${generalPower(n)}</b><small>General power</small></div></div>
     ${line("Officers", `+${Math.round(officerBonus(n) * 100)}% army strength`)}${line("Generals", `+${Math.round(genBonus(n) * 100)}% attack`)}
-    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n) * TD * 12)} officers a year and a few retire. Each officer is paid ${fmt(offSalary(n) * TD)} 🪙 a month.</p>
+    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n) * TD * TPY)} officers a year and a few retire. Each officer is paid ${fmt(offSalary(n) * TD)} 🪙 a quarter.</p>
     ${gens.length ? `<details><summary class="small"><b>${gens.length} general${gens.length > 1 ? "s" : ""}</b></summary>${gens.map(g => `<div class="ln"><span>General ${esc(g.name)} <small class="muted">from ${esc(g.from)}</small></span><b>${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)} · ${durTxt(g.left)}</b></div>`).join("")}</details>` : `<p class="small muted">No generals yet. Military academies graduate them over time.</p>`}</div>`;
   // military academies
   const lim = milAcadLimit(n), cnt = milAcadCount(n), sites = setsOf(n).filter(x => canAcad(n, x));
@@ -2213,15 +2215,15 @@ function panelMilitary() {
 }
 function panelResearch() {
   const n = P(), E = econM(n);
-  let h = ph("Research", `${fmt(E.sci)} science a month · ${ERAS[n.era]}`);
+  let h = ph("Research", `${fmt(E.sci)} science a quarter · ${ERAS[n.era]}`);
   { const links = knowledgeLinks(n), big = links.filter(x => x.w === 1).length;
-    h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in your budget) adds ${fmt(E.resSci)} science a month. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
+    h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in your budget) adds ${fmt(E.resSci)} science a quarter. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
   if (n.era < 7) { const got = eraTechs(n.era).filter(t => has(n, t.id)).length, miss = fieldsMissing(n);
     h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, got / eraNeed(n.era) * 100)}%;background:var(--accent)"></i></div><span>${got}/${eraNeed(n.era)}</span></div><p class="muted small">To enter the ${ERAS[n.era + 1]}: discover ${eraNeed(n.era)} technologies of the ${ERAS[n.era]} and bring every field to ${2 + 2 * n.era} levels.</p>${miss.length ? `<p class="small"><b class="warn">Fields still short:</b> ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")} (see Develop)</p>` : `<p class="small good">✓ Every field is developed enough</p>`}</div>`; }
   { const rate = +(3 * Math.pow(1.3, n.era)).toFixed(1), fg = Math.round(40 * Math.pow(1.7, n.era)), fs = Math.round(fg / rate);
     h += `<div class="card"><h4>Fund your scientists</h4><p class="muted small">Turn spare gold into research. ${rate} gold buys 1 science.</p><div class="row wrap">${[1, 4].map(k => `<button class="btn small" data-act="fund" data-g="${fg * k}" data-s="${fs * k}" ${n.gold >= fg * k ? "" : "disabled"}>🪙${fmt(fg * k)} → 🔬${fmt(fs * k)}</button>`).join("")}</div></div>`; }
   { const sites = setsOf(n).filter(x => canAcad(n, x));
-    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n) * TD * 12)} a year, more in bigger cities, and a few retire. Each scientist is paid ${fmt(sciSalary(n) * TD)} 🪙 a month, and academies cost upkeep: you can't afford everything.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
+    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n) * TD * TPY)} a year, more in bigger cities, and a few retire. Each scientist is paid ${fmt(sciSalary(n) * TD)} 🪙 a quarter, and academies cost upkeep: you can't afford everything.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
     if (!sites.length) h += `<p class="small muted">Only cities (and your capital once it's a town) can host academies.</p>`;
     for (const x of sites) { const lvl = x.acad || 0, c = acadCost(n, lvl + 1), can = lvl === 0 ? has(n, "writing") : lvl === 1 ? has(n, "printing") : false;
       h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${lvl === 2 ? "University" : lvl === 1 ? "Academy" : "No academy"}</small></span><b>${lvl < 2 ? `<button class="btn small" data-act="acad" data-s="${x.id}" ${can && afford(n, c) ? "" : "disabled"} title="${lvl === 1 && !has(n, "printing") ? "Needs Printing Press" : ""}">${lvl === 0 ? "Found" : "→ University"} · ${costTxt(c)}</button>` : ""}${lvl ? ` <button class="btn small ghost" data-act="acadclose" data-s="${x.id}">Close</button>` : ""}</b></div>`; }
@@ -2419,7 +2421,7 @@ function afterTurnFlow() {
     return true;
   };
   const askBudget = () => {
-    const n = P(); if (!n.alive || n.budNoAsk || (G.month || 0) !== 0) return false;
+    const n = P(); if (!n.alive || n.budNoAsk || Math.floor((G.month || 0) / 3) !== 0) return false;
     openBudget(true);
     return true;
   };
@@ -2462,7 +2464,7 @@ function showEnd() {
 }
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
-  <p><b>Months.</b> Every turn is one month, from January 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. Each January you set the year's budget.</p>
+  <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
   <p><b>Towns & cities.</b> ${VILLAGES_FOR_TOWN} villages close together (in one territory or neighboring ones) can merge into one town with all their people (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
