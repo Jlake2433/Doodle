@@ -160,6 +160,37 @@ const BLD = [
   { k: "spaceport", name: "Spaceport", icon: "🚀", tech: "rocketry", unique: true, d: "Needed to launch the Mars Colony" },
 ];
 const BK = Object.fromEntries(BLD.map(b => [b.k, b]));
+// ---- fields: set up a stage, expand it through 5 levels; level 3 opens the next stage (with its technology) ----
+const FIELD_MAX = 5, FIELD_NEXT = 3;
+const CHAINS = [
+  { k: "food", name: "Food", icon: "🌾", eff: { food: .05, cap: .025 }, d: "food, room in towns", f: [["farming", "Farming", "agriculture"], ["irrigation", "Irrigation", "masonry"], ["crop", "Crop Rotation", "feudalism"], ["mechfarm", "Mechanized Farming", "steam"], ["biotech", "Biotech Farming", "computers"]] },
+  { k: "herd", name: "Herding", icon: "🐎", eff: { food: .03, prod: .03, pow: .015 }, d: "food, materials, cavalry", f: [["husbandry", "Animal Husbandry", "husbandry"], ["horses", "Horse Breeding", "bronze"], ["ranching", "Ranching", "navigation"], ["livestock", "Industrial Livestock", "railroad"]] },
+  { k: "ind", name: "Industry", icon: "⚒️", eff: { prod: .045 }, d: "materials", f: [["tools", "Toolmaking", null], ["mining", "Mining", "mining"], ["smithing", "Blacksmithing", "iron"], ["workshops", "Guild Workshops", "guilds"], ["factories", "Factories", "steam"], ["assembly", "Assembly Lines", "electricity"], ["robotics", "Robotics", "robotics"]] },
+  { k: "mil", name: "Weapons", icon: "⚔️", eff: { pow: .035, recruit: .3 }, d: "army strength and size", f: [["weapons", "Weapon Making", null], ["bronzearms", "Bronze Weapons", "bronze"], ["ironarms", "Iron Forging", "iron"], ["siege", "Siege Engineering", "mathematics"], ["muskets", "Musket Manufacturing", "gunpowder"], ["rifles", "Rifle Factories", "rifling"], ["tanks", "Tank Production", "combustion"], ["nukes", "Nuclear Arsenal", "fission"]] },
+  { k: "def", name: "Fortifications", icon: "🏰", eff: { def: .06 }, d: "defense of your settlements", f: [["palisades", "Palisades", null], ["walls", "Stone Walls", "masonry"], ["castles", "Castles", "feudalism"], ["starforts", "Star Forts", "gunpowder"], ["bunkers", "Bunkers", "combustion"], ["missiledef", "Missile Defense", "computers"]] },
+  { k: "trade", name: "Trade", icon: "💰", eff: { trade: .07, gold: .015 }, d: "trade income, gold", f: [["barter", "Barter Markets", null], ["roads", "Roads", "wheel"], ["coinage", "Coinage", "currency"], ["fleets", "Merchant Fleets", "navigation"], ["railways", "Railways", "railroad"], ["airports", "Airports", "flight"], ["networks", "Global Networks", "globalization"]] },
+  { k: "sci", name: "Knowledge", icon: "📚", eff: { sci: .045 }, d: "science", f: [["lore", "Oral Tradition", null], ["scribes", "Writing Schools", "writing"], ["academies", "Academies", "philosophy"], ["observatories", "Observatories", "astronomy"], ["universities", "Universities", "printing"], ["labs", "Research Labs", "electricity"], ["techhubs", "Tech Hubs", "computers"]] },
+  { k: "faith", name: "Faith & Culture", icon: "🕯️", eff: { stab: 1.2 }, d: "stability, Clergy", f: [["shrines", "Shrines", "mysticism"], ["temples", "Temples", "writing"], ["cathedrals", "Cathedrals", "theology"], ["arts", "Arts & Theater", "printing"], ["media", "Public Media", "massmedia"]] },
+  { k: "health", name: "Health", icon: "🏥", eff: { cap: .05, grow: .008 }, d: "growth, room in towns", f: [["herbal", "Herbal Medicine", "pottery"], ["aqueducts", "Aqueducts", "construction"], ["sanitation", "Sanitation", "enlightenment"], ["hospitals", "Hospitals", "medicine"], ["modernmed", "Modern Medicine", "computers"]] },
+  { k: "energy", name: "Energy", icon: "⚡", eff: { prod: .03, gold: .02 }, d: "materials, gold", f: [["watermills", "Watermills", "construction"], ["coal", "Coal Power", "steam"], ["grid", "Electric Grid", "electricity"], ["oil", "Oil Industry", "combustion"], ["nuclear", "Nuclear Power", "fission"]] },
+  { k: "admin", name: "Administration", icon: "📜", eff: { admin: 1.2 }, d: "how many settlements you can run", f: [["council", "Council of Elders", "tribal"], ["royalscribes", "Royal Scribes", "writing"], ["bureau", "Bureaucracy", "republic"], ["civil", "Civil Service", "printing"], ["egov", "Digital Government", "internet"]] },
+  { k: "space", name: "Space", icon: "🚀", eff: { sci: .05 }, d: "science; Mars Mission level 3 lets you research Mars Colony", f: [["rockets", "Rocket Program", "rocketry"], ["marsmission", "Mars Mission", null]] },
+];
+const FIELDS = {};
+CHAINS.forEach(c => c.f.forEach(([k, name, tech], i) => { const t = tech ? TECH[tech].era : (i ? 7 : 0); FIELDS[k] = { k, name, tech, chain: c, idx: i, tier: t, prev: i ? c.f[i - 1][0] : null, mult: 1 + .15 * i }; }));
+const lv = (n, k) => (n.fields && n.fields[k]) || 0;
+function fieldOpen(n, f) { return (!f.tech || has(n, f.tech)) && (!f.prev || lv(n, f.prev) >= FIELD_NEXT); }
+function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
+const fieldUp = f => .08 * Math.pow(1.5, f.tier);
+function fb(n, key) { let v = 0; if (!n.fields) return 0; for (const k in n.fields) { const f = FIELDS[k]; if (f && f.chain.eff[key]) v += n.fields[k] * f.chain.eff[key] * f.mult; } return v; }
+const chainLevels = (n, ck) => CHAINS.find(c => c.k === ck).f.reduce((a, [k]) => a + lv(n, k), 0);
+function expandField(n, f) { const c = fieldCost(n, f); n.gold -= c.g; n.mat -= c.m; if (!n.fields) n.fields = {}; n.fields[f.k] = lv(n, f.k) + 1;
+  if (!n.ai) { const L = n.fields[f.k]; log(L === 1 ? `${f.name} has been set up.` : `${f.name} expanded to level ${L}.`, f.chain.icon);
+    if (L === FIELD_NEXT) { const nx = f.chain.f[f.idx + 1]; if (nx) { const F2 = FIELDS[nx[0]]; log(F2.tech && !has(n, F2.tech) ? `${F2.name} can be set up once you research ${TECH[F2.tech].name}.` : `${F2.name} is now open to set up!`, "🔓"); } } } }
+// what each technology opens
+TECHS.forEach(t => { const opens = Object.values(FIELDS).filter(f => f.tech === t.id).map(f => f.name);
+  const extra = { tribal: "Chiefdom government.", monarchy: "Monarchy government.", republic: "Republic government.", theology: "Theocracy government.", absolutism: "Absolute Monarchy.", democracy: "Democracy government.", ideology: "Single-Party State.", computers: "Technocracy government.", enlightenment: "Secular religion law.", currency: "Free Trade law.", printing: "Press law.", steam: "Labor law.", sailing: "Settle across short seas.", navigation: "Settle distant coasts.", agriculture: "Villages can merge into towns.", masonry: "Towns can grow into cities.", mars: "Win the game. Needs Mars Mission level 3.", bronze: "Armies need copper.", iron: "Armies need iron.", combustion: "Armies need oil." }[t.id];
+  t.desc = [opens.length ? `Opens ${opens.join(", ")}.` : "", extra || (opens.length ? "" : t.desc)].filter(Boolean).join(" "); });
 BLD.forEach(b => { const e = TECH[b.tech].era; b.era = e; b.cg = Math.round(12 * Math.pow(1.85, e)); b.cm = Math.round(10 * Math.pow(1.85, e)); b.up = +(0.25 * Math.pow(1.6, e)).toFixed(2); });
 BK.spaceport.cg *= 4; BK.spaceport.cm *= 4;
 
@@ -400,7 +431,7 @@ function newNation(name, color, ri, ai, pers) {
   const n = { id, name, color, ai, pers: pers || "builder", alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
     laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", focus: "bal" },
     gold: 15, mat: 10, sciPts: 0, research: "agriculture", techs: [], era: 0, army: 1, used: 0,
-    fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0 };
+    fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0, fields: {} };
   for (const k in FACTIONS) n.fac[k] = 55;
   G.nations.push(n);
   if (ri >= 0) { const s = addSettlement(id, ri, START_POP, null, name); n.cap = s.id; }
@@ -534,13 +565,12 @@ function stratStatus(n) {
 }
 function adminCap(n) {
   let a = (GOVS[n.gov].admin + n.era * 2 + RANKS[rankOf(n)].admin) * 2;
-  for (const ri of pres(n)) { const b = B(n.id, ri); for (const k in b) a += BK[k].admin || 0; }
+  a += fb(n, "admin");
   return Math.floor(a);
 }
 function unitPower(n) {
   let m = 1 + (GOVS[n.gov].pow || 0), bp = 0;
-  for (const ri of pres(n)) { const b = B(n.id, ri); for (const k in b) bp += BK[k].pow || 0; }
-  m += Math.min(.3, bp);
+  m += fb(n, "pow");
   for (const t of ["mathematics", "chivalry"]) if (has(n, t)) m += .1;
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
@@ -553,19 +583,13 @@ const power = n => n.army * unitPower(n);
 function maxArmy(n) {
   const u = setsOf(n).reduce((a, s) => a + U(s.pop), 0);
   const rate = { vol: .12, levy: .2, mass: .35 }[n.laws.cons];
-  let bar = 0; for (const ri of pres(n)) if (B(n.id, ri).barracks) bar++;
-  return Math.floor(u * rate + 1 + bar * .5);
+  return Math.floor(u * rate + 1 + fb(n, "recruit"));
 }
 const unitCost = n => ({ g: Math.round(8 * Math.pow(1.6, n.era)), m: Math.round(6 * Math.pow(1.6, n.era)) });
 const unitUpkeep = n => 0.25 * Math.pow(1.5, n.era) * (n.laws.focus === "mil" ? .8 : 1);
-function bonus(n, ri, key) {
-  let m = 0; const b = B(n.id, ri);
-  for (const k in b) {
-    const bd = BK[k]; let v = bd[key] || 0;
-    if (bd.needs && key === "prod" && !stratHave(n, bd.needs) && !stratStatus(n).find(x => x.res === bd.needs && x.st === "import")) v *= .5;
-    if (k === "mine" && key === "prod" && ["copper", "iron", "coal", "gold", "gems", "uranium"].includes(W.regions[ri].r)) v += .3;
-    m += v;
-  }
+function bonus(n, ri, key) { // fields are nation-wide; metal deposits help Industry
+  let m = fb(n, key);
+  if (key === "prod" && ["copper", "iron", "coal", "gold", "gems", "uranium"].includes(W.regions[ri].r)) m += chainLevels(n, "ind") * .02;
   return m;
 }
 function capOf(s, n) {
@@ -596,10 +620,10 @@ function econ(n) {
     food += f; need += s.pop * .8; tax += g; mat += m; sci += sc; pop += s.pop; tierTrade += tier.trade;
     per.set(s.id, { food: f, gold: g, mat: m, sci: sc });
   }
-  for (const ri of P0) { const b = B(n.id, ri); for (const k in b) { bUp += BK[k].up; trade += BK[k].trade || 0; if (BK[k].sciF) sci += BK[k].sciF * (1 + sciLaw) * stabM; } }
+  for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   const partners = tradePartners(n);
   const peaceful = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)).length;
-  const tradeLawM = { prot: .7, bal: 1, free: 1.3 }[L.trade] * (has(n, "globalization") ? 1.4 : 1);
+  const tradeLawM = { prot: .7, bal: 1, free: 1.3 }[L.trade] * (has(n, "globalization") ? 1.4 : 1) * (1 + fb(n, "trade"));
   const routeGold = (trade + tierTrade + (has(n, "agriculture") ? 1 : .3)) * (1 + .15 * partners.length + .04 * peaceful) * tradeLawM * (1 + .2 * n.era) * stabM;
   const luxCount = {};
   for (const ri of P0) { const rs = W.regions[ri].r; if (rs && RES[rs].kind === "lux") luxCount[rs] = (luxCount[rs] || 0) + 1; }
@@ -622,7 +646,7 @@ function facActive(n, k) { return FACTIONS[k].from <= n.era || (GOVS[n.gov].w[k]
 function facTargets(n, E) {
   const L = n.laws, g = n.gov, P0 = [...pres(n)], out = {};
   const add = (k, v, why) => { if (!out[k]) out[k] = { v: 50, why: [] }; if (v) { out[k].v += v; out[k].why.push([why, v]); } };
-  const cnt = k => P0.filter(ri => B(n.id, ri)[k]).length;
+  const cnt = () => 0;
   const rn = Math.max(1, P0.length);
   const wars = G.nations.filter(o => atWar(n.id, o.id));
   const warBal = wars.reduce((a, o) => a + wscore(n.id, o.id), 0);
@@ -630,7 +654,7 @@ function facTargets(n, E) {
   add("commoners", { low: 12, normal: 0, high: -12, extort: -28 }[L.tax], "Taxes");
   add("commoners", E.surplus >= 0 ? 6 : -25, E.surplus >= 0 ? "Food surplus" : "Famine");
   add("commoners", Math.min(15, E.luxKinds * 3), "Luxuries");
-  add("commoners", Math.round(Math.min(15, (cnt("shrine") + cnt("cathedral") * 2 + cnt("hospital") + cnt("broadcast") * 2) * 6 / rn)), "Temples & services");
+  add("commoners", Math.round(Math.min(15, fb(n, "stab") * 1.5 + chainLevels(n, "health"))), "Faith, culture & health");
   add("commoners", { vol: 6, levy: 0, mass: -15 }[L.cons], "Conscription");
   add("commoners", -Math.round(n.ww), "War weariness");
   add("commoners", { democracy: 10, republic: 5, party: -10 }[g] || 0, "Government");
@@ -640,7 +664,7 @@ function facTargets(n, E) {
   add("commoners", L.migr === "restrict" ? -6 : 0, "Migration restricted");
   add("commoners", -Math.min(25, Math.round(E.over * 3)), "Overextended");
   add("elders", { faith: 15, tol: -5, sec: -22 }[L.rel], "Religion law");
-  add("elders", Math.round(Math.min(18, (cnt("shrine") + cnt("cathedral") * 2) * 8 / rn)), "Holy sites");
+  add("elders", Math.round(Math.min(18, chainLevels(n, "faith") * 1.5)), "Holy sites");
   add("elders", { theocracy: 22, party: -15, technocracy: -10, tribe: 5 }[g] || 0, "Government");
   const ratio = n.army / Math.max(1, sizeOf(n));
   add("warriors", ratio < .5 ? -15 : ratio > 1.5 ? 10 : 0, "Army size");
@@ -655,12 +679,12 @@ function facTargets(n, E) {
   add("merchants", { low: 10, normal: 0, high: -10, extort: -20 }[L.tax], "Taxes");
   add("merchants", wars.length ? -10 : 5, wars.length ? "At war" : "At peace");
   add("merchants", Math.min(12, E.partners.length * 3), "Trade pacts");
-  add("merchants", Math.round(Math.min(12, (cnt("market") + cnt("bank")) * 6 / rn)), "Markets & banks");
+  add("merchants", Math.round(Math.min(12, chainLevels(n, "trade"))), "Markets & trade");
   add("merchants", { republic: 12, democracy: 10, party: -15 }[g] || 0, "Government");
   add("merchants", L.focus === "com" ? 12 : 0, "Commerce focus");
   add("intellectuals", L.press === "free" ? 15 : L.press === "cens" ? -15 : 0, "Press");
   add("intellectuals", { sec: 10, faith: -10, tol: 3 }[L.rel], "Religion law");
-  add("intellectuals", Math.round(Math.min(15, (cnt("university") + cnt("techhub")) * 8 / rn)), "Universities");
+  add("intellectuals", Math.round(Math.min(15, chainLevels(n, "sci"))), "Schools & universities");
   add("intellectuals", L.focus === "sci" ? 15 : 0, "Science focus");
   add("intellectuals", { democracy: 12, technocracy: 20, party: -18, theocracy: -15 }[g] || 0, "Government");
   add("workers", L.labor === "rights" ? 20 : L.labor === "unreg" ? -15 : 0, "Labor law");
@@ -748,7 +772,7 @@ function processNation(n) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
-      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr);
+      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr) + fb(n, "grow");
       const g = (s.pop * r + T.flat) * free;
       s.pop += g; s.g = g;
     } else { s.pop *= 1 - .05 * Math.min(1, -sr * 3); s.g = 0; }
@@ -837,7 +861,7 @@ function processNation(n) {
   }
 }
 function chooseResearch(n) {
-  const av = TECHS.filter(t => !has(n, t.id) && t.era <= n.era && (t.id !== "mars" || [...pres(n)].some(ri => B(n.id, ri).spaceport)));
+  const av = TECHS.filter(t => !has(n, t.id) && t.era <= n.era && (t.id !== "mars" || lv(n, "marsmission") >= 3));
   if (!av.length) return null;
   if (!has(n, "agriculture")) return "agriculture";
   const pref = { aggressive: ["bronze", "iron", "mathematics", "chivalry", "gunpowder", "rifling", "masonry", "feudalism"], builder: ["pottery", "masonry", "construction", "guilds", "medicine", "steam"], trader: ["currency", "sailing", "wheel", "banking", "navigation", "globalization"], zealot: ["mysticism", "theology", "philosophy", "monarchy"] }[n.pers] || [];
@@ -880,7 +904,7 @@ function upheaval(n) {
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = d.army * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
-  const m = TIERS[s.t].def + (b.walls ? .4 : 0) + (b.castle ? .8 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
+  const m = TIERS[s.t].def + fb(d, "def") + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
   return { units, power: units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m };
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
@@ -1006,16 +1030,15 @@ function aiTurn(n) {
   const want = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratio + 1));
   const uc = unitCost(n);
   while (n.army < want && n.gold > uc.g * 1.5 + (saving ? villageCost(n).g : 0) && n.mat > uc.m) recruit(n, 1);
-  // build
+  // develop fields
+  const prefC = { aggressive: ["mil", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   let builds = 0;
-  for (const ri of [...pres(n)].sort(() => rnd() - .5)) {
-    if (builds >= 1 + Math.floor(sets.length / 8)) break;
-    if (!canBuildHere(n, ri)) continue;
-    const opts = BLD.filter(b => buildCheck(n, ri, b) && !(b.needs && !stratHave(n, b.needs)));
-    if (!opts.length) continue;
-    const b = opts.sort((x, y) => x.era - y.era || rnd() - .5)[0];
-    const c = buildCost(n, b), reserve = saving ? villageCost(n).g + 5 : 5;
-    if (n.gold > c.g + reserve && n.mat > c.m && E.goldNet - b.up > -1) { startBuild(n, ri, b); builds++; }
+  for (let tries = 0; tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
+    const opts = Object.values(FIELDS).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX);
+    if (!opts.length) break;
+    const score = f => { const c = fieldCost(n, f); return c.g * (prefC.includes(f.chain.k) ? .6 : 1) * (f.chain.k === "space" ? .3 : 1) * (1 + rnd() * .3); };
+    const f = opts.sort((a, b) => score(a) - score(b))[0], c = fieldCost(n, f), reserve = saving ? villageCost(n).g + 5 : 5;
+    if (n.gold > c.g + reserve && n.mat > c.m && E.goldNet - fieldUp(f) > -1) { expandField(n, f); builds++; } else break;
   }
   // diplomacy
   for (const o of G.nations) {
@@ -1174,7 +1197,7 @@ const EVENTS = [
     text: () => "Your explorers return with maps of distant lands and treasure.",
     ch: [{ t: "Fund more voyages", d: n => `−${fmt(10 * eraScale(n))} gold, +${fmt(18 * eraScale(n))} science`, f: n => { fx.gold(n, -10 * eraScale(n)); fx.sci(n, 18 * eraScale(n)); } },
          { t: "Melt the treasure", d: n => `+${fmt(25 * eraScale(n))} gold`, f: n => fx.gold(n, 25 * eraScale(n)) }] },
-  { id: "accident", title: "Factory Disaster", era: [5, 7], icon: "🏭", cond: n => [...pres(n)].some(ri => B(n.id, ri).factory),
+  { id: "accident", title: "Factory Disaster", era: [5, 7], icon: "🏭", cond: n => lv(n, "factories") > 0,
     text: () => "A boiler explosion killed dozens of workers.",
     ch: [{ t: "Pass safety rules", d: () => "Workers pleased, Merchants annoyed, −5% materials for a while", f: n => { fx.fac(n, "workers", 15); fx.fac(n, "merchants", -8); fx.mat(n, -10 * eraScale(n)); } },
          { t: "Blame the workers", d: () => "Workers furious", f: n => fx.fac(n, "workers", -18) }] },
@@ -1272,6 +1295,7 @@ const SAVE_KEY = "cradle-cosmos-save-v2";
 function save() { try { delete G.cells; localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch (e) {} }
 function restoreCells() {
   delete G.cells;
+  for (const n of G.nations) if (!n.fields) n.fields = {};
   if (G.sets.some(x => x.h == null)) { for (const x of G.sets) x.h = hOf(x) * .5; for (let i = 0; i < 6; i++) growBorders(); }
   if (!G.fog) { G.fog = []; updateExplore(); }
 }
@@ -1653,17 +1677,6 @@ function openRegion(ri) {
   if (fc.ok || fc.donor) h += `<div class="opts"><button class="opt" data-act="found" ${fc.ok ? "" : "disabled"}><span class="oi">🛖</span><span class="ot"><b>Send settlers here</b><small>${MOVERS} people move from ${esc(fc.donor.name)}${fc.ok ? "" : ` · ${esc(fc.why)}`}</small></span><span class="oc">${costTxt(villageCost(n))}</span></button></div>`;
   else if (!(ctrl && ctrl.id !== n.id) || mine.length) h += `<p class="small muted">Can't send settlers here: ${esc(fc.why)}.</p>`;
   if (here.length) h += `<h4>Settlements</h4><div class="sets">${here.map(s => setRow(s, n)).join("")}</div>`;
-  // buildings
-  if (mine.length) {
-    const b = B(n.id, ri), built = Object.keys(b), cons = consOf(n.id, ri), slots = bldSlots(n, ri), used = bldUsed(n, ri);
-    h += `<h4>Your buildings <span class="muted small">${used}/${slots} slots</span></h4><div class="blds">${built.length ? built.map(k => `<span class="bchip" title="${esc(BK[k].d)}">${BK[k].icon} ${BK[k].name}</span>`).join("") : '<span class="muted">None yet</span>'}${cons ? `<span class="bchip building">🔨 ${BK[cons].name} (next turn)</span>` : ""}</div>`;
-    const avail = BLD.filter(x => buildCheck(n, ri, x));
-    if (cons) h += `<p class="small muted">One construction at a time per territory.</p>`;
-    else if (used >= slots) h += `<p class="note">No building slots left. Each town here adds 1 slot and each city adds 2.</p>`;
-    else if (avail.length) h += `<div class="opts">` + avail.map(x => { const c = buildCost(n, x);
-      return `<button class="opt" data-act="build" data-k="${x.k}" ${afford(n, c) ? "" : "disabled"}><span class="oi">${x.icon}</span><span class="ot"><b>${x.name}</b><small>${esc(x.d)} · upkeep ${x.up}🪙</small></span><span class="oc">${costTxt(c)}</span></button>`; }).join("") + `</div>`;
-    else h += `<p class="small muted">Research more technologies to unlock buildings.</p>`;
-  }
   const others = [...new Set(here.filter(s => s.o !== n.id).map(s => s.o))].concat(ctrl && ctrl.id !== n.id && !here.some(s => s.o === ctrl.id) ? [ctrl.id] : []);
   for (const id of others) { const o = G.nations[id]; if (!atWar(n.id, id)) h += `<div class="opts"><button class="opt" data-act="diplo" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Diplomacy with ${esc(o.name)}</b><small>Trade, alliances, gifts or war</small></span></button></div>`; }
   sheet.innerHTML = h; sheet.hidden = false; sheet.dataset.ri = ri; sheet.scrollTop = 0;
@@ -1705,7 +1718,7 @@ let curPanel = null;
 function openPanel(name) {
   closeSheet(); curPanel = name;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.p === name));
-  panel.innerHTML = { nation: panelNation, research: panelResearch, policy: panelPolicy, world: panelWorld }[name]();
+  panel.innerHTML = { nation: panelNation, develop: panelDevelop, research: panelResearch, policy: panelPolicy, world: panelWorld }[name]();
   panel.hidden = false; panel.scrollTop = 0;
 }
 function closePanel() { panel.hidden = true; curPanel = null; document.querySelectorAll(".tab").forEach(t => t.classList.remove("on")); }
@@ -1743,11 +1756,35 @@ function panelNation() {
     <button class="btn small ghost" data-act="disband" ${n.army > 0 ? "" : "disabled"}>Disband 1</button></div>
     <p class="muted small">Upkeep ${fmt(unitUpkeep(n))} gold per regiment each turn. Bigger populations and the Conscription law raise your maximum.</p></div>`;
   h += `<div class="card"><h4>Paths to victory</h4>
-    ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? ([...pres(n)].some(ri => B(n.id, ri).spaceport) ? "Spaceport ready" : "Build a Spaceport") : ERAS[n.era])}
+    ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? (lv(n, "marsmission") >= 3 ? "Mars Mission ready" : "Develop the Space field") : ERAS[n.era])}
     ${line("🌍 Control 40% of the world", `${terr.length} / ${Math.ceil(NR * .4)} territories`)}
     ${line("⌛ Lead the world in 2100", `#${ranking().findIndex(x => x.id === n.id) + 1} by score`)}</div>`;
   h += `<div class="card"><h4>Your settlements</h4><div class="rlist">${sets.sort((a, b) => b.t - a.t || b.pop - a.pop).slice(0, 60).map(s => `<button class="rl" data-act="goto" data-sid="${s.id}"><span>${TIERS[s.t].icon} ${s.id === n.cap ? "⭐ " : ""}${esc(s.name)}</span><small>${esc(W.regions[s.r].n)} · ${fmtP(s.pop)}${s.crowd ? ' · <span class="bad">overcrowded</span>' : ""}${s.u > 50 ? ' · <span class="bad">unrest</span>' : ""}</small></button>`).join("")}</div></div>`;
   h += `<div class="card"><h4>Game</h4><div class="row wrap"><button class="btn small ghost" data-act="help">How to play</button><button class="btn small ghost" data-act="newgame">New game</button></div></div>`;
+  return h;
+}
+function panelDevelop() {
+  const n = P(); let h = ph("Develop", "Set up fields, then expand them. Level 3 opens the next stage.");
+  for (const c of CHAINS) {
+    const total = c.f.reduce((a, [k]) => a + lv(n, k) * FIELDS[k].mult, 0);
+    const effTxt = Object.entries(c.eff).filter(([k]) => total).map(([k, v]) => { const x = v * total; return k === "stab" ? `+${Math.round(x)} stability` : k === "admin" ? `+${Math.round(x)} admin` : k === "recruit" ? `+${Math.round(x)} regiments` : `+${Math.round(x * 100)}% ${({ food: "food", cap: "town room", prod: "materials", pow: "army", def: "defense", trade: "trade", gold: "gold", sci: "science", grow: "growth" })[k]}`; }).join(" · ");
+    h += `<div class="card fcard"><h4><span>${c.icon}</span> ${c.name}</h4><p class="small muted">${total ? effTxt : "Boosts " + c.d + "."}</p><div class="stages">`;
+    let shown = 0;
+    for (const [k] of c.f) {
+      const f = FIELDS[k], L = lv(n, k), open = fieldOpen(n, f);
+      if (!open && !L) {
+        if (shown) { const why = f.prev && lv(n, f.prev) < FIELD_NEXT ? `Reach level ${FIELD_NEXT} in ${FIELDS[f.prev].name}` : ""; const tw = f.tech && !has(n, f.tech) ? `research ${TECH[f.tech].name}` : "";
+          h += `<div class="stage locked"><b>🔒 ${f.name}</b><small>${[why, tw].filter(Boolean).join(" and ") || "Locked"}</small></div>`; }
+        else h += `<div class="stage locked"><b>🔒 ${f.name}</b><small>${f.tech && !has(n, f.tech) ? `Research ${TECH[f.tech].name}` : "Locked"}</small></div>`;
+        break;
+      }
+      shown++;
+      const c2 = fieldCost(n, f), maxed = L >= FIELD_MAX;
+      h += `<div class="stage"><div class="st-row"><b>${f.name}</b><span class="pips">${Array.from({ length: FIELD_MAX }, (_, i) => `<i class="${i < L ? "on" : ""} ${i === FIELD_NEXT - 1 ? "key" : ""}"></i>`).join("")}</span></div>
+        ${maxed ? `<small class="good">Fully expanded</small>` : `<button class="btn small" data-act="field" data-k="${k}" ${afford(n, c2) ? "" : "disabled"}>${L ? `Expand to level ${L + 1}` : "Set up"} · ${costTxt(c2)}</button>`}</div>`;
+    }
+    h += `</div></div>`;
+  }
   return h;
 }
 function panelResearch() {
@@ -1764,10 +1801,10 @@ function panelResearch() {
     if (e === n.era - 1) h += `<details class="past"><summary class="era-h">Earlier ages</summary>`;
     h += `<h4 class="era-h">${ERAS[e]}${e === n.era ? " · now" : e === n.era + 1 ? " · next" : ""}</h4><div class="techs">`;
     for (const t of TECHS.filter(t => t.era === e)) {
-      const done = has(n, t.id), cur = n.research === t.id, locked = e > n.era || (t.id === "mars" && ![...pres(n)].some(ri => B(n.id, ri).spaceport));
+      const done = has(n, t.id), cur = n.research === t.id, locked = e > n.era || (t.id === "mars" && lv(n, "marsmission") < 3);
       const pct = cur ? Math.min(100, n.sciPts / t.cost * 100) : 0;
       h += `<button class="tech ${done ? "done" : cur ? "cur" : locked ? "locked" : ""}" data-act="tech" data-t="${t.id}" ${done || locked ? "disabled" : ""}>
-        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((t.cost - n.sciPts) / Math.max(.1, E.sci)))} turns` : locked ? (e > n.era ? "Next age" : "Needs Spaceport") : `${t.cost} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
+        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((t.cost - n.sciPts) / Math.max(.1, E.sci)))} turns` : locked ? (e > n.era ? "Next age" : "Needs Mars Mission 3") : `${t.cost} 🔬`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
     }
     h += `</div>`;
   }
@@ -1861,6 +1898,7 @@ panel.addEventListener("click", e => {
     case "disband": n.army--; refresh(); break;
     case "goto": { const s = setById(+b.dataset.sid); closePanel(); sel = s.r; centerOn(s.x, s.y, Math.max(view.k, 7)); openRegion(s.r); break; }
     case "tech": n.research = b.dataset.t; refresh(); break;
+    case "field": { const f = FIELDS[b.dataset.k]; if (f && afford(n, fieldCost(n, f))) { expandField(n, f); const msg = G.news.filter(x => /open/.test(x.t)).map(x => x.t); G.news = []; toast(msg[0] || `${f.name} level ${lv(n, f.k)}`); } refresh(); break; }
     case "fund": { const g = +b.dataset.g, sc = +b.dataset.s; n.gold -= g; n.sciPts += sc; toast(`+${fmt(sc)} science`); refresh(); break; }
     case "gov": confirmModal(`Switch to ${GOVS[b.dataset.g].name}?`, "Your people will go through 2 turns of turmoil with reduced output, and factions will need time to adjust.", () => { n.gov = b.dataset.g; n.anarchy = 2; n.govCool = 10; n.lastElect = G.turn; log(`Your people now live under a ${GOVS[n.gov].name}.`, "🏛️"); refresh(); }); break;
     case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
@@ -1924,6 +1962,7 @@ function showHelp() {
   <p><b>Towns & cities.</b> ${VILLAGES_FOR_TOWN} villages close together (in one territory or neighboring ones) can merge into one town with all their people (needs Agriculture). Each new town also needs your nation to reach a population target. Towns grow into the thousands, and at ${fmtP(CITY_POP)} people they can become cities (needs Masonry). Bigger settlements produce much more gold, materials and science.</p>
   <p><b>Room.</b> Each territory has room for a set number of settlements and of towns and cities, based on its size and land. Big fertile plains hold the most.</p>
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
+  <p><b>Develop.</b> Instead of single buildings, you grow whole fields: Food, Industry, Weapons, Trade, Knowledge and more. Set a field up, then expand it level by level. Level 3 opens its next stage once you have the matching technology, from Weapon Making all the way to a Nuclear Arsenal.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>Borders.</b> Each settlement holds land around it, and your borders grow as you add villages, towns and cities. Borders stop where they meet another people's, and you can't settle inside someone else's borders.</p>

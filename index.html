@@ -69,8 +69,8 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 /* bottom nav */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 10px) max(10px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: flex-end; pointer-events: none; z-index: 6; }
 .nav > * { pointer-events: auto; }
-.tabs { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
-.tab { border: 0; background: none; padding: 7px 2px 6px; display: grid; justify-items: center; gap: 1px; font: 700 11px var(--body); position: relative; }
+.tabs { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
+.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 10.5px var(--body); position: relative; min-width: 0; }
 .tab span { font-size: 20px; line-height: 1.1; }
 .tab.on { background: #ffe6d8; }
 .tab.alert::after { content: ""; position: absolute; top: 6px; right: 22%; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); border: 2px solid var(--paper); }
@@ -253,6 +253,19 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 .tiers span { font-size: 22px; }
 .tiers b { font: 600 20px var(--display); }
 .tiers small { font-size: 11px; font-weight: 800; color: var(--ink-2); }
+.fcard h4 span { font-size: 20px; }
+.fcard p { margin: 0 0 8px; }
+.stages { display: grid; gap: 6px; }
+.stage { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 8px 10px; display: grid; gap: 6px; }
+.stage.locked { border-style: dashed; opacity: .7; }
+.stage b { font: 600 15px var(--display); }
+.stage small { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.stage .btn { justify-self: start; }
+.st-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pips { display: flex; gap: 4px; flex-shrink: 0; }
+.pips i { width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--ink); background: var(--paper); }
+.pips i.on { background: var(--accent); }
+.pips i.key { box-shadow: 0 0 0 2px #ffd36b; }
 [hidden] { display: none !important; }
 @media (min-width: 700px) { .sheet { max-height: 70%; } }
 @media (prefers-reduced-motion: reduce) { .sheet, .panel, .mbox, .chip.alert { animation: none; } }
@@ -279,6 +292,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
   <div class="nav">
     <div class="tabs">
       <button class="tab" data-p="nation"><span>🏛️</span>Nation</button>
+      <button class="tab" data-p="develop"><span>🏗️</span>Develop</button>
       <button class="tab" data-p="research"><span>🔬</span>Research</button>
       <button class="tab" data-p="policy"><span>📜</span>Laws</button>
       <button class="tab" id="tabWorld" data-p="world"><span>🌍</span>World</button>
