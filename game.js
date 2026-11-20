@@ -236,7 +236,7 @@ function resItem(n, id) {
   const t = TECH[id]; return t ? { mastery: false, t, name: t.name, cost: techCost(n, t), done: has(n, id) } : null;
 }
 function fieldsMissing(n) { return CHAINS.filter(c => fieldOpen(n, FIELDS[c.f[0][0]]) || chainHave(n, c)).filter(c => chainHave(n, c) < chainNeed(n, c)); }
-function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
+function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L) * (cul(n).chains.includes(f.chain.k) ? .75 : 1); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
 const fieldUp = f => .08 * Math.pow(1.5, f.tier);
 function fb(n, key) { let v = 0; if (!n.fields) return 0; for (const k in n.fields) { const f = FIELDS[k]; if (f && f.chain.eff[key]) v += lvValue(n.fields[k]) * f.chain.eff[key] * f.mult * emphMult(n, f.chain.k); } return v; }
 const chainLevels = (n, ck) => CHAINS.find(c => c.k === ck).f.reduce((a, [k]) => a + lv(n, k), 0);
@@ -288,6 +288,16 @@ const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f"
 const CRADLES = ["Lower Egypt", "Mesopotamia", "Indus", "North China Plain", "Jiangnan", "Punjab", "Anatolia", "Greece", "Southern Italy", "Central Mexico", "Peru", "Mali", "Ethiopia", "Northern Gaul", "England", "Persia", "Japan", "Muscovy", "Midwest", "Java", "Eastern Mongolia", "Castile", "Bengal", "Zimbabwe", "Korea", "Rhineland", "Gold Coast", "Southern Plains", "Pampas", "New South Wales", "Great Lakes Africa", "Yucatan"];
 const SYL = ["ka", "ra", "tal", "mor", "eth", "vin", "sul", "dor", "ash", "ul", "ren", "bar", "kesh", "an", "ith", "or", "zan", "lo", "mir", "gal", "hun", "tep", "yar", "ob", "nek", "sa", "tor", "al", "qua", "ri", "ven", "ito", "ba", "du", "shen", "ko", "zi", "mar", "el", "ost", "ta", "ny", "vel", "kor", "ae", "bri", "hal", "wen"];
 function genName(max = 9) { let s = pick(SYL) + pick(SYL); if (rnd() < .4) s += pick(SYL); s = s.replace(/(.)\1\1/, "$1$1"); return s[0].toUpperCase() + s.slice(1, max); }
+// ---- culture: what a people values most. A major factor in research, armies and the economy ----
+const CULTURES = {
+  mixed:    { name: "Mixed", icon: "⚖️", sci: .05, gold: .05, prod: .05, food: .05, trade: .05, pow: .05, chains: [], fac: {}, d: "A bit of everything: +5% to science, gold, materials, food, trade and army." },
+  scholarly:{ name: "Scholarly", icon: "📚", sci: .6, pow: -.15, chains: ["sci"], fac: { intellectuals: 10, warriors: -5 }, d: "+60% science, cheaper Knowledge fields. −15% army strength." },
+  martial:  { name: "Martial", icon: "⚔️", sci: -.25, pow: .25, recruit: .2, chains: ["mil", "land", "navy", "air", "def"], fac: { warriors: 12, intellectuals: -6 }, d: "+25% army strength, more regiments, cheaper Weapons and Fortifications. −25% science." },
+  industrious:{ name: "Industrious", icon: "⚒️", sci: -.1, prod: .3, chains: ["ind", "energy"], fac: { workers: 10, merchants: 4 }, d: "+30% materials, cheaper Industry and Energy. −10% science." },
+  agrarian: { name: "Agrarian", icon: "🌾", sci: -.15, food: .3, grow: .02, chains: ["food", "herd", "health"], fac: { commoners: 6, elders: 6 }, d: "+30% food and faster growth, cheaper Food, Herding and Health. −15% science." },
+  mercantile:{ name: "Mercantile", icon: "💰", sci: -.05, trade: .3, gold: .1, chains: ["trade", "navy"], fac: { merchants: 12 }, d: "+30% trade income, +10% gold, cheaper Trade and Shipbuilding. −5% science." },
+};
+const cul = n => CULTURES[n.cul] || CULTURES.mixed;
 const PERS = { aggressive: "Warlike", builder: "Builder", trader: "Merchant", zealot: "Zealous" };
 
 // region statics
@@ -486,9 +496,9 @@ function recomputeControl(ri) {
     } }
 }
 
-function newNation(name, color, ri, ai, pers) {
+function newNation(name, color, ri, ai, pers, culture) {
   const id = G.nations.length;
-  const n = { id, name, color, ai, pers: pers || "builder", alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
+  const n = { id, name, color, ai, pers: pers || "builder", cul: culture || "mixed", culCool: 0, alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
     laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", rp: "std", focus: "bal" },
     gold: 15, mat: 10, sciPts: 0, research: "agriculture", techs: [], era: 0, army: 1, used: 0,
     fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0, fields: {} };
@@ -502,9 +512,10 @@ function newGame(opts) {
   G = { v: 2, turn: 1, year: -4000, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
   for (let i = 0; i < NR; i++) G.regions.push({ i, ctrl: -1 });
   const start = RID[opts.start];
-  newNation(opts.name, opts.color, start, false, "builder");
+  newNation(opts.name, opts.color, start, false, "builder", opts.cul || "mixed");
   const used = [start], colors = COLORS.filter(c => c !== opts.color);
-  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); n.laws.rp = rnd() < .12 ? "high" : (n.pers === "aggressive" || n.pers === "zealot" || rnd() < .4) ? "low" : "std"; n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
+  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); { const r0 = rnd(); n.cul = r0 < .1 ? "scholarly" : r0 < .2 ? "mixed" : ({ aggressive: "martial", zealot: rnd() < .5 ? "martial" : "agrarian", builder: rnd() < .5 ? "industrious" : rnd() < .5 ? "agrarian" : "martial", trader: rnd() < .7 ? "mercantile" : "martial" })[n.pers]; }
+    n.laws.rp = n.cul === "scholarly" ? "high" : rnd() < .12 ? "high" : (n.pers === "aggressive" || n.pers === "zealot" || rnd() < .4) ? "low" : "std"; n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
   const livable = r => TER[W.regions[r].t].food >= .9;
   // two neighboring tribes a day or two's walk away (about 100-220 km)
   { const home = G.sets[0]; if (!sampler) sampler = document.createElement("canvas").getContext("2d");
@@ -634,6 +645,7 @@ function unitPower(n) {
   for (const t of ["mathematics", "chivalry"]) if (has(n, t)) m += .1;
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
+  m += cul(n).pow || 0;
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
@@ -643,7 +655,7 @@ const power = n => n.army * unitPower(n);
 function maxArmy(n) {
   const u = setsOf(n).reduce((a, s) => a + U(s.pop), 0);
   const rate = { vol: .12, levy: .2, mass: .35 }[n.laws.cons];
-  return Math.floor(u * rate + 1 + fb(n, "recruit"));
+  return Math.floor((u * rate + 1 + fb(n, "recruit")) * (1 + (cul(n).recruit || 0)));
 }
 const unitCost = n => ({ g: Math.round(8 * Math.pow(1.6, n.era)), m: Math.round(6 * Math.pow(1.6, n.era)) });
 const unitUpkeep = n => 0.25 * Math.pow(1.5, n.era) * (n.laws.focus === "mil" ? .8 : 1);
@@ -664,9 +676,10 @@ function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
   const taxM = { low: .7, normal: 1, high: 1.35, extort: 1.7 }[L.tax];
-  const prodLaw = (L.trade === "prot" ? .1 : 0) + (L.labor === "unreg" ? .1 : L.labor === "rights" ? -.05 : 0) + (L.focus === "ind" ? .15 : 0) + (gov.prod || 0);
-  const goldLaw = (gov.gold || 0) + (L.focus === "com" ? .15 : 0);
-  const sciLaw = (gov.sci || 0) + (L.focus === "sci" ? .15 : 0) + (L.rel === "sec" ? .1 : 0) + (L.press === "free" ? .05 : 0);
+  const C0 = cul(n);
+  const prodLaw = (C0.prod || 0) + (L.trade === "prot" ? .1 : 0) + (L.labor === "unreg" ? .1 : L.labor === "rights" ? -.05 : 0) + (L.focus === "ind" ? .15 : 0) + (gov.prod || 0);
+  const goldLaw = (gov.gold || 0) + (L.focus === "com" ? .15 : 0) + (C0.gold || 0);
+  const sciLaw = (C0.sci || 0) + (gov.sci || 0) + (L.focus === "sci" ? .15 : 0) + (L.rel === "sec" ? .1 : 0) + (L.press === "free" ? .05 : 0);
   const rb = new Map();
   for (const ri of P0) rb.set(ri, { food: bonus(n, ri, "food"), gold: bonus(n, ri, "gold"), prod: bonus(n, ri, "prod"), sci: bonus(n, ri, "sci") });
   let food = 0, need = 0, tax = 0, mat = 0, sci = 1 + n.era, pop = 0, trade = 0, bUp = 0, tierTrade = 0;
@@ -674,7 +687,7 @@ function econ(n) {
   for (const s of sets) {
     const R = W.regions[s.r], T = TER[R.t], tier = TIERS[s.t], u = U(s.pop), b = rb.get(s.r);
     const unrestM = 1 - s.u / 250;
-    const f = s.pop * T.food * tier.food * (1 + b.food + (R.r === "fish" ? .3 : 0) + (s.id === n.cap ? .3 : 0)) * (1 + .05 * n.era);
+    const f = s.pop * T.food * tier.food * (1 + b.food + (C0.food || 0) + (R.r === "fish" ? .3 : 0) + (s.id === n.cap ? .3 : 0)) * (1 + .05 * n.era);
     const g = (u * T.gold * .5 * tier.gold + tier.base) * taxM * (1 + b.gold + goldLaw) * stabM * unrestM * anarchy;
     const m = (u * T.prod * .6 * tier.mat + tier.base) * (1 + b.prod + prodLaw) * stabM * unrestM * anarchy;
     const sc = u * .2 * tier.sci * (1 + b.sci + sciLaw) * stabM * anarchy;
@@ -684,7 +697,7 @@ function econ(n) {
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   const partners = tradePartners(n);
   const peaceful = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)).length;
-  const tradeLawM = { prot: .7, bal: 1, free: 1.3 }[L.trade] * (has(n, "globalization") ? 1.4 : 1) * (1 + fb(n, "trade"));
+  const tradeLawM = (1 + (C0.trade || 0)) * { prot: .7, bal: 1, free: 1.3 }[L.trade] * (has(n, "globalization") ? 1.4 : 1) * (1 + fb(n, "trade"));
   const routeGold = (trade + tierTrade + (has(n, "agriculture") ? 1 : .3)) * (1 + .15 * partners.length + .04 * peaceful) * tradeLawM * (1 + .2 * n.era) * stabM;
   const luxCount = {};
   for (const ri of P0) { const rs = W.regions[ri].r; if (rs && RES[rs].kind === "lux") luxCount[rs] = (luxCount[rs] || 0) + 1; }
@@ -758,6 +771,8 @@ function facTargets(n, E) {
   add("workers", { democracy: 10, party: 8 }[g] || 0, "Government");
   add("workers", { low: 8, high: -8, extort: -15 }[L.tax] || 0, "Taxes");
   add("workers", L.focus === "ind" ? 6 : 0, "Industry focus");
+  for (const k in cul(n).fac) add(k, cul(n).fac[k], `${cul(n).name} culture`);
+  if (n.culShift > 0) add("commoners", -10, "Cultural upheaval");
   for (const m of n.facMods) add(m.k, m.v, m.why);
   for (const k in out) out[k].v = clamp(out[k].v, 0, 100);
   return out;
@@ -839,7 +854,7 @@ function processNation(n) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
-      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr) + fb(n, "grow");
+      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr) + fb(n, "grow") + (cul(n).grow || 0);
       const g = (s.pop * r + T.flat) * free;
       s.pop += g; s.g = g;
     } else { s.pop *= 1 - .05 * Math.min(1, -sr * 3); s.g = 0; }
@@ -922,6 +937,7 @@ function processNation(n) {
   if (n.anarchy > 0) n.anarchy--;
   if (n.govCool > 0) n.govCool--;
   if (n.opposition > 0) n.opposition--;
+  if (n.culCool > 0) n.culCool--; if (n.culShift > 0) n.culShift--;
   n.warmonger = Math.max(0, n.warmonger - 1);
   n.used = 0;
   // unrest & revolts
@@ -1957,7 +1973,9 @@ function panelResearch() {
 }
 function panelPolicy() {
   const n = P(), E = econ(n), tg = facTargets(n, E);
-  let h = ph("Government & Laws", `Stability ${Math.round(n.stab)} · ${GOVS[n.gov].name}`);
+  let h = ph("Government & Laws", `Stability ${Math.round(n.stab)} · ${GOVS[n.gov].name} · ${cul(n).icon} ${cul(n).name} culture`);
+  { const C1 = cul(n);
+    h += `<div class="card"><h4>${C1.icon} ${C1.name} culture</h4><p class="small muted">${C1.d}</p><p class="small muted">Culture changes slowly. Shifting it causes 8 turns of upheaval and can only happen every 30 turns.</p><div class="seg">${Object.entries(CULTURES).map(([k, c]) => `<button class="${n.cul === k ? "on" : ""}" data-act="cul" data-c="${k}" ${n.cul === k || n.culCool > 0 ? "disabled" : ""}>${c.icon} ${c.name}</button>`).join("")}</div>${n.culCool > 0 ? `<p class="small muted">Next shift possible in ${n.culCool} turns.</p>` : ""}</div>`; }
   if (n.opposition) h += `<p class="note warn">The opposition controls the legislature for ${n.opposition} more turn${n.opposition > 1 ? "s" : ""}. Laws are locked.</p>`;
   if (n.anarchy) h += `<p class="note warn">Your government is in transition (${n.anarchy} turn${n.anarchy > 1 ? "s" : ""}). Output is reduced.</p>`;
   h += `<div class="card"><h4>Factions <span class="muted">who holds sway</span></h4>`;
@@ -2012,7 +2030,7 @@ function openNationDetail(id) {
   const n = P(), o = G.nations[id], d = dip(n.id, id);
   closeSheet(); curPanel = "world";
   const g = Math.round(12 * Math.pow(1.6, n.era)), trib = Math.round(20 * Math.pow(1.6, o.era));
-  let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `${GOVS[o.gov].name} · ${ERAS[o.era]} · ${PERS[o.pers]}`);
+  let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `${GOVS[o.gov].name} · ${ERAS[o.era]} · ${cul(o).icon} ${cul(o).name} culture`);
   h += `<button class="btn ghost small back" data-act="world">← All peoples</button>`;
   h += `<div class="card">${line("Relations", `${Math.round(d.rel)} · ${relWord(d.rel)}`)}${line("People", fmtP(popOf(o)))}${line("Territories", terrCount(o))}${line("Settlements", setsOf(o).length)}${line("Army strength", `${fmt(power(o))} (yours ${fmt(power(n))})`)}${line("Technologies", `${o.techs.length} (yours ${n.techs.length})`)}${line("Status", d.war ? `At war · score ${Math.round(wscore(n.id, o.id))}` : d.ally ? "Allied" : d.trade ? "Trade pact" : d.truce > 0 ? `Truce (${d.truce} turns)` : "Peace")}</div>`;
   h += `<div class="opts">`;
@@ -2045,6 +2063,7 @@ panel.addEventListener("click", e => {
     case "field": { const f = FIELDS[b.dataset.k]; if (f && afford(n, fieldCost(n, f))) { expandField(n, f); const msg = G.news.filter(x => /open/.test(x.t)).map(x => x.t); G.news = []; toast(msg[0] || `${f.name} level ${lv(n, f.k)}`); } refresh(); break; }
     case "fund": { const g = +b.dataset.g, sc = +b.dataset.s; n.gold -= g; n.sciPts += sc; toast(`+${fmt(sc)} science`); refresh(); break; }
     case "gov": confirmModal(`Switch to ${GOVS[b.dataset.g].name}?`, "Your people will go through 2 turns of turmoil with reduced output, and factions will need time to adjust.", () => { n.gov = b.dataset.g; n.anarchy = 2; n.govCool = 10; n.lastElect = G.turn; log(`Your people now live under a ${GOVS[n.gov].name}.`, "🏛️"); refresh(); }); break;
+    case "cul": { const ck = b.dataset.c; confirmModal(`Shift to a ${CULTURES[ck].name} culture?`, `${CULTURES[ck].d} Your people will go through 8 turns of upheaval, and you can't shift again for 30 turns.`, () => { n.cul = ck; n.culCool = 30; n.culShift = 8; G.fv = (G.fv || 0) + 1; log(`Your people embrace a ${CULTURES[ck].name} culture.`, CULTURES[ck].icon); refresh(); }); break; }
     case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
     case "nat": openNationDetail(id); break;
     case "world": openPanel("world"); break;
@@ -2120,6 +2139,7 @@ function showHelp() {
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Develop.</b> Instead of single buildings, you grow whole fields: Food, Industry, Weapons, Trade, Knowledge and more. Set a field up, then expand it level by level. Level 3 opens its next stage once you have the matching technology, from Weapon Making all the way to a Nuclear Arsenal.</p>
   <p><b>Mastery.</b> Once a stage reaches level 5 you can keep deepening it through research, up to level 50. Each level adds less, and level 50 equals level 5 of the next stage, so you can stay in an age and become very good at it, or move on. Mastery of a stage stops when you set up its next stage.</p>
+  <p><b>Culture.</b> You choose your people's culture when you found them: Mixed, Scholarly, Martial, Industrious, Agrarian or Mercantile. It's one of the biggest factors in research (Scholarly +60%, Martial −25%) and shapes your army, economy and which fields are cheaper. Most peoples are Martial.</p>
   <p><b>Paying for knowledge.</b> Research is funded from your income through the Research Budget law. Every coin spent on scholars is a coin not spent on armies, so most peoples keep budgets low and stay militarily strong. A small nation can choose to pour its income into learning, and technologies its neighbors and allies already know are cheaper, especially if those neighbors are larger.</p>
   <p><b>Ages & emphasis.</b> Fields are capped to your current age, and you can't enter a new age until every field reaches a base level that grows each age (2 levels per age). Each city can emphasize one field: it gives a small boost to that field's bonuses (+1.5% per city) and research (+1%), and lets it reach 1 age ahead. Your capital lets its field reach 3 ages ahead.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
@@ -2146,7 +2166,7 @@ $("btnNew").onclick = () => openSetup();
 $("btnHelp").onclick = () => showHelp();
 function openSetup() {
   $("title").hidden = true; $("setup").hidden = false;
-  setupState = { name: genName(), color: COLORS[0], start: "Lower Egypt", diff: 1 };
+  setupState = { name: genName(), color: COLORS[0], start: "Lower Egypt", diff: 1, cul: "mixed" };
   renderSetup();
 }
 function renderSetup() {
@@ -2156,11 +2176,14 @@ function renderSetup() {
   $("sStarts").innerHTML = CRADLES.filter(c => RID[c] !== undefined).map(c => `<button class="${c === st.start ? "on" : ""}" data-s="${esc(c)}">${esc(c)}</button>`).join("");
   $("sInfo").innerHTML = `<b>${esc(s.n)}</b> · ${TER[s.t].name}${s.r ? ` · ${RES[s.r].icon} ${RES[s.r].name}` : ""}${s.c ? " · Coastal" : ""} · room for ${s.slots} settlements and ${s.urban} towns or cities`;
   $("sDiff").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.d === st.diff));
+  $("sCul").innerHTML = Object.entries(CULTURES).map(([k, c]) => `<button class="${st.cul === k ? "on" : ""}" data-cu="${k}">${c.icon} ${c.name}</button>`).join("");
+  $("sCulInfo").textContent = CULTURES[st.cul].d;
   G.setup = true; sel = ri; centerRegion(ri, Math.max(minK() * 2.2, 2.5));
 }
 $("sName").oninput = e => { setupState.name = e.target.value.slice(0, 18); };
 $("sColors").onclick = e => { const b = e.target.closest("[data-c]"); if (b) { setupState.color = b.dataset.c; renderSetup(); } };
 $("sStarts").onclick = e => { const b = e.target.closest("[data-s]"); if (b) { setupState.start = b.dataset.s; renderSetup(); } };
+$("sCul").onclick = e => { const b = e.target.closest("[data-cu]"); if (b) { setupState.cul = b.dataset.cu; renderSetup(); } };
 $("sDiff").onclick = e => { const b = e.target.closest("[data-d]"); if (b) { setupState.diff = +b.dataset.d; renderSetup(); } };
 $("sRandomName").onclick = () => { setupState.name = genName(); renderSetup(); };
 function setupPick(ri) { setupState.start = W.regions[ri].n; renderSetup(); }
@@ -2168,7 +2191,7 @@ $("sBack").onclick = () => { $("setup").hidden = true; G.setup = false; sel = -1
 $("sGo").onclick = () => {
   const st = setupState; const name = (st.name || "").trim() || genName();
   $("setup").hidden = true; G = null;
-  newGame({ name: name.replace(/^\w/, c => c.toUpperCase()), color: st.color, start: st.start, diff: st.diff });
+  newGame({ name: name.replace(/^\w/, c => c.toUpperCase()), color: st.color, start: st.start, diff: st.diff, cul: st.cul });
   G.lastReport = []; save();
   startPlaying(true);
 };

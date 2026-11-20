@@ -231,6 +231,10 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 #sStarts button, #sDiff button { flex-shrink: 0; border: 2.5px solid var(--ink); border-radius: 12px; background: var(--paper); padding: 7px 10px; font-weight: 800; font-size: 13px; text-transform: none; letter-spacing: 0; }
 #sStarts button.on, #sDiff button.on { background: var(--ink); color: #fff; }
 #sDiff { display: flex; gap: 6px; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+.chiprow button { border: 2.5px solid var(--ink); border-radius: 12px; background: var(--paper); padding: 6px 9px; font-weight: 800; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.chiprow button.on { background: var(--ink); color: #fff; }
+.culinfo { font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 700; }
 #sDiff button { flex: 1; }
 #sInfo { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 700; }
 .sets { display: grid; gap: 8px; }
@@ -326,6 +330,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
     </label>
     <div class="field">Colors<div id="sColors"></div></div>
     <div class="field">Homeland <span class="muted" style="text-transform:none;letter-spacing:0">(or tap any land on the map)</span><div id="sStarts"></div><div id="sInfo"></div></div>
+    <div class="field">Culture<div id="sCul" class="chiprow"></div><div id="sCulInfo" class="culinfo"></div></div>
     <div class="field">Rivals<div id="sDiff"><button data-d="0">Gentle</button><button data-d="1">Normal</button><button data-d="2">Ruthless</button></div></div>
     <div class="row"><button class="btn ghost" id="sBack">Back</button><button class="btn" id="sGo">Begin the Stone Age</button></div>
   </div>
