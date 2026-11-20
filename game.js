@@ -1249,6 +1249,18 @@ function trustFactors(n, E) {
   for (const k in WELFARE) { const g = welfareGap(n, k); if (g > .05) f.push([`People demand more ${WELFARE[k].name.toLowerCase()}`, -1.5 * g]); }
   return f;
 }
+// trade moves aimed at you: every one goes in your trade record; you're only notified about peoples that matter to you
+function tradeRelevant(o, n) {
+  const d = dip(n.id, o.id); if (!d.met) return false;
+  if (d.trade || d.ally || d.offer || bordersTouch(n, o)) return true;
+  const SN = suitOf(n), SO = suitOf(o); // a serious competitor or supplier in one of your sectors
+  return Object.keys(SECTORS).some(k => secUnlocked(n, k) && secUnlocked(o, k) && (SO[k] > SN[k] * 1.25 || SN[k] > SO[k] * 1.25) && tradeOpen(o));
+}
+function tradeNote(by, target, text, icon) {
+  if (target.id !== G.player || target.ai) return;
+  (target.tradeLog || (target.tradeLog = [])).unshift({ when: dateTxt(), by: by.id, t: text, i: icon }); target.tradeLog.length = Math.min(target.tradeLog.length, 25);
+  if (tradeRelevant(by, target)) log(text, icon);
+}
 // ---- civil war: the nation splits; the far half rises up with a clean treasury ----
 function civilWar(n) {
   const sets = setsOf(n), cap = capSet(n) || sets[0];
@@ -1443,11 +1455,18 @@ function aiTurn(n) {
     st.tar = tradeOpen(n) && x.comp > x.suE * 1.15 && (n.laws.trade === "prot" || n.pers === "zealot" || x.base < .65) ? (x.base < .5 ? 2 : 1) : 0;
     st.inv = x.f < .8 && !x.M && n.gold > 0 ? 3 : 0; }
   if (tradeOpen(n)) for (const o of G.nations) { if (!o.alive || o.id === n.id) continue; const d = dip(n.id, o.id); if (!d.met || d.war) continue;
-    if (!d.emb && d.rel < -70 && rnd() < pr(.05)) { d.emb = n.id; d.trade = false; if (o.id === G.player) log(`The ${nm(n)} placed an embargo on your goods.`, "🚫"); }
-    else if (d.emb === n.id && d.rel > -30 && rnd() < pr(.2)) d.emb = null;
+    if (!d.emb && d.rel < -70 && rnd() < pr(.05)) { d.emb = n.id; d.trade = false; d.offer = null; tradeNote(n, o, `The ${nm(n)} placed an embargo on your goods. All trade between you has stopped.`, "🚫"); }
+    else if (d.emb === n.id && d.rel > -30 && rnd() < pr(.2)) { d.emb = null; tradeNote(n, o, `The ${nm(n)} lifted their embargo on you. Trade can resume.`, "🔓"); }
+    if (d.emb) continue;
     const theyTax = o.tariffOn && o.tariffOn[n.id], weTax = n.tariffOn && n.tariffOn[o.id];
-    if (theyTax && !weTax && !d.emb && rnd() < pr(.3)) { (n.tariffOn || (n.tariffOn = {}))[o.id] = true; if (o.id === G.player) log(`The ${nm(n)} retaliated with tariffs on your goods.`, "🧾"); }
-    else if (weTax && !theyTax && n.laws.trade !== "prot" && rnd() < pr(.1)) delete n.tariffOn[o.id]; }
+    if (theyTax && !weTax && rnd() < pr(.3)) { (n.tariffOn || (n.tariffOn = {}))[o.id] = true; tradeNote(n, o, `The ${nm(n)} retaliated with tariffs on your goods.`, "🧾"); }
+    else if (!weTax && (n.laws.trade === "prot" || n.pers === "zealot") && rnd() < pr(.08)) { // protect an industry your goods are undercutting
+      const SN = suitOf(n), SO = suitOf(o), k = Object.keys(SECTORS).find(k => secUnlocked(n, k) && secUnlocked(o, k) && SO[k] > SN[k] * 1.25);
+      if (k) { (n.tariffOn || (n.tariffOn = {}))[o.id] = true; tradeNote(n, o, `The ${nm(n)} put tariffs on your goods to protect their ${SECTORS[k].name.toLowerCase()} industry from your cheaper exports.`, "🧾"); } }
+    else if (weTax && !theyTax && n.laws.trade !== "prot" && rnd() < pr(.1)) { delete n.tariffOn[o.id]; tradeNote(n, o, `The ${nm(n)} removed their tariffs on your goods.`, "✅"); }
+    if (d.trade && d.rel < -25 && rnd() < pr(.15)) { d.trade = false; tradeNote(n, o, `The ${nm(n)} cancelled their trade agreement with you.`, "✂️"); }
+    else if (!o.ai && !d.trade && !d.offer && tradeOpen(o) && d.rel > 20 && rnd() < pr(.1) && aiAccept(n, "trade", o)) { d.offer = n.id; tradeNote(n, o, `The ${nm(n)} offer you a trade agreement. Accept it from the World tab.`, "📦"); }
+  }
   // develop fields
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
@@ -2169,11 +2188,11 @@ const line = (label, v, cls = "") => `<div class="ln ${cls}"><span>${label}</spa
 function budgetHTML(n) {
   const B0 = bud(n);
   let h = `<div class="budget"><div class="bsum" data-bx="sum"></div>`;
-  for (const [k, b] of Object.entries(BUDGET)) { h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="${k === "mil" ? 80 : 60}" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p></div>`;
+  for (const [k, b] of Object.entries(BUDGET)) { h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="${k === "mil" ? 80 : 60}" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p><p class="rec" data-bx="rec-${k}"></p></div>`;
   }
   h += `<h4 class="wh">Welfare</h4><p class="small muted">Makes your people happier, healthier and harder to turn against you: raises public trust every turn, calms unrest and helps workers. It costs a share of gross income. The more educated your people become, the more welfare they demand; falling short drains trust unless propaganda talks them down.</p>`;
   for (const [k, w] of Object.entries(WELFARE)) { const mx = welfareMax(n, k);
-    h += `<div class="bl"><label><span>${w.icon} ${w.name}</span><b data-bx="v-${k}"></b></label><div class="seg">${w.lv.map((l, i) => `<button class="${B0[k] === i ? "on" : ""}" data-wel="${k}" data-l="${i}" ${i > mx ? "disabled" : ""}>${l}${i > mx ? " 🔒" : ""}</button>`).join("")}</div><p class="bx" data-bx="${k}"></p></div>`; }
+    h += `<div class="bl"><label><span>${w.icon} ${w.name}</span><b data-bx="v-${k}"></b></label><div class="seg">${w.lv.map((l, i) => `<button class="${B0[k] === i ? "on" : ""}" data-wel="${k}" data-l="${i}" ${i > mx ? "disabled" : ""}>${l}${i > mx ? " 🔒" : ""}</button>`).join("")}</div><p class="bx" data-bx="${k}"></p><p class="rec" data-bx="rec-${k}"></p></div>`; }
   return h + `</div>`;
 }
 function budgetFill(root) {
@@ -2195,11 +2214,12 @@ function budgetFill(root) {
     set(k, l ? `+${(.75 * l * TD * TPY).toFixed(2).replace(/\.?0+$/, "")} trust a year · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp * TD * TPY).toFixed(2)} trust a year.</span>` : ""}`); }
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100) + Object.keys(SECTORS).reduce((a, k) => a + (secUnlocked(n, k) ? secOf(n, k).inv : 0), 0);
   const td = trustFactors(n, E.raw).reduce((a, x) => a + x[1], 0) * TD * TPY;
-  set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Trade sectors (Trade tab)", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad" : "")}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a year)`, td < 0 ? "bad" : "")}`);
+  { const RB = recBudget(n, E); for (const k in RB) set("rec-" + k, `💡 <b>Suggested:</b> ${RB[k][0]}<br><small><b>Why:</b> ${RB[k][1]}</small>`); const rq = recQual(n, E); set("rec-qual", `💡 <b>Suggested:</b> ${rq[0]}<br><small><b>Why:</b> ${rq[1]}</small>`); }
+  set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Trade sectors (Trade tab)", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad" : "")}${line("Net per quarter", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a year)`, td < 0 ? "bad" : "")}`);
 }
 // the army tab splits whatever the yearly budget gives the military between quantity and quality
 function armyBudgetHTML(n) {
-  return `<div class="budget"><div class="bl"><label><span>⚖️ Quantity ↔ Quality</span><b data-bx="v-qual"></b></label><input type="range" min="0" max="90" step="5" value="${bud(n).qual}" data-bud="qual" aria-label="Quantity versus quality"><div class="qq"><small>More regiments</small><small>Better regiments</small></div><p class="bx" data-bx="qual"></p><p class="bx" data-bx="mil"></p></div></div>`;
+  return `<div class="budget"><div class="bl"><label><span>⚖️ Quantity ↔ Quality</span><b data-bx="v-qual"></b></label><input type="range" min="0" max="90" step="5" value="${bud(n).qual}" data-bud="qual" aria-label="Quantity versus quality"><div class="qq"><small>More regiments</small><small>Better regiments</small></div><p class="bx" data-bx="qual"></p><p class="bx" data-bx="mil"></p><p class="rec" data-bx="rec-qual"></p></div></div>`;
 }
 function openBudget(yearly) {
   const n = P();
@@ -2325,6 +2345,54 @@ function panelMilitary() {
   h += `</div>`;
   return h;
 }
+// plain-language advice for players who don't know much economics: what to do, and why
+function recSector(n, E, k, x, st) {
+  const S0 = SECTORS[k], name = S0.name.toLowerCase(), open = tradeOpen(n), gap = x.D - x.S, cb = x.compBy >= 0 ? G.nations[x.compBy].name : "foreign producers";
+  const needInv = gap > 0 ? Math.ceil(gap / Math.max(1e-9, E.gross * x.suE * 1.3) * 100) : 0;
+  if (st.nat && x.stateNet < 0 && x.su >= .85) return ["Return it to private hands.", `The state is losing ${fmt(-x.stateNet * TD)} gold a quarter running it, and your land is good enough for private businesses to make it at a profit without your help.`];
+  if (gap > x.D * .05 && !x.M) {
+    if (!open) return [`Open your markets (Barter Markets in Develop), or invest about ${Math.min(25, needInv)}%.`, `Your people need more ${name} than you make, and you can't buy the rest abroad yet. That shortage is costing you ${S0.eff}. Imports or public investment would fill the gap.`];
+    return [`Invest about ${Math.min(25, needInv)}%, or subsidize it.`, `Nobody you trade with can sell you ${name} right now, so the only way to end the shortage is to make more at home.`];
+  }
+  if (st.tar && x.suE >= x.comp * 1.05) return ["Remove the tariff.", `Your producers already beat foreign prices, so the tariff isn't protecting anything. It only raises costs across your economy and prices for your people.`];
+  if (x.comp > x.suE * 1.1 && x.su >= .7 && x.base < 1.15 && !st.tar && open) return ["Set a Low tariff.", `${cb} make ${name} cheaper than your producers can, so your own industry is losing customers and shrinking. A tariff makes their goods cost more, giving your producers room to compete and grow. The price is slightly higher costs for everyone.`];
+  if (x.su < .7 && open && x.M > 0 && (st.tar || st.sub > 1 || st.inv > 3) && k !== "agri" && k !== "oil") return ["Just import it: drop the tariff, subsidy and investment.", `Your land is poor for ${name}. Forcing it at home costs more than buying it from others, so the gold is better spent elsewhere.`];
+  if (x.su < .7 && (k === "agri" || k === "oil") && open && x.M > x.D * .6 && !st.sub) return ["Import most of it, but keep Some subsidy.", `Your land is poor for ${name}, so importing is cheaper. But ${k === "agri" ? "food" : "oil"} is vital: a war or embargo can cut imports off overnight, and a few producers of your own keep you from starving${k === "oil" ? " or stalling your armies" : ""}.`];
+  if (st.inv > 0 && x.S > x.D * 1.3 && x.X < (x.S - x.D) * .5) return ["Lower the investment.", `You're making far more ${name} than your people use or you can sell abroad. The extra is wasted gold.`];
+  if (open && x.S > x.D * 1.05 && E.partners.length < 3) return ["Sign more trade agreements (World tab).", `You make more ${name} than you need. More agreements let you export the extra for gold.`];
+  if (x.lvl < 4 && x.stable < .6) return ["Keep it steady and avoid big changes.", `Industries level up through steady production and good wages. Sudden swings in output set them back.`];
+  return ["Looks healthy. No change needed.", `Your people have enough ${name} and the industry is holding its own.`];
+}
+const recHTML = r => r ? `<p class="rec">💡 <b>Suggested:</b> ${r[0]}<br><small><b>Why:</b> ${r[1]}</small></p>` : "";
+function recBudget(n, E) { // E per quarter (econM)
+  const B0 = bud(n), R = {}, g = Math.max(1e-9, E.gross);
+  const needMil = Math.ceil(E.armyUp / (g * (1 - B0.qual / 100)) * 100); // regiments are paid from the quantity share
+  const threats = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && (atWar(n.id, o.id) || (dip(n.id, o.id).rel < -30 && bordersTouch(n, o))) && power(o) > power(n) * .8);
+  R.mil = threats.length ? [`About ${needMil + 8}% or more.`, `${threats.map(o => o.name).slice(0, 2).join(" and ")} ${threats.length > 1 ? "are" : "is"} hostile and about as strong as you or stronger. A bigger, better army keeps them from taking your land.`]
+    : [`About ${Math.max(needMil, 5)}%.`, `That pays for the army you have. You're not facing a strong threat right now, so extra gold may do more good in research or your economy.`];
+  const best = Math.max(0, ...G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met).map(o => o.techs.length)), behind = best - n.techs.length;
+  const rBase = n.cul === "scholarly" ? 25 : n.cul === "martial" ? 10 : 15;
+  R.res = behind >= 3 ? [`About ${rBase + 10}%.`, `Your neighbors know ${behind} more technologies than you. Falling further behind means weaker armies and fields; spending more on research helps you catch up.`] : [`About ${rBase}%.`, `That keeps you learning at a steady pace for your culture. Go higher if you want to race ahead, at the cost of army and economy.`];
+  R.prod = n.mat < 20 * Math.pow(1.5, n.era) ? ["About 5–10%.", "You're low on materials, which you need for fields, academies and new regiments. Production spending raises how much your workshops and mines make."] : ["0–5%.", "You have materials to spare, so gold may be better used elsewhere."];
+  R.travel = n.cmd === "supreme" || setsOf(n).some(x => x.mil) ? ["About 3–6%.", "You rely on generals and commanders. Travel raises the odds that skilled ones emerge, and a bad commander can cripple your army."] : ["0–2%.", "Travel mainly improves generals and commanders. Until you have military academies or a supreme commander, it does little."];
+  R.sub = E.surplus < 0 ? ["About 8–10%.", "Your people are short of food. Subsidies help farmers grow more and keep commoners loyal."] : ["About 2–4%.", "A little support keeps commoners and merchants content without costing much."];
+  const gap = welfareGap(n, "inc") + welfareGap(n, "health"), ed = eduOf(n);
+  if (gap > .05) {
+    const propNeed = Math.min(60, Math.ceil(Math.pow(gap / 2 * (25 + ed) / 75, 2) * 100)), welfNeed = Math.round((WELFARE.inc.cost[Math.min(4, B0.inc + 1)] - WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[Math.min(4, B0.health + 1)] - WELFARE.health.cost[B0.health]) * 100);
+    const cheaperProp = propNeed < welfNeed;
+    R.prop = cheaperProp ? [`About ${propNeed}%.`, `Your people want more welfare than you give. Right now persuading them costs less than paying for it (about ${welfNeed}% for the next welfare levels).`] : ["Raise welfare instead.", `Your people are educated enough that propaganda would need about ${propNeed}% to calm them. The next welfare levels cost only about ${welfNeed}% and also make them healthier and more productive.`];
+    R.inc = R.health = cheaperProp ? ["Hold here, and use propaganda.", "Persuasion is still cheaper than paying for more welfare at your people's level of education."] : ["Raise it one level.", "Your people are demanding it, and unmet demand drains trust every quarter. At their level of education, welfare is cheaper than propaganda."];
+  } else {
+    R.prop = B0.prop ? ["0%.", "Your people aren't demanding more than you give, so propaganda is wasted gold right now."] : ["0%.", "Your people don't expect more from the state yet. Propaganda only matters once they're educated enough to demand welfare."];
+    R.inc = R.health = (n.trust == null ? 100 : n.trust) < 50 ? ["Raise it if you can afford to.", "Public trust is low. Welfare raises it every quarter and makes revolt less likely."] : ["Fine as it is.", "Your people aren't demanding more and trust is healthy. Raise it later if trust falls or demand grows."];
+  }
+  return R;
+}
+function recQual(n, E) {
+  if (E.spare > 0) return ["Shift toward quality (40%+).", "You can't raise more regiments: you've hit your manpower limit. Extra money only helps if it goes into better arms and training."];
+  if (G.nations.some(o => atWar(n.id, o.id))) return ["About 15–25%.", "In war, numbers let you attack and defend in several places at once. Keep enough quality that each regiment can hold its own."];
+  return ["About 15–30%.", "A mix usually wins: enough regiments to cover your borders, each one well armed. Lean toward quality when you're near your manpower limit."];
+}
 function panelTrade() {
   const n = P(), E = econM(n), X = E.raw.sectors, open = tradeOpen(n), parts = E.partners, q = v => fmt(v * TD);
   let h = ph("Trade", open ? `${parts.length} trade agreement${parts.length === 1 ? "" : "s"} · net ${sgn(E.secNet - E.secInv)} a quarter` : "Markets not open yet");
@@ -2335,6 +2403,10 @@ function panelTrade() {
   h += `<div class="card"><h4>Balance of trade <span class="muted">per quarter</span></h4>${line("Exports", sgn(E.secExp), "good")}${line("Imports", sgn(-E.secImp), E.secImp ? "bad" : "")}${line("Tariff revenue", sgn(E.secTar))}${E.secSub ? line("Subsidies", sgn(-E.secSub)) : ""}${E.secState ? line("State-run sectors", sgn(E.secState), E.secState < 0 ? "bad" : "good") : ""}${line("Public investment", sgn(-E.secInv))}${line("Net", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad total" : "good total")}${E.drag ? line("Tariffs raise your production costs", `+${(E.drag * 100).toFixed(1)}%`, "bad") : ""}
     ${line("Trade agreements", parts.length ? parts.map(o => esc(o.name)).join(", ") : "None")}${emb.length ? line("Embargoes", emb.map(o => `${esc(o.name)}${dip(n.id, o.id).emb === n.id ? "" : " (theirs)"}`).join(", "), "bad") : ""}${tar.length ? line("Your tariffs on", tar.map(o => esc(o.name)).join(", ")) : ""}${E.tariffedBy ? line("Peoples taxing your goods", E.tariffedBy, "bad") : ""}
     <p class="small muted">Sign trade agreements, set tariffs on a people's goods, or embargo them from the World tab. Imports are cheaper with more trade agreements, and they let you export more.</p></div>`;
+  { const offers = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).offer === o.id && !dip(n.id, o.id).trade);
+    if (offers.length) h += `<p class="note">📦 Trade agreement offered by ${offers.map(o => `<a href="#" data-act="nat" data-id="${o.id}">${esc(o.name)}</a>`).join(", ")}. Open them in World to accept.</p>`;
+    const tl = (n.tradeLog || []).slice(0, 8);
+    if (tl.length) h += `<details class="card"><summary><b>Recent trade moves toward you</b></summary>${tl.map(e => `<div class="nw"><span>${e.i}</span><p><small class="muted">${esc(e.when)}</small> ${esc(e.t)}</p></div>`).join("")}<p class="small muted">You're notified only about peoples that matter to you: neighbors, partners, allies and serious competitors or suppliers. Everything else is kept here.</p></details>`; }
   for (const k in SECTORS) { if (!secUnlocked(n, k)) continue;
     const S0 = SECTORS[k], x = X[k], st = secOf(n, k); if (!x) continue;
     const pct = Math.round(x.f * 100), col = x.f >= 1 ? "var(--good)" : x.f >= .85 ? "var(--warn)" : "var(--bad)", effP = Math.round(S0.amp * (Math.min(1.3, x.f) - 1) * 100);
@@ -2351,6 +2423,7 @@ function panelTrade() {
       <div class="secrow"><small>Subsidy</small>${seg("sub", ["None", "Some", "Heavy"], st.nat)}</div>
       <div class="secrow"><small>Tariff</small>${seg("tar", ["None", "Low", "High"], !open)}</div>
       <div class="secrow"><small>Owner</small>${seg("nat", ["Private", "Nationalized"], false)}</div>
+      ${recHTML(recSector(n, E.raw, k, x, st))}
       ${st.sub && !st.nat ? `<p class="small muted">Subsidies cost ${q(x.sub)} 🪙 a quarter.</p>` : ""}${st.nat ? `<p class="small muted">The state runs it: steady output whatever the cost, ${x.stateNet < 0 ? `losing ${q(-x.stateNet)}` : `earning ${q(x.stateNet)}`} 🪙 a quarter. Merchants dislike it; workers approve.</p>` : ""}${open ? `<p class="small muted">${st.tar ? `Your tariff makes foreign ${S0.name.toLowerCase()} dearer so your own producers can compete and build up (it brings in ${q(x.tarRev)} 🪙). ${x.priv < x.D * .05 && !st.nat ? "<b>Even so, your land is too poor for private producers to compete: add subsidies or public investment.</b> " : ""}` : x.comp > x.suE ? "Cheaper foreign producers are undercutting yours; left alone, imports will hollow this industry out. A tariff lets your producers compete. " : ""}Every tariff raises production costs a little across your economy and prices for your people.</p>` : ""}</div>`; }
   const later = Object.values(SECTORS).filter(x => x.era > n.era);
   if (later.length) h += `<div class="card"><h4>Later sectors</h4>${later.map(x => line(`${x.icon} ${x.name}`, ERAS[x.era])).join("")}</div>`;
@@ -2481,6 +2554,7 @@ function openNationDetail(id) {
       h += n.tariffOn && n.tariffOn[id] ? `<button class="opt" data-act="dTarEnd" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Remove tariff</b><small>Their goods enter freely again</small></span></button>` : `<button class="opt" data-act="dTar" data-id="${id}"><span class="oi">🧾</span><span class="ot"><b>Put a tariff on their goods</b><small>Makes their goods dearer in your markets so your industries can compete where theirs are stronger. Raises your costs slightly, hurts their trade and relations, and they may retaliate.</small></span></button>`;
     }
     if (!tOpen || d.emb) {}
+    else if (d.offer === o.id && !d.trade) h += `<button class="opt" data-act="dOfferYes" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Accept their trade agreement</b><small>They offered it. More trade income for both, cheaper imports and room to export.</small></span></button><button class="opt" data-act="dOfferNo" data-id="${id}"><span class="oi">✋</span><span class="ot"><b>Decline their offer</b><small>Slightly hurts relations</small></span></button>`;
     else if (!d.trade) h += `<button class="opt" data-act="dTrade" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Propose a trade agreement</b><small>More trade income for both. ${!tradeOpen(o) ? "Their markets aren't open yet" : aiAccept(o, "trade", n) ? "Likely yes" : "Likely no"}</small></span></button>`;
     else h += `<button class="opt" data-act="dTradeEnd" data-id="${id}"><span class="oi">✂️</span><span class="ot"><b>Cancel trade agreement</b><small>Hurts relations</small></span></button>`;
     if (!d.ally) h += `<button class="opt" data-act="dAlly" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Propose an alliance</b><small>Defend each other. ${aiAccept(o, "ally", n) ? "Likely yes" : "Needs friendlier relations"}</small></span></button>`;
@@ -2499,6 +2573,8 @@ panel.addEventListener("click", e => {
   switch (a) {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
+    case "dOfferYes": { const d = dip(n.id, id); d.trade = true; d.offer = null; d.rel += 3; toast("Trade agreement signed!"); hud(); openNationDetail(id); break; }
+    case "dOfferNo": { const d = dip(n.id, id); d.offer = null; d.rel -= 3; hud(); openNationDetail(id); break; }
     case "secset": { const st = secOf(n, b.dataset.k), f = b.dataset.f, v = +b.dataset.v; if (f === "nat") st.nat = !!v; else st[f] = v; save(); refresh(); break; }
     case "dEmb": confirmModal(`Embargo the ${nm(o)}?`, "All trade between you stops, and any trade agreement ends. Relations will suffer.", () => { const d = dip(n.id, id); d.emb = n.id; d.trade = false; d.rel -= 20; hud(); openNationDetail(id); }); break;
     case "dEmbEnd": { const d = dip(n.id, id); d.emb = null; d.rel += 5; toast("Embargo lifted"); hud(); openNationDetail(id); break; }
