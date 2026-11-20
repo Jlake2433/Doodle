@@ -194,6 +194,7 @@ const milAcadCount = n => setsOf(n).filter(s => s.mil).length;
 // academies graduate scientists, military academies graduate officers; a few retire every turn
 function sciGradRate(n) { let t = 0; for (const x of G.sets) if (x.o === n.id) { if (x.acad === 1) t += .6 + x.pop / 30000; else if (x.acad === 2) t += 2 + x.pop / 10000; } return t * (n.cul === "scholarly" ? 1.3 : 1); }
 function offGradRate(n) { let t = 0; for (const x of G.sets) if (x.o === n.id && x.mil) t += .8 + x.pop / 30000; return t * (n.cul === "martial" ? 1.3 : 1); }
+const sciSalary = n => .3 * Math.pow(1.4, n.era), offSalary = n => .35 * Math.pow(1.4, n.era);
 const perScientist = n => n.cul === "scholarly" ? .015 : .01;
 const scientistBoost = n => (n.scientists || 0) * perScientist(n);
 const perOfficer = n => .004 * (cmd(n).off || 1);
@@ -734,7 +735,9 @@ function econ(n) {
     per.set(s.id, { food: f, gold: g, mat: m, sci: sc });
   }
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
-  for (const x of G.sets) if (x.o === n.id) bUp += ((x.acad === 1 ? .5 : x.acad === 2 ? 1.5 : 0) + (x.mil ? 1 : 0)) * Math.pow(1.4, n.era);
+  // academies cost a lot to run, and every scientist and officer draws a salary
+  let acadUp = 0; for (const x of G.sets) if (x.o === n.id) acadUp += ((x.acad === 1 ? 2 : x.acad === 2 ? 6 : 0) + (x.mil ? 4 : 0)) * Math.pow(1.4, n.era);
+  const sciPay = (n.scientists || 0) * sciSalary(n), offPay = (n.officers || 0) * offSalary(n);
   const talent = n.scientists || 0; sci *= 1 + scientistBoost(n);
   const partners = tradePartners(n);
   const peaceful = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)).length;
@@ -756,8 +759,8 @@ function econ(n) {
   const rpct = budgetPct(n), resGold = Math.max(0, tax + routeGold + luxGold) * rpct, resMat = mat * rpct * .5;
   const resRate = 1.5 * Math.pow(1.25, n.era), resSci = (resGold + resMat) / resRate;
   sci += resSci; mat -= resMat;
-  const goldNet = tax + routeGold + luxGold + foodGold - bUp - armyUp - imports - govUp - resGold;
-  return { food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent };
+  const goldNet = tax + routeGold + luxGold + foodGold - bUp - armyUp - imports - govUp - resGold - acadUp - sciPay - offPay;
+  return { food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
 }
 
 // ================= POLITICS =================
@@ -886,6 +889,7 @@ function processNation(n) {
   if (n.gold < 0) {
     const lose = Math.min(n.army, Math.ceil(-n.gold / Math.max(1, unitUpkeep(n) * 4)));
     if (lose > 0 && n.army > 0) { n.army -= lose; log(`Unpaid, ${lose} regiment${lose > 1 ? "s" : ""} of the ${nm(n)} deserted.`, "💸", n.id); }
+    if ((n.scientists || 0) + (n.officers || 0) > 1) { n.scientists = (n.scientists || 0) * .85; n.officers = (n.officers || 0) * .85; if (!n.ai) log("Unpaid scientists and officers are leaving your service.", "💸"); }
     n.facMods.push({ k: "commoners", v: -10, why: "Debts", t: 2 }); n.facMods.push({ k: "warriors", v: -15, why: "Unpaid soldiers", t: 2 });
     n.gold = Math.max(n.gold, -30 * (1 + n.era));
   }
@@ -1207,12 +1211,14 @@ function aiTurn(n) {
   const want = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratio + 1));
   const uc = unitCost(n);
   while (n.army < want && n.gold > uc.g * 1.5 + (saving ? villageCost(n).g : 0) && n.mat > uc.m) recruit(n, 1);
-  // academies and command
+  // academies and command (close the least useful ones when money runs short)
+  if (E.goldNet < 0 && n.gold < 50 * Math.pow(1.5, n.era)) { const x = setsOf(n).filter(x => x.acad || x.mil).sort((a, b) => a.pop - b.pop)[0];
+    if (x) { if (x.acad && !(n.cul === "scholarly" && !x.mil)) x.acad = 0; else x.mil = false; } }
   if (!n.cmd || n.cmd === "chiefs") { const want = (n.cul === "martial" || n.pers === "aggressive") ? "supreme" : "council"; if (!CMDS[want].tech || has(n, CMDS[want].tech)) setCommand(n, want, bestGeneral(n)); }
   for (const x of setsOf(n)) {
     if (!canAcad(n, x)) continue;
-    if (!x.mil && has(n, "bronze") && milAcadCount(n) < milAcadLimit(n) && (n.cul === "martial" || n.pers === "aggressive" || rnd() < .25)) { const c = milAcadCost(n); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.mil = true; } }
-    if (has(n, "writing") && (x.acad || 0) < 1 && rnd() < (n.cul === "scholarly" ? .6 : .2)) { const c = acadCost(n, 1); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.acad = 1; } }
+    if (!x.mil && has(n, "bronze") && milAcadCount(n) < milAcadLimit(n) && (n.cul === "martial" || n.pers === "aggressive" || rnd() < .25)) { const c = milAcadCost(n); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 4 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.mil = true; } }
+    if (has(n, "writing") && (x.acad || 0) < 1 && rnd() < (n.cul === "scholarly" ? .6 : .2)) { const c = acadCost(n, 1); if (n.gold > c.g * 2 && n.mat > c.m && E.goldNet > 2 * Math.pow(1.4, n.era)) { n.gold -= c.g; n.mat -= c.m; x.acad = 1; } }
     else if (has(n, "printing") && x.acad === 1 && rnd() < (n.cul === "scholarly" ? .4 : .1)) { const c = acadCost(n, 2); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.acad = 2; } }
   }
   // develop fields
@@ -1941,6 +1947,7 @@ function panelNation() {
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Research budget (${Math.round(budgetPct(n) * 100)}%)`, sgn(-E.resGold))}
+    ${E.acadUp ? line("Academies upkeep", sgn(-E.acadUp)) : ""}${E.sciPay ? line(`Scientists' pay (${fmtP(n.scientists)})`, sgn(-E.sciPay)) : ""}${E.offPay ? line(`Officers' pay (${fmtP(n.officers)})`, sgn(-E.offPay)) : ""}
     ${line("Building upkeep", sgn(-E.bUp))}${line("Army upkeep", sgn(-E.armyUp))}${E.imports ? line("Resource imports", sgn(-E.imports)) : ""}${E.govUp ? line("Overextension costs", sgn(-E.govUp), "bad") : ""}
     ${line("Net gold", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}
     ${line("Materials", sgn(E.mat))}${line("Science", sgn(E.sci))}${line("Food", `${fmtP(E.food)} grown / ${fmtP(E.need)} eaten`, E.surplus < 0 ? "bad" : "")}</div>`;
@@ -2021,14 +2028,14 @@ function panelMilitary() {
   h += `<div class="card"><h4>🎖️ Officers & generals</h4>
     <div class="tiers two"><div><span>🎖️</span><b>${fmtP(n.officers || 0)}</b><small>Officer power</small></div><div><span>⭐</span><b>${generalPower(n)}</b><small>General power</small></div></div>
     ${line("Officers", `+${Math.round(officerBonus(n) * 100)}% army strength`)}${line("Generals", `+${Math.round(genBonus(n) * 100)}% attack`)}
-    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n))} officers a turn and a few retire.</p>
+    <p class="small muted">Each officer adds +${(perOfficer(n) * 100).toFixed(1)}% strength; each general's star adds +${Math.round((cmd(n).gen || 1) * 100) / 100}% attack. Military academies graduate +${fmt(offGradRate(n))} officers a turn and a few retire. Each officer is paid ${fmt(offSalary(n))} 🪙 a turn.</p>
     ${gens.length ? `<details><summary class="small"><b>${gens.length} general${gens.length > 1 ? "s" : ""}</b></summary>${gens.map(g => `<div class="ln"><span>General ${esc(g.name)} <small class="muted">from ${esc(g.from)}</small></span><b>${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)} · ${g.left} turns</b></div>`).join("")}</details>` : `<p class="small muted">No generals yet. Military academies graduate them over time.</p>`}</div>`;
   // military academies
   const lim = milAcadLimit(n), cnt = milAcadCount(n), sites = setsOf(n).filter(x => canAcad(n, x));
   h += `<div class="card"><h4>🏰 Military academies <span class="pill">${cnt}/${lim}</span></h4><p class="small muted">Graduate officers (more in bigger cities) and, now and then, a general. You can run 1 plus 1 for every 6 units of nation size.${has(n, "bronze") ? "" : " Needs Bronze Working."}</p>`;
   if (!sites.length) h += `<p class="small muted">Only cities (and your capital once it's a town) can host academies.</p>`;
   for (const x of sites) { const c = milAcadCost(n);
-    h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${fmtP(x.pop)}</small></span><b>${x.mil ? "✓ Military academy" : `<button class="btn small" data-act="milacad" data-s="${x.id}" ${has(n, "bronze") && cnt < lim && afford(n, c) ? "" : "disabled"}>Found · ${costTxt(c)}</button>`}</b></div>`; }
+    h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${fmtP(x.pop)}</small></span><b>${x.mil ? `✓ <button class="btn small ghost" data-act="milclose" data-s="${x.id}">Close</button>` : `<button class="btn small" data-act="milacad" data-s="${x.id}" ${has(n, "bronze") && cnt < lim && afford(n, c) ? "" : "disabled"}>Found · ${costTxt(c)}</button>`}</b></div>`; }
   h += `</div>`;
   return h;
 }
@@ -2042,10 +2049,10 @@ function panelResearch() {
   { const rate = +(3 * Math.pow(1.3, n.era)).toFixed(1), fg = Math.round(40 * Math.pow(1.7, n.era)), fs = Math.round(fg / rate);
     h += `<div class="card"><h4>Fund your scientists</h4><p class="muted small">Turn spare gold into research. ${rate} gold buys 1 science.</p><div class="row wrap">${[1, 4].map(k => `<button class="btn small" data-act="fund" data-g="${fg * k}" data-s="${fs * k}" ${n.gold >= fg * k ? "" : "disabled"}>🪙${fmt(fg * k)} → 🔬${fmt(fs * k)}</button>`).join("")}</div></div>`; }
   { const sites = setsOf(n).filter(x => canAcad(n, x));
-    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n))} a turn, more in bigger cities, and a few retire.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
+    h += `<div class="card"><h4>🎓 Scientists</h4><div class="tiers two"><div><span>🧑‍🔬</span><b>${fmtP(n.scientists || 0)}</b><small>Scientists</small></div><div><span>📈</span><b>+${Math.round(scientistBoost(n) * 100)}%</b><small>Research</small></div></div><p class="small muted">Each scientist adds +${(perScientist(n) * 100).toFixed(1)}% research${n.cul === "scholarly" ? " (Scholarly culture)" : ""}. Academies and universities graduate +${fmt(sciGradRate(n))} a turn, more in bigger cities, and a few retire. Each scientist is paid ${fmt(sciSalary(n))} 🪙 a turn, and academies cost upkeep: you can't afford everything.${has(n, "writing") ? "" : " Academies need Writing."}</p>`;
     if (!sites.length) h += `<p class="small muted">Only cities (and your capital once it's a town) can host academies.</p>`;
     for (const x of sites) { const lvl = x.acad || 0, c = acadCost(n, lvl + 1), can = lvl === 0 ? has(n, "writing") : lvl === 1 ? has(n, "printing") : false;
-      h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${lvl === 2 ? "University" : lvl === 1 ? "Academy" : "No academy"}</small></span><b>${lvl < 2 ? `<button class="btn small" data-act="acad" data-s="${x.id}" ${can && afford(n, c) ? "" : "disabled"} title="${lvl === 1 && !has(n, "printing") ? "Needs Printing Press" : ""}">${lvl === 0 ? "Found" : "→ University"} · ${costTxt(c)}</button>` : "✓ University"}</b></div>`; }
+      h += `<div class="ln"><span>${x.id === n.cap ? "⭐ " : ""}${esc(x.name)} <small class="muted">${lvl === 2 ? "University" : lvl === 1 ? "Academy" : "No academy"}</small></span><b>${lvl < 2 ? `<button class="btn small" data-act="acad" data-s="${x.id}" ${can && afford(n, c) ? "" : "disabled"} title="${lvl === 1 && !has(n, "printing") ? "Needs Printing Press" : ""}">${lvl === 0 ? "Found" : "→ University"} · ${costTxt(c)}</button>` : ""}${lvl ? ` <button class="btn small ghost" data-act="acadclose" data-s="${x.id}">Close</button>` : ""}</b></div>`; }
     h += `</div>`; }
   h += `<label class="toggle"><input type="checkbox" id="autoR" ${n.autoResearch ? "checked" : ""}> Let advisors pick the next research automatically</label>`;
   { const dv = []; for (const c of fieldsMissing(n)) for (const [k] of c.f) { const f = FIELDS[k]; if (devOk(n, f)) dv.push(f); }
@@ -2172,6 +2179,8 @@ panel.addEventListener("click", e => {
     case "tech": n.research = b.dataset.t; n.resManual = /^[md]:/.test(b.dataset.t); refresh(); break;
     case "field": { const f = FIELDS[b.dataset.k]; if (f && afford(n, fieldCost(n, f))) { expandField(n, f); const msg = G.news.filter(x => /open/.test(x.t)).map(x => x.t); G.news = []; toast(msg[0] || `${f.name} level ${lv(n, f.k)}`); } refresh(); break; }
     case "acad": { const x = setById(+b.dataset.s), lvl = (x.acad || 0) + 1, c = acadCost(n, lvl); if (afford(n, c)) { n.gold -= c.g; n.mat -= c.m; x.acad = lvl; toast(lvl === 1 ? `Academy founded in ${x.name}` : `${x.name}'s academy is now a university`); } refresh(); break; }
+    case "acadclose": { const x = setById(+b.dataset.s); confirmModal(`Close the ${x.acad === 2 ? "university" : "academy"} in ${x.name}?`, "You'll stop paying its upkeep, but it will stop graduating scientists. Rebuilding costs the full price.", () => { x.acad = 0; refresh(); }); break; }
+    case "milclose": { const x = setById(+b.dataset.s); confirmModal(`Close the military academy in ${x.name}?`, "You'll stop paying its upkeep, but it will stop graduating officers and generals.", () => { x.mil = false; refresh(); }); break; }
     case "milacad": { const x = setById(+b.dataset.s), c = milAcadCost(n); if (afford(n, c) && milAcadCount(n) < milAcadLimit(n)) { n.gold -= c.g; n.mat -= c.m; x.mil = true; toast(`Military academy founded in ${x.name}`); } refresh(); break; }
     case "cmd": { const k = b.dataset.k;
       if (k === "supreme") {
