@@ -886,13 +886,16 @@ function processNation(n) {
   if (!n.alive) return;
   const E = econ(n);
   n.gold += E.goldNet; n.mat += E.mat;
+  // debt: nobody quits, the nation simply borrows. Interest piles up and the people's trust drains away
+  if (n.trust == null) n.trust = 100;
   if (n.gold < 0) {
-    const lose = Math.min(n.army, Math.ceil(-n.gold / Math.max(1, unitUpkeep(n) * 4)));
-    if (lose > 0 && n.army > 0) { n.army -= lose; log(`Unpaid, ${lose} regiment${lose > 1 ? "s" : ""} of the ${nm(n)} deserted.`, "💸", n.id); }
-    if ((n.scientists || 0) + (n.officers || 0) > 1) { n.scientists = (n.scientists || 0) * .85; n.officers = (n.officers || 0) * .85; if (!n.ai) log("Unpaid scientists and officers are leaving your service.", "💸"); }
-    n.facMods.push({ k: "commoners", v: -10, why: "Debts", t: 2 }); n.facMods.push({ k: "warriors", v: -15, why: "Unpaid soldiers", t: 2 });
-    n.gold = Math.max(n.gold, -30 * (1 + n.era));
-  }
+    n.gold *= 1.02;
+    const gross = Math.max(1, E.tax + E.routeGold + E.luxGold);
+    const ratio = -n.gold / gross; // how many turns of income the debt is worth
+    n.trust -= 1.5 + Math.min(8, ratio * 1.2) + (E.goldNet < 0 ? 1.5 : 0);
+    if (!n.ai && n.trust < 30 && !n.trustWarned) { n.trustWarned = true; log(`Public trust is collapsing (${Math.round(Math.max(0, n.trust))}/100). If it reaches zero, the nation will tear itself apart in civil war.`, "⚠️"); }
+  } else { n.trust = Math.min(100, n.trust + 2); if (n.trust > 40) n.trustWarned = false; }
+  if (n.trust <= 0) civilWar(n);
   // growth: each settlement grows toward its limit. Full villages stop growing.
   const sr = clamp(E.surplus / Math.max(1, E.need), -1, 1);
   const sets = setsOf(n);
@@ -1069,6 +1072,35 @@ function revolt(n, s) {
   }
   for (const k in B(n.id, ri)) if (!setsOf(n).some(x => x.r === ri)) { delete G.bld[ri][n.id]; break; }
   recomputeControl(ri);
+}
+// ---- civil war: the nation splits; the far half rises up with a clean treasury ----
+function civilWar(n) {
+  const sets = setsOf(n), cap = capSet(n) || sets[0];
+  if (sets.length < 2 || !cap) { n.trust = 25; return; }
+  const far = sets.filter(x => x.id !== cap.id).sort((a, b) => Math.hypot(b.x - cap.x, b.y - cap.y) - Math.hypot(a.x - cap.x, a.y - cap.y));
+  const rebelsS = far.slice(0, Math.max(1, Math.round(sets.length * .45)));
+  const used = new Set(G.nations.map(x => x.color));
+  const col = COLORS.find(c => !used.has(c)) || `hsl(${Math.floor(rnd() * 360)},65%,52%)`;
+  const rb = newNation(genName(), col, -1, true, pick(Object.keys(PERS)), n.cul);
+  const share = rebelsS.reduce((a, x) => a + x.pop, 0) / Math.max(1, sets.reduce((a, x) => a + x.pop, 0));
+  rb.techs = n.techs.slice(); rb.era = n.era; rb.fields = { ...(n.fields || {}) }; rb.laws = { ...n.laws }; rb.research = chooseResearch(rb);
+  const govs = Object.keys(GOVS).filter(g => g !== n.gov && (!GOVS[g].tech || has(n, GOVS[g].tech)));
+  rb.gov = govs.length ? pick(govs) : n.gov; rb.govCool = 8;
+  rb.army = Math.round(n.army * share); n.army -= rb.army;
+  rb.scientists = (n.scientists || 0) * share; n.scientists = (n.scientists || 0) - rb.scientists;
+  rb.officers = (n.officers || 0) * share; n.officers = (n.officers || 0) - rb.officers;
+  rb.generals = (n.generals || []).filter(() => rnd() < share); n.generals = (n.generals || []).filter(g => !rb.generals.includes(g));
+  rb.gold = 0; rb.mat = n.mat * share; n.mat -= rb.mat; rb.trust = 70; rb.stab = 55; rb.cmd = n.cmd === "supreme" ? "chiefs" : n.cmd;
+  for (const x of rebelsS) { x.o = rb.id; x.focus = null; x.u = 20; }
+  rb.cap = rebelsS.slice().sort((a, b) => b.pop - a.pop)[0].id;
+  n.trust = 45; n.trustWarned = false;
+  const d = dip(n.id, rb.id); d.met = true; d.war = true; d.wt = G.turn; d.rel = -80; d.ws = 0;
+  for (const o of G.nations) if (o.alive && o.id !== n.id && o.id !== rb.id && dip(o.id, n.id).met) { const d2 = dip(o.id, rb.id); d2.met = true; d2.rel = dip(o.id, n.id).rel; d2.trade = false; }
+  for (const ri of new Set(rebelsS.map(x => x.r))) recomputeControl(ri);
+  G.sv++; reachCache.clear();
+  if (n.id === G.player) { G.pendingCivil = { a: n.id, b: rb.id }; log("CIVIL WAR! The people have lost all trust in the treasury, and the nation has split in two.", "🔥"); }
+  else if (dip(n.id, G.player).met) log(`Civil war has split the ${nm(n)}: the ${nm(rb)} has risen in revolt.`, "🔥", -1);
+  return rb;
 }
 function upheaval(n) {
   const unlocked = Object.keys(GOVS).filter(g => !GOVS[g].tech || has(n, GOVS[g].tech));
@@ -1816,7 +1848,8 @@ function hud() {
   const sets = setsOf(n), full = sets.filter(s => s.crowd).length;
   $("cPop").innerHTML = `<span class="ci">👥</span><b>${fmtP(E.pop)}</b><i>${full ? `${full} overcrowded` : `${sets.length} settlement${sets.length > 1 ? "s" : ""}`}</i>`;
   $("cPop").classList.toggle("warnchip", full > 0);
-  $("cGold").innerHTML = `<span class="ci">🪙</span><b>${fmt(n.gold)}</b><i class="${E.goldNet < 0 ? "neg" : ""}">${sgn(E.goldNet)}</i>`;
+  $("cGold").className = "chip" + (n.gold < 0 ? " bad" : "");
+  $("cGold").innerHTML = `<span class="ci">🪙</span><b>${n.gold < 0 ? "−" + fmt(-n.gold) : fmt(n.gold)}</b><i class="${E.goldNet < 0 ? "neg" : ""}">${sgn(E.goldNet)}</i>`;
   $("cMat").innerHTML = `<span class="ci">🪵</span><b>${fmt(n.mat)}</b><i>${sgn(E.mat)}</i>`;
   const t = resItem(n, n.research);
   $("cSci").innerHTML = t ? `<span class="ci">🔬</span><b>${Math.min(99, Math.floor(n.sciPts / t.cost * 100))}%</b><i>${esc(t.mastery || t.develop ? t.name + " " + (lv(n, t.f.k) + 1) : t.name)}</i>` : `<span class="ci">🔬</span><b>—</b><i>Pick research</i>`;
@@ -1944,6 +1977,8 @@ function panelNation() {
     ${full ? line("Overcrowded", `<span class="bad">${full} with no room nearby</span>`) : ""}
     ${line("Settlements you can manage", `${fmt(sizeOf(n))} / ${adminCap(n)}${E.over ? ' <span class="bad">overextended</span>' : ""}`)}
     <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages close together can merge into one town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
+  { const t = Math.round(Math.max(0, n.trust == null ? 100 : n.trust));
+    h += `<div class="card"><h4>Public trust</h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${n.gold < 0 ? "Falling" : t < 100 ? "Recovering" : "Steady"}</span></div><p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing 2% a turn in interest. Trust drains faster the bigger the debt is compared with your income. At zero, civil war breaks out and the nation splits in two.` : "Your treasury is in the black. Going into debt is allowed, but it slowly drains the people's trust; at zero, civil war breaks out."}</p></div>`; }
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
     ${line(`Research budget (${Math.round(budgetPct(n) * 100)}%)`, sgn(-E.resGold))}
@@ -2234,6 +2269,18 @@ function afterTurnFlow() {
   hud(); dirty = true;
   if (G.over) return showEnd();
   const items = G.lastReport.filter(x => x.p !== false); G.lastReport = [];
+  const askCivil = () => {
+    const pc = G.pendingCivil; if (!pc) return false;
+    const A = G.nations[pc.a], Bn = G.nations[pc.b];
+    const sum = x => { const ss = setsOf(x); return `${ss.length} settlements · ${fmtP(ss.reduce((a, y) => a + y.pop, 0))} people · ${x.army} regiments · ${x.gold < 0 ? `debt ${fmt(-x.gold)}` : `${fmt(x.gold)} gold`} · ${GOVS[x.gov].name}`; };
+    showModal(`<div class="mi">🔥</div><h2>Civil war</h2><p>Your people have lost all trust in the government's finances. The nation has split in two, and the two sides are at war. Which side will you lead?</p>
+      <div class="choices"><button class="choice" data-m="a"><b>${A.color ? `<span class="sw" style="background:${A.color}"></span> ` : ""}Loyalists: ${esc(nm(A))}</b><small>Keep the capital and the government, and the debt. ${sum(A)}</small></button>
+      <button class="choice" data-m="b"><b><span class="sw" style="background:${Bn.color}"></span> Rebels: ${esc(nm(Bn))}</b><small>A fresh start with a clean treasury and a new government. ${sum(Bn)}</small></button></div>`, a => {
+        G.pendingCivil = null;
+        if (a === "b") { A.ai = true; Bn.ai = false; Bn.autoResearch = true; G.player = Bn.id; reachCache.clear(); log(`You now lead the ${nm(Bn)}.`, "🚩"); const c = capSet(Bn); if (c) centerOn(c.x, c.y, Math.max(view.k, 6)); }
+        save(); hud(); dirty = true; if (curPanel) refresh(); showEventAfterCivil(); });
+    return true;
+  };
   const askMastery = () => {
     const n = P(); if (!n.alive || chooseTech(n) || n.resManual) return;
     const dev = []; for (const c of fieldsMissing(n)) for (const [k] of c.f) { const f = FIELDS[k]; if (devOk(n, f)) dev.push(f); }
@@ -2246,7 +2293,9 @@ function afterTurnFlow() {
       <p class="small muted">Developing fields with research moves you toward the next age. Mastery deepens a field you've already fully expanded. When the next age arrives, research switches back to technology.</p>`, a => {
         if (a && /^[md]:/.test(a)) { n.research = a; n.resManual = true; save(); hud(); toast(a[0] === "d" ? `Scholars are developing ${FIELDS[a.slice(2)].name}` : `Scholars are mastering ${FIELDS[a.slice(2)].name}`); if (curPanel) refresh(); } });
   };
-  const showEvent = () => {
+  const showEventAfterCivil = () => showEvent(true);
+  const showEvent = (skipCivil) => {
+    if (skipCivil !== true && askCivil()) return;
     if (!G.event) return askMastery();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
@@ -2283,6 +2332,7 @@ function showHelp() {
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
   <p><b>Borders.</b> Each settlement holds land around it, and your borders grow as you add villages, towns and cities. Borders stop where they meet another people's, and you can't settle inside someone else's borders.</p>
   <p><b>Academies & the army.</b> Cities can found academies, later universities, which graduate scientists (+1% research each, more for Scholarly cultures). Military academies (limited by nation size) train officers and graduate generals. The Army tab shows your forces and lets you choose how they're commanded.</p>
+  <p><b>Debt & trust.</b> Your treasury can go into debt; nobody quits. But debt grows with interest and drains public trust. If trust hits zero, civil war splits your nation in two, and you choose which side to lead.</p>
   <p><b>War.</b> You can only declare war on peoples whose borders touch yours, and only attack their settlements on the front line. Each victory pushes their border back; it takes 1 win to capture a village, 2 for a town and 3 for a city.</p>
   <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed, and cloudy gray land is unexplored.</p></div>
   <div class="row"><button class="btn" data-m="ok">Got it</button></div>`);
