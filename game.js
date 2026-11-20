@@ -718,13 +718,14 @@ const BUDGET = {
   prod:   { name: "Production", icon: "🏭", d: "Invests in workshops, mines and factories for more materials." },
   travel: { name: "Travel", icon: "🧭", d: "Sends your people abroad to study, trade and see the world. Raises the odds of skilled generals and commanders." },
   sub:    { name: "Subsidies", icon: "🌾", d: "Supports farmers and craftsmen: more food, faster growth, and happier commoners and merchants." },
+  prop:   { name: "Propaganda", icon: "📣", d: "Persuades your people they need less from the state, holding down their demand for welfare. Almost nothing is needed while people are uneducated, but the more educated they get, the more it costs to convince them." },
 };
 const WELFARE = {
   inc:    { name: "Basic income", icon: "💵", lv: ["None", "Poor relief", "Basic income", "Standard income", "Universal income"], era: [0, 0, 3, 5, 6], cost: [0, .04, .08, .14, .22] },
   health: { name: "Healthcare", icon: "🏥", lv: ["None", "Basic care", "Public clinics", "National healthcare", "Advanced healthcare"], era: [0, 0, 3, 5, 6], cost: [0, .04, .08, .13, .2] },
 };
 const RP_PCT = { low: 5, std: 15, high: 30, max: 50, bal: 15, sch: 30, acad: 50 };
-function bud(n) { if (!n.budget) n.budget = { mil: 0, res: RP_PCT[n.laws.rp] || 15, prod: 0, travel: 0, sub: 0, inc: 0, health: 0, init: true }; return n.budget; }
+function bud(n) { if (!n.budget) n.budget = { mil: 0, res: RP_PCT[n.laws.rp] || 15, prod: 0, travel: 0, sub: 0, prop: 0, inc: 0, health: 0, init: true }; if (n.budget.prop == null) n.budget.prop = 0; return n.budget; }
 const welfareMax = (n, k) => WELFARE[k].era.reduce((m, e, i) => e <= n.era ? i : m, 0);
 const welfareLv = n => bud(n).inc + bud(n).health;
 const budgetPct = n => bud(n).res / 100;
@@ -733,6 +734,11 @@ const prodBoostOf = n => 1.2 * Math.pow(bud(n).prod / 100, .7);
 const subFoodOf = n => .8 * Math.pow(bud(n).sub / 100, .7);
 const subGrowOf = n => .04 * Math.sqrt(bud(n).sub / 100);
 const travelQ = n => 3 * Math.sqrt(bud(n).travel / 100); // how far abroad your people get: better odds of great characters
+// education: the more educated your people, the more welfare they expect from the state
+function eduOf(n) { let ac = 0; for (const x of G.sets) if (x.o === n.id && x.acad) ac += x.acad; return clamp(n.era * 10 + chainLevels(n, "sci") * 1.2 + Math.min(20, ac * 3), 0, 100); }
+const propSway = n => 3 * Math.sqrt((bud(n).prop || 0) / 100) * 25 / (25 + eduOf(n)); // welfare levels of demand talked away; worth less as people learn
+const welfareExpect = (n, k) => Math.min(welfareMax(n, k), Math.max(0, (eduOf(n) - 8) / 22));
+const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propSway(n));
 const welfareWork = n => .02 * welfareLv(n); // healthier, steadier people work better
 function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
@@ -781,7 +787,7 @@ function econ(n) {
   const milGold = pctG("mil"), milFund = armyUp > 0 ? milGold / armyUp : 1 + (milGold > 0 ? 1 : 0);
   n.milFund = milFund;
   const prodGold = pctG("prod"), prodBoost = prodBoostOf(n); mat *= 1 + prodBoost + welfareWork(n);
-  const travelGold = pctG("travel"), subGold = pctG("sub");
+  const travelGold = pctG("travel"), subGold = pctG("sub"), propGold = pctG("prop");
   const incGold = gross * WELFARE.inc.cost[Bd.inc], healthGold = gross * WELFARE.health.cost[Bd.health];
   sci *= 1 + welfareWork(n);
   const over = Math.max(0, sizeOf(n) - adminCap(n));
@@ -791,9 +797,9 @@ function econ(n) {
   const resRate = 1.5 * Math.pow(1.25, n.era), resSci = (resGold + resMat) / resRate;
   sci += resSci; mat -= resMat;
   const fixed = bUp + imports + govUp + acadUp + sciPay + offPay;
-  const spend = milGold + resGold + prodGold + travelGold + subGold + incGold + healthGold;
+  const spend = milGold + resGold + prodGold + travelGold + subGold + propGold + incGold + healthGold;
   const goldNet = gross + foodGold - fixed - spend;
-  return { gross, fixed, spend, milGold, milFund, prodGold, prodBoost, travelGold, subGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
+  return { gross, fixed, spend, milGold, milFund, prodGold, prodBoost, travelGold, subGold, propGold, incGold, healthGold, food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci, talent, acadUp, sciPay, offPay };
 }
 
 // ================= POLITICS =================
@@ -845,7 +851,9 @@ function facTargets(n, E) {
     add("intellectuals", clamp(Math.round((B0.res - 15) * .5), -8, 20), "Research budget");
     add("warriors", Math.round(clamp(mf - 1, -1, 1) * 12), mf < 1 ? "Army underpaid" : "Military budget");
     add("commoners", Math.round(2 * Math.sqrt(B0.sub)), "Subsidies"); add("merchants", Math.round(1.5 * Math.sqrt(B0.sub)), "Subsidies");
-    add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income"); }
+    add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income");
+    const gap = welfareGap(n, "inc") + welfareGap(n, "health"); add("commoners", -Math.round(4 * gap), "Unmet welfare demand"); add("intellectuals", -Math.round(3 * gap), "Unmet welfare demand");
+    if (B0.prop) add("intellectuals", -Math.round(1.5 * Math.sqrt(B0.prop)), "Propaganda"); }
   add("intellectuals", { democracy: 12, technocracy: 20, party: -18, theocracy: -15 }[g] || 0, "Government");
   add("workers", L.labor === "rights" ? 20 : L.labor === "unreg" ? -15 : 0, "Labor law");
   add("workers", { democracy: 10, party: 8 }[g] || 0, "Government");
@@ -1117,6 +1125,7 @@ function trustFactors(n, E) {
   if (B0.inc) f.push([WELFARE.inc.lv[B0.inc], .75 * B0.inc]);
   if (B0.health) f.push([WELFARE.health.lv[B0.health], .75 * B0.health]);
   if (B0.sub) f.push(["Subsidies", .15 * Math.sqrt(B0.sub)]);
+  for (const k in WELFARE) { const g = welfareGap(n, k); if (g > .05) f.push([`People demand more ${WELFARE[k].name.toLowerCase()}`, -1.5 * g]); }
   return f;
 }
 // ---- civil war: the nation splits; the far half rises up with a clean treasury ----
@@ -1265,9 +1274,10 @@ function aiTurn(n) {
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     B0.mil = clamp(Math.ceil(E.armyUp * want / g * 100), 3, 70); B0.res = RP_PCT[n.laws.rp] || 15;
-    B0.prod = n.pers === "builder" ? 8 : 4; B0.travel = n.pers === "trader" ? 6 : 2; B0.sub = 3;
+    B0.prod = n.pers === "builder" ? 8 : 4; B0.travel = n.pers === "trader" ? 6 : 2; B0.sub = 3; B0.prop = 0;
     const wl = n.era >= 5 ? 2 : n.era >= 3 ? 1 : 0; B0.inc = Math.min(wl, welfareMax(n, "inc")); B0.health = Math.min(wl + (n.era >= 6 ? 1 : 0), welfareMax(n, "health"));
-    if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); } }
+    if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); }
+    { const gap = welfareGap(n, "inc") + welfareGap(n, "health"); if (gap > .1) B0.prop = clamp(Math.round(gap * (n.pers === "zealot" || n.pers === "aggressive" ? 8 : 4) * (1 + eduOf(n) / 25)), 0, 40); } }
   if (n.govCool === 0 && n.stab > 40) {
     const pref = { aggressive: ["party", "empire", "monarchy", "chiefdom"], builder: ["technocracy", "democracy", "empire", "monarchy", "chiefdom"], trader: ["democracy", "republic", "monarchy", "chiefdom"], zealot: ["theocracy", "monarchy", "chiefdom"] }[n.pers];
     const g = pref.find(g => has(n, GOVS[g].tech));
@@ -2020,7 +2030,7 @@ function budgetHTML(n) {
   const B0 = bud(n);
   let h = `<div class="budget"><div class="bsum" data-bx="sum"></div>`;
   for (const [k, b] of Object.entries(BUDGET)) h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="60" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p></div>`;
-  h += `<h4 class="wh">Welfare</h4><p class="small muted">Makes your people happier, healthier and harder to turn against you: raises public trust every turn, calms unrest and helps workers. It costs a share of gross income.</p>`;
+  h += `<h4 class="wh">Welfare</h4><p class="small muted">Makes your people happier, healthier and harder to turn against you: raises public trust every turn, calms unrest and helps workers. It costs a share of gross income. The more educated your people become, the more welfare they demand; falling short drains trust unless propaganda talks them down.</p>`;
   for (const [k, w] of Object.entries(WELFARE)) { const mx = welfareMax(n, k);
     h += `<div class="bl"><label><span>${w.icon} ${w.name}</span><b data-bx="v-${k}"></b></label><div class="seg">${w.lv.map((l, i) => `<button class="${B0[k] === i ? "on" : ""}" data-wel="${k}" data-l="${i}" ${i > mx ? "disabled" : ""}>${l}${i > mx ? " 🔒" : ""}</button>`).join("")}</div><p class="bx" data-bx="${k}"></p></div>`; }
   return h + `</div>`;
@@ -2029,15 +2039,17 @@ function budgetFill(root) {
   if (!root) return;
   const n = P(), E = econ(n), B0 = bud(n), set = (k, v) => { const el = root.querySelector(`[data-bx="${k}"]`); if (el) el.innerHTML = v; };
   const need = Math.ceil(E.armyUp / Math.max(1, E.gross) * 100), mm = milMult(E.milFund) - 1;
-  for (const k in BUDGET) set("v-" + k, `${B0[k]}% · ${fmt(E[{ mil: "milGold", res: "resGold", prod: "prodGold", travel: "travelGold", sub: "subGold" }[k]])} 🪙`);
+  for (const k in BUDGET) set("v-" + k, `${B0[k]}% · ${fmt(E[{ mil: "milGold", res: "resGold", prod: "prodGold", travel: "travelGold", sub: "subGold", prop: "propGold" }[k]])} 🪙`);
+  { const ed = Math.round(eduOf(n)), sw = propSway(n), ex = k => WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))];
+    set("prop", `${B0.prop ? `Talks demand down by ${sw.toFixed(2)} level${sw >= .995 && sw < 1.005 ? "" : "s"} per program. ` : ""}Education ${ed}/100: ${welfareExpect(n, "inc") < .25 && welfareExpect(n, "health") < .25 ? "your people expect nothing from the state yet." : `your people expect ${ex("inc")} and ${ex("health")}.`}${B0.prop ? ` Intellectuals −${Math.round(1.5 * Math.sqrt(B0.prop))}.` : ""}`); }
   set("mil", `Your ${n.army} regiment${n.army === 1 ? "" : "s"} need ${need}% (${fmt(E.armyUp)} 🪙). ${E.milFund < 1 ? `<span class="bad">Underpaid: ${Math.round(mm * 100)}% army strength.</span>` : mm > 0.005 ? `<span class="good">+${Math.round(mm * 100)}% army strength from extra training.</span>` : "Fully paid."}`);
   set("res", `+${fmt(E.resSci)} 🔬 science a turn · uses ${fmt(E.resMat)} 🪵 materials.`);
   set("prod", B0.prod ? `+${Math.round(E.prodBoost * 100)}% materials.` : BUDGET.prod.d);
   set("travel", B0.travel ? `Generals and commanders: up to +${(travelQ(n)).toFixed(1)}★ better odds, and generals emerge ${Math.round(.6 * travelQ(n) * 100)}% more often.` : BUDGET.travel.d);
   set("sub", B0.sub ? `+${Math.round(subFoodOf(n) * 100)}% food · +${(subGrowOf(n) * 100).toFixed(1)}% growth · commoners +${Math.round(2 * Math.sqrt(B0.sub))}, merchants +${Math.round(1.5 * Math.sqrt(B0.sub))}.` : BUDGET.sub.d);
-  for (const k in WELFARE) { const l = B0[k], g = k === "inc" ? E.incGold : E.healthGold;
+  for (const k in WELFARE) { const l = B0[k], g = k === "inc" ? E.incGold : E.healthGold, gp = welfareGap(n, k);
     set("v-" + k, l ? `${Math.round(WELFARE[k].cost[l] * 100)}% · ${fmt(g)} 🪙` : "Off");
-    set(k, l ? `+${(.75 * l).toFixed(2).replace(/\.?0+$/, "")} trust a turn · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}`); }
+    set(k, l ? `+${(.75 * l).toFixed(2).replace(/\.?0+$/, "")} trust a turn · commoners +${3 * l}${k === "health" ? ` · +${(.6 * l).toFixed(1)}% growth` : ` · nobles −${2 * l}`} · less unrest · +${2 * l}% materials and science.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages.` : ""}` : `Not funded.${welfareMax(n, k) < 4 ? ` Higher levels unlock in later ages (next: ${ERAS[WELFARE[k].era[welfareMax(n, k) + 1]]}).` : ""}${gp > .05 ? ` <span class="bad">People want ${WELFARE[k].lv[Math.min(4, Math.round(welfareExpect(n, k)))]}: −${(1.5 * gp).toFixed(1)} trust a turn.</span>` : ""}`); }
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100);
   const td = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
   set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a turn)`, td < 0 ? "bad" : "")}`);
@@ -2426,6 +2438,7 @@ function showHelp() {
   <p><b>Academies & the army.</b> Cities can found academies, later universities, which graduate scientists (+1% research each, more for Scholarly cultures). Military academies (limited by nation size) train officers and graduate generals. The Army tab shows your forces and lets you choose how they're commanded.</p>
   <p><b>Budget.</b> Every year you split your gross income between Military (pays the army; underpaid regiments fight at up to half strength, extra money trains them harder), Research, Production (more materials), Travel (better odds of skilled generals and commanders) and Subsidies (food, growth and happier commoners).</p>
   <p><b>Welfare.</b> Basic income and healthcare, from simple relief up to advanced programs in later ages, make your people happier, healthier and more productive, raise public trust every turn and calm unrest. They cost a share of your income.</p>
+  <p><b>Education & propaganda.</b> Educated people demand more from the state. As your people learn (each age, Knowledge fields and academies), they expect higher levels of basic income and healthcare, and every level you fall short drains public trust. Propaganda holds that demand down, costs almost nothing while your people are uneducated, but buys less and less as they learn.</p>
   <p><b>Debt & trust.</b> Your treasury can go into debt; nobody quits. But debt grows with interest and drains public trust, the revolt meter. Welfare pushes it back up. If trust hits zero, civil war splits your nation in two, and you choose which side to lead.</p>
   <p><b>War.</b> You can only declare war on peoples whose borders touch yours, and only attack their settlements on the front line. Each victory pushes their border back; it takes 1 win to capture a village, 2 for a town and 3 for a city.</p>
   <p><b>Map.</b> Drag to move, pinch or scroll to zoom. Villages are dots ●, towns are squares ■, cities are triangles ▲, and ⭐ marks capitals. Zoom in to see their shapes. White land is unclaimed, and cloudy gray land is unexplored.</p></div>
