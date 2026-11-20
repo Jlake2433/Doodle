@@ -200,7 +200,7 @@ const perOfficer = n => .004 * (cmd(n).off || 1);
 const generalPower = n => (n.generals || []).reduce((a, g) => a + g.skill, 0);
 const CMDS = {
   chiefs:  { name: "Warband Chiefs", icon: "🪓", tech: null, d: "Each band follows its own chief. No special effects." },
-  supreme: { name: "Supreme Commander", icon: "🎖️", tech: "bronze", atk: .15, gen: 2, fac: { warriors: 8, nobles: -4 }, d: "+15% attack, your best general's bonus is doubled. The military gains political weight." },
+  supreme: { name: "Supreme Commander", icon: "🎖️", tech: "bronze", fac: { warriors: 8, nobles: -4 }, d: "One commander leads everything. The whole army is only as good as they are: a ★ commander cripples it (−30% strength), a ★★★★★ one makes it fearsome (+40%)." },
   council: { name: "War Council", icon: "🪑", tech: "monarchy", def: .15, gen: .75, fac: { nobles: 5, commoners: 3 }, d: "+15% defense and steadier politics, but a smaller bonus from your best general." },
   staff:   { name: "General Staff", icon: "🗺️", tech: "rifling", pow: .1, off: 1.5, fac: { warriors: 4 }, d: "+10% army strength; officers count 50% more." },
   militia: { name: "Citizen Militia", icon: "🛡️", tech: "republic", pow: -.1, upkeep: .75, cap: 1.25, fac: { commoners: 5, warriors: -6 }, d: "Army upkeep −25% and +25% more regiments, but −10% strength." },
@@ -209,6 +209,18 @@ const cmd = n => CMDS[n.cmd] || CMDS.chiefs;
 const officerBonus = n => (n.officers || 0) * perOfficer(n);
 const bestGeneral = n => (n.generals || []).reduce((b, g) => !b || g.skill > b.skill ? g : b, null);
 const genBonus = n => generalPower(n) * .01 * (cmd(n).gen || 1);
+// the supreme commander's skill decides how good the whole army is
+const CMDR_EFF = [-.3, -.1, .1, .25, .4];
+const supremeMult = n => n.cmd === "supreme" && n.commander ? CMDR_EFF[clamp(n.commander.skill, 1, 5) - 1] : 0;
+const CMD_YEARS = 25;
+const cmdLocked = n => (n.cmdUntil || -1e9) > G.year;
+const yearTxt = y => y < 0 ? `${-y} BCE` : `${y} CE`;
+function appointCommander(n, g) { // g: a general from the roster, or null for an unproven appointee
+  if (g) { n.generals = (n.generals || []).filter(x => x !== g); n.commander = { name: g.name, skill: g.skill, left: Math.max(g.left, 12), known: true }; }
+  else n.commander = { name: genName(8), skill: 1 + Math.floor(rnd() * 5), left: 20 + Math.floor(rnd() * 20), known: false };
+  return n.commander;
+}
+function setCommand(n, k, g) { n.cmd = k; n.cmdUntil = G.year + CMD_YEARS; if (k === "supreme") appointCommander(n, g); else n.commander = null; }
 const attackMult = n => 1 + genBonus(n) + (cmd(n).atk || 0);
 const defMult = n => 1 + (cmd(n).def || 0) + genBonus(n) * .5;
 let emphCache = new Map();
@@ -672,7 +684,7 @@ function unitPower(n) {
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
   m += cul(n).pow || 0;
-  m += officerBonus(n) + (cmd(n).pow || 0);
+  m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
@@ -968,7 +980,11 @@ function processNation(n) {
   if (n.govCool > 0) n.govCool--;
   if (n.opposition > 0) n.opposition--;
   if (n.culCool > 0) n.culCool--; if (n.culShift > 0) n.culShift--;
-  if (n.cmdCool > 0) n.cmdCool--;
+  if (n.cmd === "supreme") {
+    if (!n.commander) appointCommander(n, bestGeneral(n));
+    else if (--n.commander.left <= 0) { const old = n.commander, g = bestGeneral(n), c = appointCommander(n, g);
+      if (!n.ai) log(`Supreme Commander ${old.name} has stepped down. ${g ? `General ${c.name} (${"★".repeat(c.skill)}) takes command.` : `${c.name}, an unproven officer, takes command (${"★".repeat(c.skill)}).`}`, "🎖️"); }
+  }
   if (!n.generals) n.generals = [];
   n.generals.forEach(g => g.left--);
   for (const g of n.generals.filter(g => g.left <= 0)) if (!n.ai) log(`General ${g.name} has retired.`, "🎖️");
@@ -1190,7 +1206,7 @@ function aiTurn(n) {
   const uc = unitCost(n);
   while (n.army < want && n.gold > uc.g * 1.5 + (saving ? villageCost(n).g : 0) && n.mat > uc.m) recruit(n, 1);
   // academies and command
-  if (!n.cmd || n.cmd === "chiefs") { const want = (n.cul === "martial" || n.pers === "aggressive") ? "supreme" : "council"; if (!CMDS[want].tech || has(n, CMDS[want].tech)) n.cmd = want; }
+  if (!n.cmd || n.cmd === "chiefs") { const want = (n.cul === "martial" || n.pers === "aggressive") ? "supreme" : "council"; if (!CMDS[want].tech || has(n, CMDS[want].tech)) setCommand(n, want, bestGeneral(n)); }
   for (const x of setsOf(n)) {
     if (!canAcad(n, x)) continue;
     if (!x.mil && has(n, "bronze") && milAcadCount(n) < milAcadLimit(n) && (n.cul === "martial" || n.pers === "aggressive" || rnd() < .25)) { const c = milAcadCost(n); if (n.gold > c.g * 2 && n.mat > c.m) { n.gold -= c.g; n.mat -= c.m; x.mil = true; } }
@@ -1983,9 +1999,12 @@ function panelMilitary() {
   const n = P(), E = econ(n), uc = unitCost(n), ma = maxArmy(n), C = cmd(n);
   let h = ph("Army", `${n.army} regiments · strength ${fmt(power(n))}`);
   // command structure
-  h += `<div class="card"><h4>${C.icon} Command: ${C.name}</h4><p class="small muted">${C.d}</p><div class="govs">`;
+  h += `<div class="card"><h4>${C.icon} Command: ${C.name}</h4><p class="small muted">${C.d}</p>`;
+  if (n.cmd === "supreme" && n.commander) { const cm = n.commander, eff = supremeMult(n);
+    h += `<div class="ln me"><span>Supreme Commander ${esc(cm.name)}</span><b>${"★".repeat(cm.skill)}${"☆".repeat(5 - cm.skill)} · <span class="${eff < 0 ? "bad" : "good"}">${eff >= 0 ? "+" : ""}${Math.round(eff * 100)}% army</span></b></div>`; }
+  h += `<p class="small muted">${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
   for (const [k, c] of Object.entries(CMDS)) { const un = !c.tech || has(n, c.tech);
-    h += `<button class="gov ${n.cmd === k || (!n.cmd && k === "chiefs") ? "cur" : ""}" data-act="cmd" data-k="${k}" ${(n.cmd || "chiefs") === k || !un || n.cmdCool > 0 ? "disabled" : ""}><b>${c.icon} ${c.name}</b><small>${c.d}</small><span class="tc">${(n.cmd || "chiefs") === k ? "Current" : !un ? `Needs ${TECH[c.tech].name}` : n.cmdCool > 0 ? `Wait ${n.cmdCool} turns` : "Reorganize"}</span></button>`; }
+    h += `<button class="gov ${n.cmd === k || (!n.cmd && k === "chiefs") ? "cur" : ""}" data-act="cmd" data-k="${k}" ${(n.cmd || "chiefs") === k || !un || cmdLocked(n) ? "disabled" : ""}><b>${c.icon} ${c.name}</b><small>${c.d}</small><span class="tc">${(n.cmd || "chiefs") === k ? "Current" : !un ? `Needs ${TECH[c.tech].name}` : cmdLocked(n) ? `Locked until ${yearTxt(n.cmdUntil)}` : "Reorganize"}</span></button>`; }
   h += `</div></div>`;
   // regiments
   const parts = [["Age of " + ERAS[n.era], ERA_POW[n.era]]];
@@ -2152,7 +2171,22 @@ panel.addEventListener("click", e => {
     case "field": { const f = FIELDS[b.dataset.k]; if (f && afford(n, fieldCost(n, f))) { expandField(n, f); const msg = G.news.filter(x => /open/.test(x.t)).map(x => x.t); G.news = []; toast(msg[0] || `${f.name} level ${lv(n, f.k)}`); } refresh(); break; }
     case "acad": { const x = setById(+b.dataset.s), lvl = (x.acad || 0) + 1, c = acadCost(n, lvl); if (afford(n, c)) { n.gold -= c.g; n.mat -= c.m; x.acad = lvl; toast(lvl === 1 ? `Academy founded in ${x.name}` : `${x.name}'s academy is now a university`); } refresh(); break; }
     case "milacad": { const x = setById(+b.dataset.s), c = milAcadCost(n); if (afford(n, c) && milAcadCount(n) < milAcadLimit(n)) { n.gold -= c.g; n.mat -= c.m; x.mil = true; toast(`Military academy founded in ${x.name}`); } refresh(); break; }
-    case "cmd": { const k = b.dataset.k; confirmModal(`Reorganize under ${CMDS[k].name}?`, `${CMDS[k].d} You can't reorganize again for 10 turns.`, () => { n.cmd = k; n.cmdCool = 10; log(`Your army is now organized under a ${CMDS[k].name}.`, CMDS[k].icon); refresh(); }); break; }
+    case "cmd": { const k = b.dataset.k;
+      if (k === "supreme") {
+        const gens = (n.generals || []).slice().sort((a, b2) => b2.skill - a.skill);
+        showModal(`<div class="mi">🎖️</div><h2>Appoint a Supreme Commander</h2><p>The whole army will be only as good as this person: ★ −30%, ★★ −10%, ★★★ +10%, ★★★★ +25%, ★★★★★ +40% strength. You can't change your command structure for ${CMD_YEARS} years.</p>
+          <div class="choices">${gens.map((g, i) => `<button class="choice" data-m="g${i}"><b>General ${esc(g.name)} ${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)}</b><small>${CMDR_EFF[g.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[g.skill - 1] * 100)}% army strength · from ${esc(g.from)}</small></button>`).join("")}
+          <button class="choice" data-m="fav"><b>An unproven court favorite</b><small>Anywhere from ★ to ★★★★★. You'll only find out after the appointment.</small></button></div>
+          <div class="row"><button class="btn ghost" data-m="no">Cancel</button></div>`, a => {
+            if (!a || a === "no") return;
+            const g = a === "fav" ? null : gens[+a.slice(1)];
+            setCommand(n, "supreme", g); const cm = n.commander;
+            log(`${cm.name} is now Supreme Commander (${"★".repeat(cm.skill)}).`, "🎖️");
+            showModal(`<div class="mi">${cm.skill >= 4 ? "🏆" : cm.skill <= 2 ? "😬" : "🎖️"}</div><h2>${esc(cm.name)}</h2><p>${g ? "Your general takes supreme command." : "The court favorite takes command, and turns out to be..."}</p><p style="font-size:28px;text-align:center">${"★".repeat(cm.skill)}${"☆".repeat(5 - cm.skill)}</p><p style="text-align:center"><b>${CMDR_EFF[cm.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[cm.skill - 1] * 100)}% army strength</b></p><div class="row"><button class="btn" data-m="ok">OK</button></div>`);
+            refresh(); });
+        break;
+      }
+      confirmModal(`Reorganize under ${CMDS[k].name}?`, `${CMDS[k].d} You can't change your command structure again for ${CMD_YEARS} years.`, () => { setCommand(n, k); log(`Your army is now organized under a ${CMDS[k].name}.`, CMDS[k].icon); refresh(); }); break; }
     case "fund": { const g = +b.dataset.g, sc = +b.dataset.s; n.gold -= g; n.sciPts += sc; toast(`+${fmt(sc)} science`); refresh(); break; }
     case "gov": confirmModal(`Switch to ${GOVS[b.dataset.g].name}?`, "Your people will go through 2 turns of turmoil with reduced output, and factions will need time to adjust.", () => { n.gov = b.dataset.g; n.anarchy = 2; n.govCool = 10; n.lastElect = G.turn; log(`Your people now live under a ${GOVS[n.gov].name}.`, "🏛️"); refresh(); }); break;
     case "cul": { const ck = b.dataset.c; confirmModal(`Shift to a ${CULTURES[ck].name} culture?`, `${CULTURES[ck].d} Your people will go through 8 turns of upheaval, and you can't shift again for 30 turns.`, () => { n.cul = ck; n.culCool = 30; n.culShift = 8; G.fv = (G.fv || 0) + 1; log(`Your people embrace a ${CULTURES[ck].name} culture.`, CULTURES[ck].icon); refresh(); }); break; }
