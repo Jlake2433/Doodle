@@ -1501,8 +1501,8 @@ function drawSettlements(k, me) {
   ctx.lineJoin = "round";
   for (let t = 0; t < 3; t++) for (const s of G.sets) {
     if (s.t !== t || s.x < x0 || s.x > x1 || s.y < y0 || s.y > y1) continue;
-    const n = G.nations[s.o], px = clamp((s.h || .05) * k * .5, 1.6, 9 + t * 2.5), z = px / k;
-    if (px < 3.2) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill(); continue; }
+    const n = G.nations[s.o], px = clamp((s.h || .05) * k * .14, 1.4, 4.5 + t * 1.8), z = px / k;
+    if (px < 2.4) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill(); continue; }
     const base = shade(n.color, .62);
     shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
     shapePath(t, s.x, s.y, z);
@@ -1512,7 +1512,7 @@ function drawSettlements(k, me) {
     ctx.lineWidth = z * .22; ctx.strokeStyle = shade(n.color, -.45); ctx.stroke();
     if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = z * .12; ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
     if (n.cap === s.id) { starPath(s.x + z * .95, s.y - z * .95, z * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = z * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
-    if (px >= 8 && (t >= 1 || px >= 9)) {
+    if ((s.h || .05) * k > (t >= 1 ? 45 : 80)) {
       const fs = 11 / k;
       ctx.font = `800 ${fs}px Nunito, system-ui, sans-serif`; ctx.lineWidth = fs * .3; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
       const txt = `${s.name} · ${fmt(s.pop)}`, ty = s.y + z * 1.3 + fs * .7;
