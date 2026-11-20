@@ -200,7 +200,7 @@ const perOfficer = n => .004 * (cmd(n).off || 1);
 const generalPower = n => (n.generals || []).reduce((a, g) => a + g.skill, 0);
 const CMDS = {
   chiefs:  { name: "Warband Chiefs", icon: "🪓", tech: null, d: "Each band follows its own chief. No special effects." },
-  supreme: { name: "Supreme Commander", icon: "🎖️", tech: "bronze", fac: { warriors: 8, nobles: -4 }, d: "One commander leads everything. The whole army is only as good as they are: a ★ commander cripples it (−30% strength), a ★★★★★ one makes it fearsome (+40%)." },
+  supreme: { name: "Supreme Commander", icon: "🎖️", tech: "bronze", fac: { warriors: 8, nobles: -4 }, d: "One commander leads everything. The whole army is only as good as they are: a ★ commander cripples it (−30% strength), a ★★★★★ one makes it fearsome (+40%). You choose the first commander; the army chooses each successor." },
   council: { name: "War Council", icon: "🪑", tech: "monarchy", def: .15, gen: .75, fac: { nobles: 5, commoners: 3 }, d: "+15% defense and steadier politics, but a smaller bonus from your best general." },
   staff:   { name: "General Staff", icon: "🗺️", tech: "rifling", pow: .1, off: 1.5, fac: { warriors: 4 }, d: "+10% army strength; officers count 50% more." },
   militia: { name: "Citizen Militia", icon: "🛡️", tech: "republic", pow: -.1, upkeep: .75, cap: 1.25, fac: { commoners: 5, warriors: -6 }, d: "Army upkeep −25% and +25% more regiments, but −10% strength." },
@@ -981,9 +981,11 @@ function processNation(n) {
   if (n.opposition > 0) n.opposition--;
   if (n.culCool > 0) n.culCool--; if (n.culShift > 0) n.culShift--;
   if (n.cmd === "supreme") {
-    if (!n.commander) appointCommander(n, bestGeneral(n));
-    else if (--n.commander.left <= 0) { const old = n.commander, g = bestGeneral(n), c = appointCommander(n, g);
-      if (!n.ai) log(`Supreme Commander ${old.name} has stepped down. ${g ? `General ${c.name} (${"★".repeat(c.skill)}) takes command.` : `${c.name}, an unproven officer, takes command (${"★".repeat(c.skill)}).`}`, "🎖️"); }
+    // succession is decided by the army, not by you: any general (good or bad) or an unproven officer may rise
+    const successor = () => (n.generals || []).length && rnd() < .6 ? pick(n.generals) : null;
+    if (!n.commander) appointCommander(n, successor());
+    else if (--n.commander.left <= 0) { const old = n.commander, g = successor(), c = appointCommander(n, g);
+      if (!n.ai) log(`Supreme Commander ${old.name} has stepped down. ${g ? `The army raised General ${c.name} as successor: ${"★".repeat(c.skill)}${"☆".repeat(5 - c.skill)} (${CMDR_EFF[c.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[c.skill - 1] * 100)}% army).` : `The army raised ${c.name}, an unproven officer, as successor: ${"★".repeat(c.skill)}${"☆".repeat(5 - c.skill)} (${CMDR_EFF[c.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[c.skill - 1] * 100)}% army).`}`, "🎖️"); }
   }
   if (!n.generals) n.generals = [];
   n.generals.forEach(g => g.left--);
@@ -2002,7 +2004,7 @@ function panelMilitary() {
   h += `<div class="card"><h4>${C.icon} Command: ${C.name}</h4><p class="small muted">${C.d}</p>`;
   if (n.cmd === "supreme" && n.commander) { const cm = n.commander, eff = supremeMult(n);
     h += `<div class="ln me"><span>Supreme Commander ${esc(cm.name)}</span><b>${"★".repeat(cm.skill)}${"☆".repeat(5 - cm.skill)} · <span class="${eff < 0 ? "bad" : "good"}">${eff >= 0 ? "+" : ""}${Math.round(eff * 100)}% army</span></b></div>`; }
-  h += `<p class="small muted">${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
+  h += `<p class="small muted">${n.cmd === "supreme" && n.commander ? `Serves about ${n.commander.left} more turns; the army, not you, chooses the successor. ` : ""}${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
   for (const [k, c] of Object.entries(CMDS)) { const un = !c.tech || has(n, c.tech);
     h += `<button class="gov ${n.cmd === k || (!n.cmd && k === "chiefs") ? "cur" : ""}" data-act="cmd" data-k="${k}" ${(n.cmd || "chiefs") === k || !un || cmdLocked(n) ? "disabled" : ""}><b>${c.icon} ${c.name}</b><small>${c.d}</small><span class="tc">${(n.cmd || "chiefs") === k ? "Current" : !un ? `Needs ${TECH[c.tech].name}` : cmdLocked(n) ? `Locked until ${yearTxt(n.cmdUntil)}` : "Reorganize"}</span></button>`; }
   h += `</div></div>`;
@@ -2174,7 +2176,7 @@ panel.addEventListener("click", e => {
     case "cmd": { const k = b.dataset.k;
       if (k === "supreme") {
         const gens = (n.generals || []).slice().sort((a, b2) => b2.skill - a.skill);
-        showModal(`<div class="mi">🎖️</div><h2>Appoint a Supreme Commander</h2><p>The whole army will be only as good as this person: ★ −30%, ★★ −10%, ★★★ +10%, ★★★★ +25%, ★★★★★ +40% strength. You can't change your command structure for ${CMD_YEARS} years.</p>
+        showModal(`<div class="mi">🎖️</div><h2>Appoint a Supreme Commander</h2><p>The whole army will be only as good as this person: ★ −30%, ★★ −10%, ★★★ +10%, ★★★★ +25%, ★★★★★ +40% strength. You can't change your command structure for ${CMD_YEARS} years, and when this commander steps down the army picks the successor, not you.</p>
           <div class="choices">${gens.map((g, i) => `<button class="choice" data-m="g${i}"><b>General ${esc(g.name)} ${"★".repeat(g.skill)}${"☆".repeat(5 - g.skill)}</b><small>${CMDR_EFF[g.skill - 1] >= 0 ? "+" : ""}${Math.round(CMDR_EFF[g.skill - 1] * 100)}% army strength · from ${esc(g.from)}</small></button>`).join("")}
           <button class="choice" data-m="fav"><b>An unproven court favorite</b><small>Anywhere from ★ to ★★★★★. You'll only find out after the appointment.</small></button></div>
           <div class="row"><button class="btn ghost" data-m="no">Cancel</button></div>`, a => {
