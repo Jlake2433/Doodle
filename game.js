@@ -2042,7 +2042,7 @@ function budgetHTML(n) {
   const B0 = bud(n);
   let h = `<div class="budget"><div class="bsum" data-bx="sum"></div>`;
   for (const [k, b] of Object.entries(BUDGET)) { h += `<div class="bl"><label><span>${b.icon} ${b.name}</span><b data-bx="v-${k}"></b></label><input type="range" min="0" max="${k === "mil" ? 80 : 60}" step="1" value="${B0[k]}" data-bud="${k}" aria-label="${b.name} budget"><p class="bx" data-bx="${k}"></p></div>`;
-    if (k === "mil") h += `<div class="bl sub"><label><span>⚖️ Quantity ↔ Quality</span><b data-bx="v-qual"></b></label><input type="range" min="0" max="90" step="5" value="${B0.qual}" data-bud="qual" aria-label="Quantity versus quality"><div class="qq"><small>More regiments</small><small>Better regiments</small></div><p class="bx" data-bx="qual"></p></div>`; }
+  }
   h += `<h4 class="wh">Welfare</h4><p class="small muted">Makes your people happier, healthier and harder to turn against you: raises public trust every turn, calms unrest and helps workers. It costs a share of gross income. The more educated your people become, the more welfare they demand; falling short drains trust unless propaganda talks them down.</p>`;
   for (const [k, w] of Object.entries(WELFARE)) { const mx = welfareMax(n, k);
     h += `<div class="bl"><label><span>${w.icon} ${w.name}</span><b data-bx="v-${k}"></b></label><div class="seg">${w.lv.map((l, i) => `<button class="${B0[k] === i ? "on" : ""}" data-wel="${k}" data-l="${i}" ${i > mx ? "disabled" : ""}>${l}${i > mx ? " 🔒" : ""}</button>`).join("")}</div><p class="bx" data-bx="${k}"></p></div>`; }
@@ -2068,6 +2068,10 @@ function budgetFill(root) {
   const tot = Object.keys(BUDGET).reduce((a, k) => a + B0[k], 0) + Math.round((WELFARE.inc.cost[B0.inc] + WELFARE.health.cost[B0.health]) * 100);
   const td = trustFactors(n, E).reduce((a, x) => a + x[1], 0);
   set("sum", `${line("Gross income", `${fmt(E.gross)} 🪙`)}${line("Budget", `${tot}% · ${fmt(E.spend)} 🪙`, tot > 100 ? "bad" : "")}${line("Fixed costs (buildings, academies, pay, imports)", `${fmt(E.fixed)} 🪙`)}${line("Net per turn", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}${line("Public trust", `${Math.round(Math.max(0, n.trust == null ? 100 : n.trust))} (${td >= 0 ? "+" : ""}${td.toFixed(1)} a turn)`, td < 0 ? "bad" : "")}`);
+}
+// the army tab splits whatever the yearly budget gives the military between quantity and quality
+function armyBudgetHTML(n) {
+  return `<div class="budget"><div class="bl"><label><span>⚖️ Quantity ↔ Quality</span><b data-bx="v-qual"></b></label><input type="range" min="0" max="90" step="5" value="${bud(n).qual}" data-bud="qual" aria-label="Quantity versus quality"><div class="qq"><small>More regiments</small><small>Better regiments</small></div><p class="bx" data-bx="qual"></p><p class="bx" data-bx="mil"></p></div></div>`;
 }
 function openBudget(yearly) {
   const n = P();
@@ -2172,8 +2176,8 @@ function panelMilitary() {
     ${line("Total strength", fmt(power(n)))}
     ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiments${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
     ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
-    <div class="row wrap"><button class="btn small" data-act="budget">📒 Change military budget</button></div>
-    <p class="muted small">Your army's size follows your budget. Raise the military share for more regiments, or shift it toward quality for better-armed, better-drilled ones. New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
+    <p class="muted small">New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
+  h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a turn). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   // generals
   const gens = (n.generals || []).slice().sort((a, b) => b.skill - a.skill), best = bestGeneral(n);
   h += `<div class="card"><h4>🎖️ Officers & generals</h4>
@@ -2369,7 +2373,7 @@ panel.addEventListener("click", e => {
     case "dPeaceT": { const t = Math.round(20 * Math.pow(1.6, o.era)); if (aiAccept(o, "peace", n) || wscore(n.id, id) > 20) { makePeace(n, o, Math.min(t, Math.max(0, o.gold)), o); G.news = []; toast("Peace with tribute!"); } else toast("They refused"); refresh(); openNationDetail(id); break; }
   }
 });
-[panel, modal].forEach(el => { el.addEventListener("input", budgetInput); el.addEventListener("click", welfareClick, true); el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.bud != null) save(); if (e.target.id === "budAsk") P().budNoAsk = !e.target.checked; }); });
+[panel, modal].forEach(el => { el.addEventListener("input", budgetInput); el.addEventListener("click", welfareClick, true); el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.bud != null) { save(); if (e.target.dataset.bud === "qual" && curPanel === "army") refresh(); } if (e.target.id === "budAsk") P().budNoAsk = !e.target.checked; }); });
 panel.addEventListener("change", e => { if (e.target.id === "autoR") { P().autoResearch = e.target.checked; if (e.target.checked && !P().research) P().research = chooseResearch(P()); refresh(); } });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => { if (curPanel === t.dataset.p) closePanel(); else openPanel(t.dataset.p); });
 
