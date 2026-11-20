@@ -17,7 +17,7 @@ const ERAS = ["Stone Age", "Bronze Age", "Classical Age", "Medieval Age", "Renai
 const YEARS_PER_TURN = [25, 70, 45, 32, 12, 6, 4, 3];
 const ERA_YEAR = [-4000, -3000, -800, 500, 1450, 1750, 1900, 1990, 2100];
 const ERA_POW = [1, 1.6, 2.6, 4, 6.5, 11, 18, 30];
-const TECH_BASE = [10, 36, 90, 220, 600, 1500, 4000, 8500];
+const TECH_BASE = [10, 40, 115, 330, 1100, 3000, 8500, 18000];
 
 // settlements
 const TIERS = [
@@ -122,7 +122,7 @@ const TECHS = [
 ].map(([id, era, name, desc], i) => ({ id, era, name, desc, idx: i }));
 const TECH = Object.fromEntries(TECHS.map(t => [t.id, t]));
 TECHS.forEach(t => { const k = TECHS.filter(x => x.era === t.era).indexOf(t); t.cost = Math.round(TECH_BASE[t.era] * (1 + 0.1 * k)); });
-TECH.mars.cost = 30000;
+TECH.mars.cost = 60000;
 const eraTechs = e => TECHS.filter(t => t.era === e && t.id !== "mars");
 const eraNeed = e => eraTechs(e).length - 1;
 
@@ -197,9 +197,20 @@ const reachAhead = (n, ck) => { const e = emph(n, ck); return e.cap ? 3 : e.citi
 const TECH_CHAINS = {}; // which fields each technology belongs to
 function techChains(t) { if (!TECH_CHAINS[t]) TECH_CHAINS[t] = [...new Set(Object.values(FIELDS).filter(f => f.tech === t).map(f => f.chain.k))]; return TECH_CHAINS[t]; }
 const techAhead = (n, t) => Math.max(0, ...techChains(t.id).map(ck => reachAhead(n, ck)));
-const techCost = (n, t) => { let b = 0; for (const ck of techChains(t.id)) { const e = emph(n, ck); b = Math.max(b, .01 * e.cities + (e.cap ? .15 : 0)); } return Math.round(t.cost * sizeCostM(n) / (1 + b)); };
+const techCost = (n, t) => { let b = 0; for (const ck of techChains(t.id)) { const e = emph(n, ck); b = Math.max(b, .01 * e.cities + (e.cap ? .15 : 0)); } return Math.round(t.cost * (1 - diffusion(n, t)) / (1 + b)); };
 // bigger nations need more research to spread new ideas across all their settlements
-const sizeCostM = n => 1 + .08 * sizeOf(n);
+// neighbors and allies who already know a technology make it cheaper to learn, especially larger ones
+let diffKey = null, diffLinks = new Map();
+function knowledgeLinks(n) {
+  const key = G.turn + ":" + G.sv;
+  if (diffKey !== key) { diffKey = key; diffLinks = new Map(); }
+  let l = diffLinks.get(n.id); if (l) return l;
+  const myPop = popOf(n); l = [];
+  for (const o of G.nations) { if (!o.alive || o.id === n.id) continue; const d = dip(n.id, o.id);
+    if (d.ally || d.trade || bordersTouch(n, o)) l.push({ o, w: popOf(o) > myPop ? 1 : .5 }); }
+  diffLinks.set(n.id, l); return l;
+}
+function diffusion(n, t) { let w = 0; for (const x of knowledgeLinks(n)) if (has(x.o, t.id)) w += x.w; return Math.min(.6, .15 * w); }
 // a field stage is capped to the current age, unless cities push that field ahead
 function fieldOpen(n, f) { return (!f.tech || has(n, f.tech)) && (!f.prev || lv(n, f.prev) >= FIELD_NEXT) && f.tier <= n.era + reachAhead(n, f.chain.k); }
 // to enter a new age, every field you can develop needs at least a base level
@@ -213,7 +224,7 @@ const lvValue = L => L <= FIELD_MAX ? L : FIELD_MAX * Math.pow(L / FIELD_MAX, MA
 const childrenOf = f => [f.chain.f[f.idx + 1], ...CHAINS.filter(c => c.parent === f.k).map(c => c.f[0])].filter(Boolean).map(x => FIELDS[x[0]]);
 // you can keep deepening a stage until you set up the next stage in that field
 const masteryOk = (n, f) => lv(n, f.k) >= FIELD_MAX && lv(n, f.k) < MASTERY_MAX && !childrenOf(f).some(c => lv(n, c.k) > 0);
-const masteryCost = (n, f) => Math.round(TECH_BASE[f.tier] * .5 * sizeCostM(n) * Math.pow(1.07, lv(n, f.k) - FIELD_MAX) / (1 + .01 * emph(n, f.chain.k).cities + (emph(n, f.chain.k).cap ? .15 : 0)));
+const masteryCost = (n, f) => Math.round(TECH_BASE[f.tier] * .5 * Math.pow(1.07, lv(n, f.k) - FIELD_MAX) / (1 + .01 * emph(n, f.chain.k).cities + (emph(n, f.chain.k).cap ? .15 : 0)));
 // developing a field level (1-5) can also be paid with science instead of gold and materials
 const devOk = (n, f) => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX;
 const devSciCost = (n, f) => { const c = fieldCost(n, f); return Math.max(1, Math.round((c.g + c.m) / (3 * Math.pow(1.3, n.era)) * 1.3)); };
@@ -225,7 +236,7 @@ function resItem(n, id) {
   const t = TECH[id]; return t ? { mastery: false, t, name: t.name, cost: techCost(n, t), done: has(n, id) } : null;
 }
 function fieldsMissing(n) { return CHAINS.filter(c => fieldOpen(n, FIELDS[c.f[0][0]]) || chainHave(n, c)).filter(c => chainHave(n, c) < chainNeed(n, c)); }
-function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L) * (.7 + .015 * (G && G.sets ? sizeOf(n) : 0)); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
+function fieldCost(n, f) { const L = lv(n, f.k), t = Math.pow(1.8, f.tier) * Math.pow(1.45, L); return { g: Math.round(10 * t * (n.laws.focus === "ind" ? .9 : 1)), m: Math.round(8 * t * (n.laws.focus === "ind" ? .9 : 1)) }; }
 const fieldUp = f => .08 * Math.pow(1.5, f.tier);
 function fb(n, key) { let v = 0; if (!n.fields) return 0; for (const k in n.fields) { const f = FIELDS[k]; if (f && f.chain.eff[key]) v += lvValue(n.fields[k]) * f.chain.eff[key] * f.mult * emphMult(n, f.chain.k); } return v; }
 const chainLevels = (n, ck) => CHAINS.find(c => c.k === ck).f.reduce((a, [k]) => a + lv(n, k), 0);
@@ -261,7 +272,7 @@ const LAWS = {
   labor: { name: "Labor", tech: "steam", opts: { unreg: ["Unregulated", null, "+10% materials. Workers angry."], rights: ["Workers' Rights", null, "Workers happy, −5% materials."] } },
   press: { name: "Press", tech: "printing", opts: { cens: ["Censored", null, "Nobles happy, thinkers angry."], free: ["Free Press", null, "Thinkers happy, +5% science."] } },
   migr: { name: "Migration", opts: { free: ["Free settling", null, "Full settlements send people out to form new villages on their own."], restrict: ["Restricted", null, "No new villages form. Full settlements just stop growing. Commoners dislike it."] } },
-  rp: { name: "Research Priority", opts: { bal: ["Balanced", null, "Normal research."], sch: ["Scholarly", null, "+40% science, but −8% gold, −12% materials, −12% army strength."], acad: ["Academy State", "writing", "+100% science, but −15% gold, −25% materials, −30% army strength."] } },
+  rp: { name: "Research Budget", opts: { low: ["Minimal", null, "5% of gold and materials income funds research. More left for armies."], std: ["Standard", null, "15% of income funds research."], high: ["Ambitious", null, "30% of income funds research. Intellectuals like it; generals grumble."], max: ["Total", "writing", "50% of income funds research. A nation of scholars, with little left for war."] } },
   focus: { name: "National Focus", opts: { bal: ["Balanced", null, "No special focus."], grow: ["Growth", null, "Settlements grow faster."], mil: ["Military", "bronze", "+15% army, cheaper upkeep."], sci: ["Science", "writing", "+15% science."], com: ["Commerce", "currency", "+15% gold."], ind: ["Industry", "guilds", "+15% materials, cheaper buildings."] } },
 };
 const FACTIONS = {
@@ -478,7 +489,7 @@ function recomputeControl(ri) {
 function newNation(name, color, ri, ai, pers) {
   const id = G.nations.length;
   const n = { id, name, color, ai, pers: pers || "builder", alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
-    laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", rp: "bal", focus: "bal" },
+    laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", rp: "std", focus: "bal" },
     gold: 15, mat: 10, sciPts: 0, research: "agriculture", techs: [], era: 0, army: 1, used: 0,
     fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0, fields: {} };
   for (const k in FACTIONS) n.fac[k] = 55;
@@ -493,7 +504,7 @@ function newGame(opts) {
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder");
   const used = [start], colors = COLORS.filter(c => c !== opts.color);
-  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
+  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); n.laws.rp = rnd() < .12 ? "high" : (n.pers === "aggressive" || n.pers === "zealot" || rnd() < .4) ? "low" : "std"; n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
   const livable = r => TER[W.regions[r].t].food >= .9;
   // two neighboring tribes a day or two's walk away (about 100-220 km)
   { const home = G.sets[0]; if (!sampler) sampler = document.createElement("canvas").getContext("2d");
@@ -623,7 +634,6 @@ function unitPower(n) {
   for (const t of ["mathematics", "chivalry"]) if (has(n, t)) m += .1;
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
-  m -= { sch: .12, acad: .3 }[n.laws.rp] || 0;
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
@@ -649,13 +659,14 @@ function capOf(s, n) {
   if (s.t === 1) return 3000 * (1 + cb);
   return 12000 * (1 + .4 * n.era) * (1 + cb);
 }
+const budgetPct = n => ({ low: .05, std: .15, high: .3, max: .5, bal: .15, sch: .3, acad: .5 })[n.laws.rp || "std"] || .15;
 function econ(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
   const taxM = { low: .7, normal: 1, high: 1.35, extort: 1.7 }[L.tax];
-  const prodLaw = (L.trade === "prot" ? .1 : 0) + (L.labor === "unreg" ? .1 : L.labor === "rights" ? -.05 : 0) + (L.focus === "ind" ? .15 : 0) + (gov.prod || 0) - ({ sch: .12, acad: .25 }[L.rp] || 0);
-  const goldLaw = (gov.gold || 0) + (L.focus === "com" ? .15 : 0) - ({ sch: .08, acad: .15 }[L.rp] || 0);
-  const sciLaw = (gov.sci || 0) + (L.focus === "sci" ? .15 : 0) + (L.rel === "sec" ? .1 : 0) + (L.press === "free" ? .05 : 0) + ({ sch: .4, acad: 1 }[L.rp] || 0);
+  const prodLaw = (L.trade === "prot" ? .1 : 0) + (L.labor === "unreg" ? .1 : L.labor === "rights" ? -.05 : 0) + (L.focus === "ind" ? .15 : 0) + (gov.prod || 0);
+  const goldLaw = (gov.gold || 0) + (L.focus === "com" ? .15 : 0);
+  const sciLaw = (gov.sci || 0) + (L.focus === "sci" ? .15 : 0) + (L.rel === "sec" ? .1 : 0) + (L.press === "free" ? .05 : 0);
   const rb = new Map();
   for (const ri of P0) rb.set(ri, { food: bonus(n, ri, "food"), gold: bonus(n, ri, "gold"), prod: bonus(n, ri, "prod"), sci: bonus(n, ri, "sci") });
   let food = 0, need = 0, tax = 0, mat = 0, sci = 1 + n.era, pop = 0, trade = 0, bUp = 0, tierTrade = 0;
@@ -687,8 +698,12 @@ function econ(n) {
   const armyUp = n.army * unitUpkeep(n);
   const over = Math.max(0, sizeOf(n) - adminCap(n));
   const govUp = over * (1 + n.era);
-  const goldNet = tax + routeGold + luxGold + foodGold - bUp - armyUp - imports - govUp;
-  return { food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over };
+  // research budget: part of the nation's income is spent on scholars, labs and expeditions
+  const rpct = budgetPct(n), resGold = Math.max(0, tax + routeGold + luxGold) * rpct, resMat = mat * rpct * .5;
+  const resRate = 1.5 * Math.pow(1.25, n.era), resSci = (resGold + resMat) / resRate;
+  sci += resSci; mat -= resMat;
+  const goldNet = tax + routeGold + luxGold + foodGold - bUp - armyUp - imports - govUp - resGold;
+  return { food, need, surplus, tax, routeGold, luxGold, foodGold, bUp, armyUp, imports, govUp, goldNet, mat, sci, pop, per, partners, peaceful, luxCount, luxKinds, strat, over, resGold, resMat, resSci };
 }
 
 // ================= POLITICS =================
@@ -736,9 +751,8 @@ function facTargets(n, E) {
   add("intellectuals", { sec: 10, faith: -10, tol: 3 }[L.rel], "Religion law");
   add("intellectuals", Math.round(Math.min(15, chainLevels(n, "sci"))), "Schools & universities");
   add("intellectuals", L.focus === "sci" ? 15 : 0, "Science focus");
-  add("intellectuals", { sch: 10, acad: 20 }[L.rp] || 0, "Research priority");
-  add("warriors", { sch: -8, acad: -15 }[L.rp] || 0, "Research priority");
-  add("merchants", { sch: -4, acad: -10 }[L.rp] || 0, "Research priority");
+  add("intellectuals", { low: -6, high: 8, max: 15, sch: 8, acad: 15 }[L.rp] || 0, "Research budget");
+  add("warriors", { high: -4, max: -10, sch: -4, acad: -10 }[L.rp] || 0, "Research budget");
   add("intellectuals", { democracy: 12, technocracy: 20, party: -18, theocracy: -15 }[g] || 0, "Government");
   add("workers", L.labor === "rights" ? 20 : L.labor === "unreg" ? -15 : 0, "Labor law");
   add("workers", { democracy: 10, party: 8 }[g] || 0, "Government");
@@ -950,8 +964,9 @@ function chooseTech(n) {
   const av = TECHS.filter(t => !has(n, t.id) && t.era <= n.era + techAhead(n, t) && (t.id !== "mars" || lv(n, "marsmission") >= 3));
   if (!av.length) return null;
   if (!has(n, "agriculture")) return "agriculture";
+  const milT = ["bronze", "iron", "mathematics", "chivalry", "gunpowder", "rifling", "combustion", "fission", "flight"];
   const pref = { aggressive: ["bronze", "iron", "mathematics", "chivalry", "gunpowder", "rifling", "masonry", "feudalism"], builder: ["pottery", "masonry", "construction", "guilds", "medicine", "steam"], trader: ["currency", "sailing", "wheel", "banking", "navigation", "globalization"], zealot: ["mysticism", "theology", "philosophy", "monarchy"] }[n.pers] || [];
-  const sc = t => t.cost - (pref.includes(t.id) ? 15 * (t.era + 1) : 0) - (t.id === "masonry" ? 20 : 0) - (t.id === "mars" ? 1e5 : 0);
+  const sc = t => t.cost - (pref.includes(t.id) ? 15 * (t.era + 1) : 0) - (n.ai && milT.includes(t.id) ? 10 * (t.era + 1) : 0) - (t.id === "masonry" ? 20 : 0) - (t.id === "mars" ? 1e5 : 0);
   av.sort((a, b) => sc(a) - sc(b));
   return av[0].id;
 }
@@ -1840,6 +1855,7 @@ function panelNation() {
     <p class="muted small">Villages hold up to ${VILLAGE_CAP} people, towns 3,000, and cities more each age. When one fills up, people move out and form new villages nearby on their own. ${VILLAGES_FOR_TOWN} villages close together can merge into one town. Towns with ${fmtP(CITY_POP)} people can become cities. ${TOWNS_TO_CLAIM} towns claim a territory.</p></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per turn</span></h4>
     ${line("Taxes", sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
+    ${line(`Research budget (${Math.round(budgetPct(n) * 100)}%)`, sgn(-E.resGold))}
     ${line("Building upkeep", sgn(-E.bUp))}${line("Army upkeep", sgn(-E.armyUp))}${E.imports ? line("Resource imports", sgn(-E.imports)) : ""}${E.govUp ? line("Overextension costs", sgn(-E.govUp), "bad") : ""}
     ${line("Net gold", sgn(E.goldNet), E.goldNet < 0 ? "bad total" : "good total")}
     ${line("Materials", sgn(E.mat))}${line("Science", sgn(E.sci))}${line("Food", `${fmtP(E.food)} grown / ${fmtP(E.need)} eaten`, E.surplus < 0 ? "bad" : "")}</div>`;
@@ -1899,7 +1915,8 @@ function panelDevelop() {
 function panelResearch() {
   const n = P(), E = econ(n);
   let h = ph("Research", `${fmt(E.sci)} science per turn · ${ERAS[n.era]}`);
-  h += `<p class="small muted">Research costs ×${sizeCostM(n).toFixed(2)} for the size of your nation. Small, focused nations learn faster; set Research Priority in Laws to trade gold, materials and army strength for science.</p>`;
+  { const links = knowledgeLinks(n), big = links.filter(x => x.w === 1).length;
+    h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in Laws) adds ${fmt(E.resSci)} science per turn. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
   if (n.era < 7) { const got = eraTechs(n.era).filter(t => has(n, t.id)).length, miss = fieldsMissing(n);
     h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, got / eraNeed(n.era) * 100)}%;background:var(--accent)"></i></div><span>${got}/${eraNeed(n.era)}</span></div><p class="muted small">To enter the ${ERAS[n.era + 1]}: discover ${eraNeed(n.era)} technologies of the ${ERAS[n.era]} and bring every field to ${2 + 2 * n.era} levels.</p>${miss.length ? `<p class="small"><b class="warn">Fields still short:</b> ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")} (see Develop)</p>` : `<p class="small good">✓ Every field is developed enough</p>`}</div>`; }
   { const rate = +(3 * Math.pow(1.3, n.era)).toFixed(1), fg = Math.round(40 * Math.pow(1.7, n.era)), fs = Math.round(fg / rate);
@@ -1931,7 +1948,7 @@ function panelResearch() {
       const done = has(n, t.id), cur = n.research === t.id, early = e > n.era && e <= n.era + techAhead(n, t), locked = (e > n.era && !early) || (t.id === "mars" && lv(n, "marsmission") < 3);
       const tc = techCost(n, t), pct = cur ? Math.min(100, n.sciPts / tc * 100) : 0;
       h += `<button class="tech ${done ? "done" : cur ? "cur" : locked ? "locked" : ""}" data-act="tech" data-t="${t.id}" ${done || locked ? "disabled" : ""}>
-        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((tc - n.sciPts) / Math.max(.1, E.sci)))} turns` : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
+        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${Math.max(1, Math.ceil((tc - n.sciPts) / Math.max(.1, E.sci)))} turns` : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${diffusion(n, t) ? ` · ${Math.round(diffusion(n, t) * 100)}% from neighbors` : ""}${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
     }
     h += `</div>`;
   }
@@ -1960,7 +1977,7 @@ function panelPolicy() {
   h += `</div></div>`;
   for (const lk in LAWS) {
     const L = LAWS[lk]; if (L.tech && !has(n, L.tech)) continue;
-    if (!n.laws[lk]) n.laws[lk] = Object.keys(L.opts)[0];
+    if (!L.opts[n.laws[lk]]) n.laws[lk] = lk === "rp" ? ({ bal: "std", sch: "high", acad: "max" }[n.laws[lk]] || "std") : Object.keys(L.opts)[0];
     h += `<div class="card"><h4>${L.name}</h4><div class="seg">`;
     for (const ok in L.opts) { const [nmx, tech, d] = L.opts[ok]; const un = !tech || has(n, tech);
       h += `<button class="${n.laws[lk] === ok ? "on" : ""}" data-act="law" data-l="${lk}" data-o="${ok}" ${!un || locked ? "disabled" : ""} title="${esc(d)}">${nmx}${!un ? " 🔒" : ""}</button>`; }
@@ -2103,7 +2120,7 @@ function showHelp() {
   <p><b>Territory & rank.</b> ${TOWNS_TO_CLAIM} towns or cities in a territory make it yours. Controlling 1 territory makes you a Nation, 2–3 a Kingdom, and 4 or more an Empire.</p>
   <p><b>Develop.</b> Instead of single buildings, you grow whole fields: Food, Industry, Weapons, Trade, Knowledge and more. Set a field up, then expand it level by level. Level 3 opens its next stage once you have the matching technology, from Weapon Making all the way to a Nuclear Arsenal.</p>
   <p><b>Mastery.</b> Once a stage reaches level 5 you can keep deepening it through research, up to level 50. Each level adds less, and level 50 equals level 5 of the next stage, so you can stay in an age and become very good at it, or move on. Mastery of a stage stops when you set up its next stage.</p>
-  <p><b>Small but clever.</b> Research costs grow with the size of your nation, and the Research Priority law trades gold, materials and army strength for science. A small nation that focuses on learning can out-research a big empire, but it will be poorer and weaker while it does.</p>
+  <p><b>Paying for knowledge.</b> Research is funded from your income through the Research Budget law. Every coin spent on scholars is a coin not spent on armies, so most peoples keep budgets low and stay militarily strong. A small nation can choose to pour its income into learning, and technologies its neighbors and allies already know are cheaper, especially if those neighbors are larger.</p>
   <p><b>Ages & emphasis.</b> Fields are capped to your current age, and you can't enter a new age until every field reaches a base level that grows each age (2 levels per age). Each city can emphasize one field: it gives a small boost to that field's bonuses (+1.5% per city) and research (+1%), and lets it reach 1 age ahead. Your capital lets its field reach 3 ages ahead.</p>
   <p><b>Your nation runs itself.</b> Food is shared, merchants trade and resources are imported automatically. You steer with settlements, buildings, laws, research and diplomacy.</p>
   <p><b>Stability.</b> Factions like Commoners, Clergy, Nobles and Merchants each want different things. Keep them happy or face unrest, revolts, coups and lost elections.</p>
