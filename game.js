@@ -861,7 +861,7 @@ function processNation(n) {
     if (it.mastery) {
       const f = it.f; n.fields[f.k] = lv(n, f.k) + 1; G.sv++;
       if (!n.ai && (lv(n, f.k) % 5 === 0 || lv(n, f.k) === 6)) log(`${f.name} mastery reached level ${lv(n, f.k)}.`, f.chain.icon);
-      if (!masteryOk(n, f)) n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
+      if (!masteryOk(n, f)) { n.resManual = false; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; }
       continue;
     }
     const t = it.t; n.techs.push(t.id);
@@ -870,13 +870,13 @@ function processNation(n) {
     n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
     const ne = n.era;
     if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length) {
-      n.era++;
+      n.era++; if (String(n.research || "").startsWith("m:")) { n.research = null; n.resManual = false; }
       if (!n.ai) log(`Your people enter the ${ERAS[n.era]}!`, "🌅");
       else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
     }
   }
   if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length) {
-    n.era++;
+    n.era++; if (String(n.research || "").startsWith("m:")) { n.research = null; n.resManual = false; }
     if (!n.ai) log(`Your people enter the ${ERAS[n.era]}!`, "🌅");
     else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
   }
@@ -2028,11 +2028,21 @@ function afterTurnFlow() {
   hud(); dirty = true;
   if (G.over) return showEnd();
   const items = G.lastReport.filter(x => x.p !== false); G.lastReport = [];
+  const askMastery = () => {
+    const n = P(); if (!n.alive || chooseTech(n) || n.resManual) return;
+    const opts = Object.values(FIELDS).filter(f => masteryOk(n, f)).sort((a, b) => masteryCost(n, a) - masteryCost(n, b));
+    if (!opts.length) return;
+    const E = econ(n);
+    showModal(`<div class="mi">🎓</div><h2>Choose a mastery</h2><p>You've researched everything your people can reach in the ${ERAS[n.era]}. Until you enter the ${ERAS[n.era + 1] || "next age"}, which field should your scholars master?</p>
+      <div class="choices">${opts.map(f => { const c = masteryCost(n, f); return `<button class="choice" data-m="m:${f.k}"><b>${f.chain.icon} ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX} · ${fmt(c)} 🔬 (about ${Math.max(1, Math.ceil(c / Math.max(.1, E.sci)))} turn${Math.ceil(c / Math.max(.1, E.sci)) > 1 ? "s" : ""})</small></button>`; }).join("")}</div>
+      <p class="small muted">Your scholars keep deepening it level after level. When the next age arrives, research switches back to technology.</p>`, a => {
+        if (a && a.startsWith("m:")) { n.research = a; n.resManual = true; n.sciPts = n.sciPts || 0; save(); hud(); toast(`Scholars are mastering ${FIELDS[a.slice(2)].name}`); if (curPanel) refresh(); } });
+  };
   const showEvent = () => {
-    if (!G.event) return;
+    if (!G.event) return askMastery();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
-      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); });
+      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); askMastery(); });
   };
   if (items.length) showModal(`<h2>${G.year < 0 ? -G.year + " BCE" : G.year + " CE"}</h2><div class="news">${items.map(x => `<div class="nw ${x.p === true || x.p === null ? "" : "far"}"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div><div class="row"><button class="btn" data-m="ok">Continue</button></div>`, showEvent);
   else showEvent();
