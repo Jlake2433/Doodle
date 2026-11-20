@@ -688,10 +688,29 @@ const UNLOCKS = [
   { id: "sailing", ok: n => has(n, "sailing") && tradeOpen(n), icon: "⛵", title: "Trade by sea", text: "Your traders can now cross short seas, reaching peoples who also sail." },
   { id: "wheel", ok: n => has(n, "wheel") && tradeOpen(n), icon: "🛞", title: "Carts and roads", text: "Wheeled carts carry your trade further overland." },
 ];
+const ERA_ARMS = ["", "Bronze spears, shields and the first chariots", "Iron swords and drilled legions", "Armored knights and stone castles", "Gunpowder: muskets and cannon", "Rifles, artillery and railways to the front", "Tanks, aircraft and radio", "Precision missiles, drones and satellites"];
+function checkGovMil(n, fresh, pend) {
+  const seen = n.ecoSeen, add = (id, ok) => { if (seen[id] || !ok) return false; seen[id] = 1; return !fresh; };
+  const govs = Object.entries(GOVS).filter(([g, G2]) => G2.tech && add("gov:" + g, has(n, G2.tech)));
+  if (govs.length) pend.push({ icon: "🏛️", title: govs.length > 1 ? "New forms of government" : `New government: ${govs[0][1].name}`, text: govs.map(([, G2]) => `${G2.name}: ${G2.d}`).join(" ") + " You can switch in the Laws tab." });
+  const laws = [];
+  for (const [lk, L] of Object.entries(LAWS)) { if (L.tech && add("law:" + lk, has(n, L.tech))) laws.push(`${L.name} law: ${Object.values(L.opts).map(o => o[0]).join(" or ")}.`);
+    for (const [ok, o] of Object.entries(L.opts)) if (o[1] && (!L.tech || has(n, L.tech)) && add("lawopt:" + lk + ":" + ok, has(n, o[1]))) laws.push(`${L.name}: ${o[0]}. ${o[2]}`); }
+  if (laws.length) pend.push({ icon: "📜", title: laws.length > 1 ? "New laws" : "New law", text: laws.join(" ") + " See the Laws tab." });
+  const cmds = Object.entries(CMDS).filter(([k, c]) => c.tech && add("cmd:" + k, has(n, c.tech)));
+  if (cmds.length) pend.push({ icon: "🎖️", title: cmds.length > 1 ? "New ways to command the army" : `New army command: ${cmds[0][1].name}`, text: cmds.map(([, c]) => `${c.name}: ${c.d}`).join(" ") + " Reorganize in the Army tab (each choice is locked in for 25 years)." });
+  if (add("milacad", has(n, "bronze"))) pend.push({ icon: "🏰", title: "Military academies", text: "Your cities can now found military academies. They train officers, who make every regiment stronger, and now and then a general who leads attacks. You're limited by the size of your nation. See the Army tab." });
+  if (add("acad", has(n, "writing"))) pend.push({ icon: "🎓", title: "Academies", text: "With writing, your cities can found academies that train scientists. Each scientist speeds up research, but they draw a salary. See the Research tab." });
+  const strat = STRAT_NEED.filter(x => x.from <= n.era && x.to >= n.era && (!RES[x.res].tech || has(n, RES[x.res].tech)) && add("strat:" + x.res, true));
+  if (strat.length) pend.push({ icon: RES[strat[0].res].icon, title: "Armies need new resources", text: strat.map(x => `${RES[x.res].icon} ${RES[x.res].name}: ${x.pen ? `without it your army fights at −${Math.round(x.pen * 100)}%` : `having it gives +${Math.round(x.bonus * 100)}% strength`}.`).join(" ") + " Hold land with it, or import it from a trade partner." });
+  if (n.era > 0 && add("arms:" + n.era, true)) pend.push({ icon: "⚔️", title: `${ERAS[n.era]} armies`, text: `${ERA_ARMS[n.era]}. Your regiments are much stronger than before, but so are theirs, and upkeep rises.` });
+}
 function checkUnlocks(n) {
   if (n.ai || n.id !== G.player) return;
   const fresh = !n.ecoSeen; if (fresh) n.ecoSeen = {};
   const pend = G.pendingUnlocks || (G.pendingUnlocks = []);
+  const gmFresh = fresh || !n.ecoSeen._gm; n.ecoSeen._gm = 1; // older saves: note what's already known without popping it all up
+  checkGovMil(n, gmFresh, pend);
   for (const u of UNLOCKS) if (!n.ecoSeen[u.id] && u.ok(n)) { n.ecoSeen[u.id] = 1; if (!fresh) pend.push({ icon: u.icon, title: u.title, text: u.text }); }
   const newSec = Object.keys(SECTORS).filter(k => secUnlocked(n, k) && !n.ecoSeen["sec:" + k] && SECTORS[k].era > 1);
   for (const k of Object.keys(SECTORS)) if (secUnlocked(n, k)) n.ecoSeen["sec:" + k] = 1;
@@ -708,11 +727,16 @@ function tradeReach(n, o) {
   if (bordersTouch(n, o)) return true;
   const a = capSet(n), b = capSet(o); if (!a || !b) return false;
   const d = Math.hypot(a.x - b.x, a.y - b.y), sea = has(n, "sailing") && has(o, "sailing");
-  return d < (sea ? 60 : 22) + (has(n, "wheel") ? 6 : 0);
+  return d < (sea ? 80 : 40) + (has(n, "wheel") ? 10 : 0);
 }
 const reachTxt = n => has(n, "navigation") ? "the whole known world" : has(n, "sailing") ? "your region and across short seas" : "your near neighbors";
-function tradePartners(n) { return G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).trade && !dip(n.id, o.id).emb && tradeReach(n, o) && !atWar(n.id, o.id)); }
-const canTradeWith = (n, o) => o.alive && o.id !== n.id && dip(n.id, o.id).met && !dip(n.id, o.id).emb && !atWar(n.id, o.id) && tradeOpen(o) && tradeReach(n, o);
+function tradePartners(n) { return G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).trade && !dip(n.id, o.id).emb && tradeReach(n, o) && dip(n.id, o.id).rel >= Math.max(tradeTrust(n), tradeTrust(o)) - 20 && !atWar(n.id, o.id)); }
+// early peoples are wary of strangers: they trade only with those they trust, and they open up as they meet more of the world
+let metKey = null, metMap = new Map();
+function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; for (const x of G.nations) if (x.alive && x.id !== o.id && dip(o.id, x.id).met) c++; metMap.set(o.id, c); } return c; }
+const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0)); // relations a people needs before trading with you
+const relOK = (n, o) => { const d = dip(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
+const canTradeWith = (n, o) => relOK(n, o) && o.alive && o.id !== n.id && dip(n.id, o.id).met && !dip(n.id, o.id).emb && !atWar(n.id, o.id) && tradeOpen(o) && tradeReach(n, o);
 // broad sectors of the economy. Mostly private; you steer them with public investment, subsidies, tariffs or by nationalizing them
 const SECTORS = {
   house:  { name: "Housing", icon: "🏠", era: 1, w: .12, chain: "health", amp: .15, eff: "room in settlements", d: "Homes for your people." },
@@ -1156,8 +1180,8 @@ function updateContacts() {
       const late = (has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6);
       const ra = reachSet(a), rb = reachSet(b);
       if (late || [...pres(a)].some(ri => rb.has(ri)) || [...pres(b)].some(ri => ra.has(ri))) {
-        d.met = true;
-        if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}.`, "🤝");
+        d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
+        if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝");
       }
     }
   }
@@ -1659,9 +1683,10 @@ function aiTurn(n) {
     if (!o.alive || o.id === n.id) continue;
     const d = dip(n.id, o.id); if (!d.met) continue;
     if (o.ai && o.id > n.id) {
-      if (!d.war && !d.trade && !d.emb && tradeOpen(n) && tradeOpen(o) && tradeReach(n, o) && d.rel > 5 && rnd() < pr(.15) && (n.ai || aiAccept(o, "trade", n))) d.trade = true;
+      if (!d.war && !d.trade && !d.emb && tradeOpen(n) && tradeOpen(o) && tradeReach(n, o) && d.rel >= Math.max(tradeTrust(n), tradeTrust(o)) && rnd() < pr(.15) && (n.ai || aiAccept(o, "trade", n))) d.trade = true;
       if (!d.war && !d.ally && d.rel > 60 && rnd() < pr(.08) && (n.ai || aiAccept(o, "ally", n))) d.ally = true;
     }
+    if (d.trade && !d.war && d.rel < tradeTrust(n) - 25 && rnd() < pr(.3)) { d.trade = false; tradeNote(n, o, `The ${nm(n)} no longer trust you enough to trade and have ended your trade agreement.`, "✂️"); }
     if (d.war) {
       const myScore = wscore(n.id, o.id), dur = G.tt - d.wt;
       const losing = myScore < -12 || power(n) < power(o) * .5;
@@ -1704,7 +1729,7 @@ function driftRelations() {
     let v = 0;
     if (d.trade) v += 1.5; if (d.ally) v += 2; if (d.war) v -= 2;
     if (a.gov === b.gov) v += .5;
-    if (bordersTouch(a, b) && !d.ally) v -= 1.3; // shared borders breed friction
+    if (bordersTouch(a, b) && !d.ally) v -= 1.3 * Math.max(.4, 1 - .12 * (a.era + b.era) / 2); // shared borders breed friction, less so as peoples mature
     if (d.emb) v -= .6;
     for (const [x, y] of [[a, b], [b, a]]) if (y.era > x.era || (y.era === x.era && wageOf(y) > wageOf(x) * 1.2)) for (const k in SECTORS) if (secUnlocked(y, k) && tradeOpen(y) && cheapFlood(x, k)) { v -= .3; break; } // richer nations resent being flooded with cheap goods if ((a.tariffOn && a.tariffOn[b.id]) || (b.tariffOn && b.tariffOn[a.id])) v -= .2;
     if (a.pers === "aggressive" || b.pers === "aggressive") v -= .3;
@@ -1712,6 +1737,7 @@ function driftRelations() {
     if (big > 8) v -= Math.min(1.5, (big - 8) * .1);
     v -= ((a.id === G.player ? a.warmonger : 0) + (b.id === G.player ? b.warmonger : 0)) * .05;
     v += (rnd() - .5) * 2;
+    v += .06 * (Math.min(6, metCount(a)) + Math.min(6, metCount(b))); // the more of the world a people knows, the more open it is
     v -= d.rel * .015;
     d.rel = clamp(d.rel + v * TD, -100, 100);
     d.truce = dec(d.truce);
@@ -2581,11 +2607,12 @@ function panelTrade() {
   const n = P(), E = econM(n), X = E.raw.sectors, open = tradeOpen(n), parts = E.partners, q = v => fmt(v * TD);
   let h = ph("Trade", open ? `${parts.length} trade agreement${parts.length === 1 ? "" : "s"} · net ${sgn(E.secNet - E.secInv)} a quarter` : "Markets not open yet");
   if (!eco(n, "markets")) {
-    h += `<div class="card"><h4>🤝 Barter</h4><p class="small">Your people don't have markets or industries yet. They simply swap food, tools and furs with ${reachTxt(n)}, and that brings in a little trade income on its own.</p>${line("Trading with", parts.length ? parts.map(o => esc(o.name)).join(", ") : open ? "Nobody yet" : "Nobody: establish Barter Markets in Develop")}${line("Trade reaches", reachTxt(n))}
+    h += `<div class="card"><h4>🤝 Barter</h4><p class="small">Your people don't have markets or industries yet. They simply swap food, tools and furs with ${reachTxt(n)}, and that brings in a little trade income on its own.</p>${line("Trading with", parts.length ? parts.map(o => esc(o.name)).join(", ") : open ? "Nobody yet" : "Nobody: establish Barter Markets in Develop")}${line("Trade reaches", reachTxt(n))}${(() => { const wary = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && tradeReach(n, o) && !relOK(n, o)); return wary.length ? line("Too wary to trade with you", wary.map(o => esc(o.name)).join(", "), "bad") : ""; })()}
       </div>`;
     return h; }
   if (!open) h += `<p class="note warn">Establish <b>Barter Markets</b> (the first Trade field, in Develop) to open your markets. Until then you can't import, export, sign trade agreements, set tariffs or embargo anyone, and every sector must make do with what your own land produces.</p>`;
-  h += `<p class="small muted">Trade reaches ${reachTxt(n)}.</p>`;
+  { const wary = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && tradeReach(n, o) && !relOK(n, o));
+    h += `<p class="small muted">Trade reaches ${reachTxt(n)}.${wary.length ? ` ${wary.map(o => esc(o.name)).join(", ")} ${wary.length > 1 ? "don't" : "doesn't"} trust you enough to trade yet; better relations will change that.` : ""}</p>`; }
   if (eco(n, "cityPolicy")) { const dir = n.tradeDir || "bal", cities = setsOf(n).filter(x => x.t >= 1);
     h += `<div class="card"><h4>🏙️ City trade policy</h4><p class="small muted">Your cities set their own local trade policies so you don't have to: export drives, quality pushes or buy-local programs for their industries. They follow your direction, your tariffs and your national policy, but each leader only gets it right as often as their trade skill allows.</p>
       <div class="seg">${Object.entries(TRADE_DIRS).map(([k, t]) => `<button class="${dir === k ? "on" : ""}" data-act="tdir" data-v="${k}">${t.icon} ${t.name}</button>`).join("")}</div><p class="small">${TRADE_DIRS[dir].d}</p>
@@ -2732,7 +2759,7 @@ function panelWorld() {
 const relWord = v => v > 60 ? "Friendly 😊" : v > 20 ? "Warm 🙂" : v > -20 ? "Neutral 😐" : v > -60 ? "Cold 😠" : "Hostile 😡";
 function aiAccept(o, kind, n) {
   const d = dip(n.id, o.id), ratio = power(n) / Math.max(1, power(o));
-  if (kind === "trade") return d.rel + (o.pers === "trader" ? 25 : 0) - n.warmonger > -5;
+  if (kind === "trade") return d.rel + (o.pers === "trader" ? 10 : 0) - n.warmonger >= tradeTrust(o);
   if (kind === "ally") return d.rel - n.warmonger > 45 && ratio > .5;
   if (kind === "peace") return wscore(o.id, n.id) < -6 || G.tt - d.wt > 8 && wscore(o.id, n.id) < 8 || ratio > 1.8;
   if (kind === "tribute") return ratio > 1.6 && d.rel < 40 + ratio * 10;
@@ -2762,7 +2789,7 @@ function openNationDetail(id) {
     }
     if (!tOpen || d.emb || !tradeReach(n, o)) {}
     else if (d.offer === o.id && !d.trade) h += `<button class="opt" data-act="dOfferYes" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Accept their trade agreement</b><small>They offered it. More trade income for both, cheaper imports and room to export.</small></span></button><button class="opt" data-act="dOfferNo" data-id="${id}"><span class="oi">✋</span><span class="ot"><b>Decline their offer</b><small>Slightly hurts relations</small></span></button>`;
-    else if (!d.trade) h += `<button class="opt" data-act="dTrade" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Propose a trade agreement</b><small>More trade income for both. ${!tradeOpen(o) ? "Their markets aren't open yet" : aiAccept(o, "trade", n) ? "Likely yes" : "Likely no"}</small></span></button>`;
+    else if (!d.trade) h += `<button class="opt" data-act="dTrade" data-id="${id}"><span class="oi">📦</span><span class="ot"><b>Propose a trade agreement</b><small>More trade income for both. ${!tradeOpen(o) ? "Their markets aren't open yet" : aiAccept(o, "trade", n) ? "Likely yes" : `They don't trust you enough yet (relations ${Math.round(d.rel)}, they want about ${Math.round(tradeTrust(o))}). Gifts and time help`}</small></span></button>`;
     else h += `<button class="opt" data-act="dTradeEnd" data-id="${id}"><span class="oi">✂️</span><span class="ot"><b>Cancel trade agreement</b><small>Hurts relations</small></span></button>`;
     if (!d.ally) h += `<button class="opt" data-act="dAlly" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Propose an alliance</b><small>Defend each other. ${aiAccept(o, "ally", n) ? "Likely yes" : "Needs friendlier relations"}</small></span></button>`;
     else h += `<button class="opt" data-act="dAllyEnd" data-id="${id}"><span class="oi">💔</span><span class="ot"><b>End the alliance</b><small>Hurts relations a lot</small></span></button>`;
@@ -3095,7 +3122,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, cityRank, cityInds };
+window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
