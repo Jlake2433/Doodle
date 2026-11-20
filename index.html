@@ -69,12 +69,12 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 /* bottom nav */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 10px) max(10px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: flex-end; pointer-events: none; z-index: 6; }
 .nav > * { pointer-events: auto; }
-.tabs { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
-.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 10.5px var(--body); position: relative; min-width: 0; }
-.tab span { font-size: 20px; line-height: 1.1; }
+.tabs { flex: 1; display: grid; grid-template-columns: repeat(6, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
+.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 10px var(--body); position: relative; min-width: 0; }
+.tab span { font-size: 19px; line-height: 1.1; }
 .tab.on { background: #ffe6d8; }
 .tab.alert::after { content: ""; position: absolute; top: 6px; right: 22%; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); border: 2px solid var(--paper); }
-#endTurn { border: 2.5px solid var(--ink); background: var(--accent); color: #fff; border-radius: 18px; box-shadow: var(--pop); padding: 8px 14px; font: 600 16px/1.05 var(--display); min-width: 92px; min-height: 56px; text-shadow: 0 1.5px 0 var(--accent-d); }
+#endTurn { border: 2.5px solid var(--ink); background: var(--accent); color: #fff; border-radius: 18px; box-shadow: var(--pop); padding: 8px 10px; font: 600 15px/1.05 var(--display); min-width: 78px; min-height: 56px; text-shadow: 0 1.5px 0 var(--accent-d); }
 #endTurn small { display: block; font: 800 10px var(--body); opacity: .9; letter-spacing: .08em; text-transform: uppercase; }
 #endTurn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
 #endTurn.busy { filter: saturate(.4); }
@@ -305,6 +305,7 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
       <button class="tab" data-p="nation"><span>🏛️</span>Nation</button>
       <button class="tab" data-p="develop"><span>🏗️</span>Develop</button>
       <button class="tab" data-p="research"><span>🔬</span>Research</button>
+      <button class="tab" data-p="army"><span>⚔️</span>Army</button>
       <button class="tab" data-p="policy"><span>📜</span>Laws</button>
       <button class="tab" id="tabWorld" data-p="world"><span>🌍</span>World</button>
     </div>
