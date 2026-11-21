@@ -556,7 +556,7 @@ function samplePoint(ri, nearPt, owner = -1, maxD = 40, needLand = false) {
       if (needLand && nearPt && !overLand(c.x, c.y, x, y)) continue; // without boats, they can't cross water
       let ok = true, crowd = 0;
       for (const o of nearSets(x, y, 4)) {
-        const cheb = Math.hypot(o.x - x, o.y - y), oh = o.h || .08;
+        const cheb = Math.hypot(o.x - x, o.y - y), oh = o.h ? radTo(o, x, y) : .08;
         if (o.o !== owner && owner >= 0 && cheb < oh + h0 + .03) { ok = false; break; } // can't settle inside another people's borders
         if (cheb < Math.min(oh, .3) + h0 + .12) { ok = false; break; }
         if (cheb < 1) crowd++;
@@ -618,18 +618,21 @@ function growBorders() {
     if (s.hp < HP[s.t] && G.tt - (s.hit || 0) > 3) s.hp++;
     if (s.h == null) s.h = hOf(s) * .6; }
   for (const s of G.sets) {
-    let target = hOf(s) * 1.9 * (1 + .25 * (s.exp || 0)); // worked land plus the free hunting and grazing land around it, and any land you've chosen to claim
+    let target = hOf(s) * 1.9 * (1 + (s.expDir == null ? .25 * (s.exp || 0) : 0)); // worked land plus the free hunting and grazing land around it, and any land you've chosen to claim
     const near = nearSets(s.x, s.y, 9);
     let gapMin = 1e9; for (const o of near) if (o.o !== s.o) gapMin = Math.min(gapMin, chebGap(s, o));
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
     let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD);
     for (const o of near) { if (o.o === s.o) continue;
-      lim = Math.min(lim, Math.hypot(o.x - s.x, o.y - s.y) - o.h - .01); }
+      lim = Math.min(lim, (Math.hypot(o.x - s.x, o.y - s.y) - radTo(o, s.x, s.y) - .01) / lobe(s, Math.atan2(o.y - s.y, o.x - s.x))); }
     s.h = Math.max(.04, lim);
   }
   G.sv++;
 }
-const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - a.h - b.h;
+// a settlement's claim can bulge one way: expanding in a direction pushes a lobe of land out that side
+const lobe = (s, ang) => { if (!s.exp || s.expDir == null) return 1; const c = Math.cos(ang - s.expDir); return 1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5); };
+const radTo = (s, x, y) => (s.h || .05) * lobe(s, Math.atan2(y - s.y, x - s.x));
+const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) - radTo(b, a.x, a.y);
 function touchesSet(n, s) { return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < .25); }
 let touchKey = null, touchPairs = new Set();
 function bordersTouch(a, b) {
@@ -2408,7 +2411,7 @@ function inForeignCorridor(x, y, owner) {
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn;
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
-    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, blobPts(s.x, s.y, s.h || .05, s.id)); }
+    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, s.exp && s.expDir != null ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
     for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
@@ -2915,6 +2918,10 @@ function panelProduction(n) {
     h += `<div class="card"><h4>🚩 Borders of ${esc(x.name)}</h4>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
       ${need > have ? `<p class="small bad">Too few warriors to guard what you claim: defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker everywhere.</p>` : ""}
       <p class="small muted">Expanding claims a little more land around ${esc(x.name)} for hunting, fields and new villages. Each step raises the warriors you need on guard by ${1 + x.t}. You don't have to field them, but your defense suffers if you don't.</p>
+      <p class="small"><b>Which way?</b></p>
+      <div class="compass">${[["NW", -.75], ["N", -.5], ["NE", -.25], ["W", 1], ["ALL", null], ["E", 0], ["SW", .75], ["S", .5], ["SE", .25]].map(([lab, a]) => { const ang = a == null ? null : a * Math.PI, on = (x.expDir == null && ang == null) || (x.expDir != null && ang != null && Math.abs(x.expDir - ang) < .01);
+        return `<button class="${on ? "on" : ""}" data-act="pdir" data-v="${ang == null ? "all" : ang}">${lab === "ALL" ? "All around" : { NW: "↖", N: "↑", NE: "↗", W: "←", E: "→", SW: "↙", S: "↓", SE: "↘" }[lab]}</button>`; }).join("")}</div>
+      <p class="small muted">${x.expDir == null ? "All around: a modest ring of extra land on every side." : "One direction: reaches much further that way, and no further elsewhere."}</p>
       <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></div>`; }
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT];
   const tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && itemOpenAt(n, x, it)));
@@ -3290,6 +3297,7 @@ panel.addEventListener("click", e => {
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } x.pq.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
     case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, id = x.pq[i], it = itemOf(id); x.pq.splice(i, 1); if (i === 0) x.qp = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
+    case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
     case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
     case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
