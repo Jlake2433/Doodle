@@ -424,7 +424,18 @@ function placeName(lg) { const L = LANGS[lg] || LANGS.northam;
 function personName(lg) { const L = LANGS[lg] || LANGS.northam;
   if (L.han) return capW(pick(L.s)) + " " + capW(pick(L.s) + (rnd() < .5 ? pick(L.s) : ""));
   let w = pick(L.s) + (rnd() < .35 ? pick(L.s) : "") + pick(L.h); w = tidy(w); return capW(w.length > 12 ? w.slice(0, 12) : w); }
-const nameFor = (n, kind) => kind === "person" ? personName(langOf(n)) : placeName(langOf(n));
+// your own naming: a people's name, a naming style, and lists of city and personal names you choose
+const LANG_LABEL = { greek: "Greek", latin: "Latin", celtic: "Celtic", iberian: "Iberian", germanic: "Germanic", norse: "Norse", finnic: "Finnic", slavic: "Slavic", egyptian: "Egyptian", semitic: "Semitic", berber: "Berber", sumer: "Sumerian", anatol: "Anatolian", persian: "Persian", indic: "Indic", dravid: "Dravidian", tibetan: "Tibetan", seasia: "Southeast Asian", chinese: "Chinese", korean: "Korean", japanese: "Japanese", steppe: "Steppe (Turkic/Mongolic)", austro: "Austronesian", abor: "Aboriginal", bantu: "Bantu", wafrica: "West African", ethiop: "Ethiopian", nahuatl: "Nahuatl", maya: "Maya", andean: "Andean", amazon: "Amazonian", northam: "North American", inuit: "Inuit" };
+function demonym(n) { if (n.people) return n.people; const b = n.name.trim(); return b.endsWith("ia") ? b + "ns" : b.endsWith("a") ? b + "ns" : /[eiou]$/.test(b) ? b + "ans" : b.endsWith("os") ? b.slice(0, -2) + "ians" : b + "ians"; }
+function nameFor(n, kind) {
+  const list = n && (kind === "person" ? n.personNames : n.cityNames);
+  if (list && list.length) {
+    if (kind === "person") return pick(list);
+    const used = new Set(G.sets.filter(x => x.o === n.id).map(x => x.name)), free = list.filter(x => !used.has(x));
+    if (free.length) return free[0]; // your own city names are used first, in order
+  }
+  return kind === "person" ? personName(langOf(n)) : placeName(langOf(n));
+}
 function genName(max = 9) { let s = pick(SYL) + pick(SYL); if (rnd() < .4) s += pick(SYL); s = s.replace(/(.)\1\1/, "$1$1"); return s[0].toUpperCase() + s.slice(1, max); }
 // ---- culture: what a people values most. A major factor in research, armies and the economy ----
 const CULTURES = {
@@ -561,7 +572,7 @@ function addSettlement(nid, ri, pop, from, name, tier = 0) {
   const pt = samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
-  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || placeName(langOf(G.nations[nid])), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
+  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
   if (from && nid === G.player && G.fog) { // the settlers know the way they walked
     const d = Math.hypot(x - from.x, y - from.y), steps = Math.ceil(d / .8);
     for (let i = 1; i < steps; i++) addDisc(from.x + (x - from.x) * i / steps, from.y + (y - from.y) * i / steps, .9);
@@ -1332,6 +1343,7 @@ function recruit(n, k) { const c = unitCost(n); n.gold -= c.g * k; n.mat -= c.m 
 
 function processNation(n) {
   if (!n.alive) return;
+  if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
   if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
@@ -2434,6 +2446,7 @@ function setRow(s, n) {
   const o = G.nations[s.o], mine = s.o === n.id, cap = capOf(s, o), full = s.pop >= cap * (s.t ? .6 : .94);
   let acts = "";
   if (mine) {
+    acts += `<button class="btn small ghost" data-act="renameCity" data-s="${s.id}">✍️ Rename</button>`;
     const biggest = setsOf(n).filter(x => x.r === s.r && x.t === 0).sort((a, b) => b.pop - a.pop)[0];
     if (s.t === 0 && biggest === s) { const c = townCheck(n, s);
       acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
@@ -2494,6 +2507,7 @@ sheet.addEventListener("click", e => {
   const ri = +sheet.dataset.ri, n = P(), a = b.dataset.act;
   const keep = sheet.scrollTop;
   if (a === "close") return closeSheet();
+  if (a === "renameCity") { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, r => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (r === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; openRegion(ri); toast(`Renamed to ${x.name}`); } }); return; }
   if (a === "build") { startBuild(n, ri, BK[b.dataset.k]); toast(`${BK[b.dataset.k].name} under construction`); }
   else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(s ? `Founded ${s.name}` : "No free land there: it's all inside other peoples' borders"); updateContacts(); updateExplore(); G.news = []; } }
   else if (a === "town" || a === "city") { const s = setById(+b.dataset.s); const c = a === "town" ? townCheck(n, s) : cityCheck(n, s); if (c.ok) { upgrade(n, s); toast(`${s.name} is now a ${TIERS[s.t].name.toLowerCase()}!`); const msgs = G.news.filter(x => /territory|now the/.test(x.t)); G.news = []; if (msgs.length) setTimeout(() => showModal(`<div class="mi">🚩</div><h2>${esc(W.regions[ri].n)}</h2>${msgs.map(m => `<p>${esc(m.t)}</p>`).join("")}<div class="row"><button class="btn" data-m="ok">Hooray!</button></div>`), 50); } }
@@ -2592,6 +2606,25 @@ function openTime(yearly) {
   showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
   timeFill(modal.querySelector(".timeal"));
 }
+function applyNames(root) {
+  const n = P(), v = id => { const el = root.querySelector("#" + id); return el ? el.value.trim() : null; };
+  const nn = v("nmNation"); if (nn) n.name = nn.slice(0, 18);
+  const pp = v("nmPeople"); if (pp != null) n.people = pp ? pp.slice(0, 22) : null;
+  const lg = v("nmLang"); if (lg && LANGS[lg]) n.lang = lg;
+  const cl = v("nmCities"); if (cl != null) n.cityNames = cl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
+  const pl = v("nmPersons"); if (pl != null) n.personNames = pl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
+  save(); hud(); dirty = true; if (curPanel) refresh();
+}
+function openNaming() {
+  const n = P();
+  showModal(`<div class="mi">✍️</div><h2>Names</h2>
+    <label class="fld">${tribal(n) || rankOf(n) === 0 ? "Tribe" : "Nation"} name<input id="nmNation" maxlength="18" value="${esc(n.name)}"></label>
+    <label class="fld">Your people <small class="muted">what they call themselves</small><input id="nmPeople" maxlength="22" value="${esc(demonym(n))}"></label>
+    <label class="fld">Naming style <small class="muted">for new towns and people</small><select id="nmLang">${Object.entries(LANG_LABEL).map(([k, l]) => `<option value="${k}" ${langOf(n) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="fld">Your own city names <small class="muted">used first for new settlements, separated by commas</small><textarea id="nmCities" rows="2">${esc((n.cityNames || []).join(", "))}</textarea></label>
+    <label class="fld">Your own personal names <small class="muted">for leaders and generals</small><textarea id="nmPersons" rows="2">${esc((n.personNames || []).join(", "))}</textarea></label>
+    <div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Save</button></div>`, a => { if (a === "ok") applyNames(modal); });
+}
 function openBudget(yearly) {
   const n = P();
   showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
@@ -2608,7 +2641,8 @@ function panelNation() {
   const n = P(), E = econM(n), sets = setsOf(n), uc = unitCost(n), ma = maxArmy(n);
   const vc = sets.filter(s => s.t === 0).length, tc = sets.filter(s => s.t === 1).length, cc = sets.filter(s => s.t === 2).length;
   const terr = territories(n), rk = rankOf(n), full = sets.filter(s => s.crowd).length;
-  let h = ph(esc(nm(n)), `${GOVS[n.gov].name} · ${fmtP(E.pop)} people`);
+  let h = ph(esc(nm(n)), `${GOVS[n.gov].name} · ${fmtP(E.pop)} ${esc(demonym(n))}`);
+  h += `<div class="row wrap"><button class="btn small ghost" data-act="naming">✍️ Names: ${esc(n.name)}, the ${esc(demonym(n))}</button></div>`;
   const nextRank = rk < 3 ? [1, 2, 4][rk] : null;
   h += `<div class="card"><h4>Your people</h4>
     <div class="tiers"><div><span>🛖</span><b>${vc}</b><small>Villages</small></div><div><span>🏘️</span><b>${tc}</b><small>Towns</small></div><div><span>🏙️</span><b>${cc}</b><small>Cities</small></div><div><span>🚩</span><b>${terr.length}</b><small>Territories</small></div></div>
@@ -2946,7 +2980,7 @@ function openNationDetail(id) {
   const n = P(), o = G.nations[id], d = dip(n.id, id);
   closeSheet(); curPanel = "world";
   const g = Math.round(12 * Math.pow(1.6, n.era)), trib = Math.round(20 * Math.pow(1.6, o.era));
-  let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `${GOVS[o.gov].name} · ${ERAS[o.era]} · ${cul(o).icon} ${cul(o).name} culture`);
+  let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `The ${esc(demonym(o))} · ${GOVS[o.gov].name} · ${ERAS[o.era]} · ${cul(o).icon} ${cul(o).name} culture`);
   h += `<button class="btn ghost small back" data-act="world">← All peoples</button>`;
   h += `<div class="card">${line("Relations", `${Math.round(d.rel)} · ${relWord(d.rel)}`)}${line("People", fmtP(popOf(o)))}${line("Territories", terrCount(o))}${line("Settlements", setsOf(o).length)}${line("Army strength", `${fmt(power(o))} (yours ${fmt(power(n))})`)}${line("Technologies", `${o.techs.length} (yours ${n.techs.length})`)}${line("Status", d.war ? `At war · score ${Math.round(wscore(n.id, o.id))}` : d.ally ? "Allied" : d.trade ? "Trade pact" : d.truce > 0 ? `Truce (${d.truce} turns)` : "Peace")}</div>`;
   h += `<div class="opts">`;
@@ -2986,6 +3020,8 @@ panel.addEventListener("click", e => {
   switch (a) {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
+    case "naming": openNaming(); break;
+    case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
     case "timeal": openTime(false); break;
     case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
     case "crack": { const x = setById(+b.dataset.s), L = x.lead; confirmModal(`Crack down on ${L.name}?`, `The loophole in ${x.name} closes and your tariff works again there. The city's poor will be angry, and ${L.name} will resent it.`, () => {
@@ -3052,6 +3088,7 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => { if (curPanel 
 // ---------- modals ----------
 let modalCb = null;
 function showModal(html, cb) { modal.querySelector(".mbox").innerHTML = AW(html); modal.hidden = false; modalCb = cb || null; }
+modal.addEventListener("click", e => { const sg = e.target.closest("[data-sug]"); if (sg) { const i = modal.querySelector("#nmNation"); if (i) i.value = sg.dataset.sug; return; } }, true);
 modal.addEventListener("click", e => { const b = e.target.closest("[data-m]"); if (!b || b.disabled) return; const a = b.dataset.m; const cb = modalCb; modal.hidden = true; modalCb = null; if (cb) cb(a); });
 function confirmModal(title, text, yes) { showModal(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="yes">Confirm</button></div>`, a => { if (a === "yes") yes(); }); }
 let toastT = 0;
@@ -3177,8 +3214,17 @@ function afterTurnFlow() {
     return true;
   };
   const showEventAfterCivil = () => showEvent(true);
+  const askNaming = () => {
+    if (!G.pendingNaming) return false; G.pendingNaming = false;
+    const n = P(), lg = langOf(n), sug = [placeName(lg), placeName(lg), placeName(lg)];
+    showModal(`<div class="mi">🚩</div><h2>A nation is born</h2><p>Your tribe has claimed its first territory and become a nation. What will your nation be called, and what will your people call themselves?</p>
+      <label class="fld">Nation name<input id="nmNation" maxlength="18" value="${esc(n.name)}"></label><div class="seg">${sug.map(x => `<button data-sug="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+      <label class="fld">Your people<input id="nmPeople" maxlength="22" value="${esc(demonym(n))}"></label>
+      <div class="row"><button class="btn" data-m="ok">Proclaim it</button></div>`, () => { applyNames(modal); showEventAfterCivil(); });
+    return true;
+  };
   const showEvent = (skipCivil) => {
-    if (skipCivil !== true && askCivil()) return;
+    if (skipCivil !== true && (askCivil() || askNaming())) return;
     if (!G.event) return askMastery() || askBudget();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
