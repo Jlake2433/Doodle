@@ -476,7 +476,7 @@ const ASSIM = { /* the national law on newcomers: whether they must take up your
   apart: { name: "Separate ways", icon: "🧱", m: .3, d: "They keep their own tongue and customs by law. Less friction, but they stay strangers for many generations." } };
 function compatOf(n, g) { const fit = lg => lg === langOf(n) ? 80 : LANG_FAM[lg] && LANG_FAM[lg] === LANG_FAM[langOf(n)] ? 60 : 35; let c = Math.max(fit(g.lang), g.lang2 ? fit(g.lang2) - 5 : 0);
   if (g.cul && g.cul === n.cul) c += 10; c += ((n.trait && n.trait.open != null ? n.trait.open : 50) - 50) / 5; return clamp(Math.round(c), 5, 95); }
-function ethOf(n) { return n.eth || (n.eth = []); }
+function ethOf(n) { if (!n.eth) { n.eth = []; n.ethV = 1; } return n.eth; }
 /* each settlement knows what share of its families belong to which people; the national shares are their sum */
 const setEth = x => x.eth || (x.eth = {});
 function putIn(x, k, fam) { /* fam families of people k, already counted in x.pop */ const e = setEth(x), P1 = Math.max(1, x.pop), old = Math.max(0, x.pop - fam);
@@ -497,19 +497,32 @@ function addGroup(n, d, fam, assim = 0, text, x) { if (!(fam > 0) || String(d.k)
   const g = groupMeta(n, d, assim, fam, text);
   if (x) putIn(x, g.k, fam); /* already counted where they live */
   else { const ss = setsOf(n); if (!ss.length) return g; const w = ss.map(y => y.pop * (.3 + Math.pow(receptionAt(n, y, g) / 50, 2))), tw = w.reduce((a, b) => a + b, 0) || 1;
-    ss.forEach((y, i) => { const f = fam * w[i] / tw; if (f > 0) { y.pop += f; putIn(y, g.k, f); } }); } /* newcomers go where they're welcome */
+    ss.forEach((y, i) => { const f = fam * w[i] / tw; if (f > 0) { y.pop += f; putIn(y, g.k, f); } }); n.inflow = (n.inflow || 0) + fam; } /* newcomers go where they're welcome */
   recalcShares(n); return g; }
 function convertSet(n, dn, s) { /* a conquered settlement: its people become a people among yours */ const e = s.eth || {}, ne = {}; let minor = 0;
   for (const k in e) { minor += e[k]; if (k === String(n.id)) continue; const og = ethOf(dn).find(g => g.k === k); if (!og) continue;
     ne[k] = e[k]; groupMeta(n, { k, base: og.base, name: og.name, lang: og.lang, lang2: og.lang2, cul: og.cul, via: og.via }, 0, e[k] * s.pop); }
   const main = Math.max(0, 1 - minor); if (main > 0) { ne[String(dn.id)] = main; groupMeta(n, { k: String(dn.id), name: demonym(dn), lang: langOf(dn), cul: dn.cul }, 0, main * s.pop); }
   s.eth = ne; }
+/* where another people makes up most of a place, they run it: they set its ways and its welcome */
+function dominantAt(x) { if (!x.eth) return null; let bk = null, bv = .5; for (const k in x.eth) if (x.eth[k] > bv) { bv = x.eth[k]; bk = k; } return bk; }
+function fitPair(a, b) { const f = (p, q) => p === q ? 80 : LANG_FAM[p] && LANG_FAM[p] === LANG_FAM[q] ? 60 : 35;
+  return clamp(Math.max(f(a.lang, b.lang), a.lang2 ? f(a.lang2, b.lang) - 5 : 0, b.lang2 ? f(a.lang, b.lang2) - 5 : 0) + (a.cul && a.cul === b.cul ? 10 : 0), 5, 95); }
+const mainOf = n => ({ k: String(n.id), name: demonym(n), lang: langOf(n), cul: n.cul });
+const foreignAt = (n, x) => { let f = 0; if (x.eth) for (const k in x.eth) { const g = ethOf(n).find(q => q.k === k); f += x.eth[k] * (1 - (g ? g.assim : 0) / 100); } return f; };
+/* for and against newcomers: some fear being outnumbered, employers love the cheap labor */
+function immOpinion(n) { if (n._io && n._io.t === G.turn && n._io.sv === G.sv) return n._io.v; const v = immOpinion0(n); n._io = { t: G.turn, sv: G.sv, v }; return v; }
+function immOpinion0(n) { const P0 = Math.max(1, popOf(n)); let fear = 0; for (const x of setsOf(n)) if (!dominantAt(x)) fear += x.pop * Math.max(0, foreignAt(n, x) - .15) / P0;
+  const labor = (n.eth || []).reduce((a, g) => a + g.share * (1 - g.assim / 100), 0), inflow = (n.inflow || 0) / P0;
+  return { fear, labor, inflow, wageCut: Math.min(.2, .35 * labor) }; }
 /* how each place receives a people: the locals and their leader decide, not you */
 function receptionAt(n, x, g) { if (!x.tmp) x.tmp = Math.round((rnd() - .5) * 24) || 1;
   const loc = (x.eth && x.eth[g.k]) || 0; if (loc > .5) return 85; /* where they're most of the town, they set the tone */
+  const D = dominantAt(x); if (D) { const dg = D === String(n.id) ? mainOf(n) : ethOf(n).find(q => q.k === D);
+    if (dg) return clamp(Math.round(50 + .6 * (fitPair(dg, g) - 50) + x.tmp + 5 * x.t + 20 * loc), 0, 100); }
   const shk = x.pop > 0 ? Math.min(1, Math.min(x.shk || 0, Math.max(0, x.pop - builtAt(x, "hut"))) / x.pop) : 0;
   const L = x.lead, lt = L ? (L.tol != null ? L.tol : (L.tol = Math.round((rnd() - .5) * 20))) : 0;
-  return clamp(Math.round(50 + .5 * (trv(n, "open") - 50) + .6 * (compatOf(n, g) - 50) + x.tmp + lt + 5 * x.t - 60 * shk - (n.hungry ? 10 : 0) + 20 * loc), 0, 100); }
+  return clamp(Math.round(50 + .5 * (trv(n, "open") - 50) + .6 * (compatOf(n, g) - 50) + x.tmp + lt + 5 * x.t - 60 * shk - (n.hungry ? 10 : 0) + 20 * loc - 50 * Math.max(0, foreignAt(n, x) - loc - .2)), 0, 100); } /* many newcomers already: the locals fear for their own ways */
 const RCV = v => v >= 65 ? ["Welcoming", "good"] : v >= 45 ? ["Tolerant", ""] : v >= 30 ? ["Cold, some leave", "warn"] : ["Hostile, many leave", "bad"];
 const adjOf = n => { const d = demonym(n); return d.endsWith("ians") || d.endsWith("ans") ? d.slice(0, -1) : d.endsWith("s") ? d.slice(0, -1) : d; };
 const yrsAmong = g => Math.max(0, G.year - (g.since != null ? g.since : G.year));
@@ -537,7 +550,7 @@ function expelGroup(n, i) { const E = ethOf(n), g = E[i]; if (!g) return; let fa
   G.sv++; }
 function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const pol = ASSIM[n.laws.assim || "free"] || ASSIM.free, yrs = 1 / TPY, ss = setsOf(n);
   for (const g of E) g.k = String(g.k);
-  if (!n.ethV) { n.ethV = 1; for (const g of E) for (const x of ss) if (!(x.eth && x.eth[g.k])) setEth(x)[g.k] = g.share; } /* older saves: spread evenly */
+  if (!n.ethV) { n.ethV = 1; if (!ss.some(x => x.eth && Object.keys(x.eth).length)) for (const g of E) for (const x of ss) setEth(x)[g.k] = g.share; } /* older saves: spread evenly */
   recalcShares(n);
   if (n.ai) for (let i = E.length - 1; i >= 0; i--) { const g = E[i]; if (g.share > .02 && yrsAmong(g) >= 40 && compatOf(n, g) < 55 && rnd() < .003 * (1.5 - trv(n, "open") / 100) * (1 - g.assim / 100)) { expelGroup(n, i); return; } }
   /* the city's welcome decides whether they stay: unwelcome families move to friendlier places, or leave your lands */
@@ -551,6 +564,13 @@ function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const po
       if (g.out >= 1) { const fam = g.out; g.out = 0; const d = diasporaOf(n, g), to = pickHome(n, g);
         if (to) arrive(n, to, d, fam, `${Math.round(fam)} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${d.name} arrive from the ${nm(n)}, where they weren't welcome.${d.long ? ` After generations there, they carry ${demonym(n)} ways as well as their own.` : ""}`);
         if (!n.ai) log(`${Math.round(fam)} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${g.name} left your lands${to ? ` for the ${nm(to)}` : ""}${worst ? `: they aren't welcome in ${worst[0].name}` : ""}.`, "🚶"); } } }
+  /* in places run by another people, your own families may feel unwelcome and move to your other towns */
+  for (const x of ss) { const D = dominantAt(x); if (!D) { x.rcvMain = null; continue; } const dg = E.find(q => q.k === D); if (!dg) continue;
+    const r = x.rcvMain = clamp(Math.round(50 + .6 * (fitPair(dg, mainOf(n)) - 50) + x.tmp), 0, 100), rate = r < 30 ? .08 : r < 45 ? .025 : 0; if (!rate) continue;
+    const mine = 1 - Object.values(x.eth).reduce((a, v) => a + v, 0), f = Math.min(mine * x.pop, mine * x.pop * (1 - Math.pow(1 - rate, yrs))); if (f <= .01) continue;
+    const to = ss.filter(y => y !== x && !dominantAt(y)).sort((a, b) => b.pop - a.pop)[0], np = Math.max(2, x.pop - f);
+    for (const k in x.eth) x.eth[k] = Math.min(1, x.eth[k] * x.pop / np); x.pop = np; if (to) { to.pop += f; const e = to.eth; if (e) for (const k in e) e[k] *= (to.pop - f) / to.pop; } }
+  n.inflow = (n.inflow || 0) * Math.pow(.5, yrs / 10);
   recalcShares(n);
   for (let i = E.length - 1; i >= 0; i--) { const g = E[i], gen = clamp((.15 + .5 * compatOf(n, g) / 100) * pol.m, .02, .9);
     g.assim += (100 - g.assim) * (1 - Math.pow(1 - gen, yrs / 25)); /* each new generation lets go of a share of the old ways */
@@ -1033,7 +1053,8 @@ const CPOL = { none: { name: "Hands off", icon: "—" }, export: { name: "Export
 function ensureLeader(x, n) {
   if (x.t < 1) return null;
   if (!x.lead || x.lead.left <= 0) { const tq = n ? travelQ(n) : 0, ed = n ? eduOf(n) / 100 : 0;
-    x.lead = { name: nameFor(n || G.nations[x.o], "person"), trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), loyal: 1 + Math.floor(rnd() * 5), left: 2 + rnd() * 3, pol: {} }; } // loyalty is hidden from you
+    const dk = dominantAt(x), dg = dk && n && ethOf(n).find(q => q.k === dk);
+    x.lead = { name: dg ? personName(dg.lang) : nameFor(n || G.nations[x.o], "person"), ppl: dg ? dg.name : null, trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), loyal: 1 + Math.floor(rnd() * 5), left: 2 + rnd() * 3, pol: {} }; } // loyalty is hidden from you
   if (x.lead.loyal == null) x.lead.loyal = 1 + Math.floor(rnd() * 5);
   return x.lead;
 }
@@ -1072,7 +1093,7 @@ const phList = n => { const out = []; for (const [id, list] of cityInds(n).bySet
 const phBonus = n => !eco(n, "brands") ? 0 : Math.min(.5, phList(n).reduce((a, p) => a + (.12 - .02 * (p.r - 1)) * clamp((p.b.rep - .3) / .4, 0, 1), 0)); // famous premium city brands lift wages; famous cheap ones don't
 const cheapFlood = (o, k) => (cityInds(o).byK[k] || []).some(c => { const x = setById(c.s); return isPH(x, k) && cityBrand(x, k).rep <= .35; });
 // workers' wages: not paid by you, but set by how productive your economy is compared with the rest of the world, plus world-famous city industries
-function wageOf(n) { if (!eco(n, "wages")) return 1; let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return clamp((c && n.prodPU > 0 ? n.prodPU / (sum / c) : 1) * (1 + phBonus(n)), .3, 2.5); }
+function wageOf(n) { if (!eco(n, "wages")) return 1; let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return clamp((c && n.prodPU > 0 ? n.prodPU / (sum / c) : 1) * (1 + phBonus(n)) * (1 - immOpinion(n).wageCut), .3, 2.5); } /* newcomers work for less */
 const spendMult = n => !eco(n, "wages") ? 1 : clamp(.75 + .25 * wageOf(n), .6, 1.4); // well-paid workers spend more, and their spending is taxed
 // a world-famous industry comes to dominate its city: rich taxes, but it crowds out everything else there
 let hubKey = null, hubCache = new Map();
@@ -1527,7 +1548,10 @@ function facTargets(n, E) {
     { let fr = 0, mi = 0; for (const g of n.eth || []) { fr += g.share * (1 - g.assim / 100) * (1 - compatOf(n, g) / 100); mi += g.share * (1 - g.assim / 100); }
       const pol = n.laws.assim || "free";
       if (fr > .003) add("commoners", -Math.round(40 * fr * (pol === "apart" ? .4 : 1)), "Strangers among us");
-      if (pol === "force" && mi > .003) add("commoners", -Math.round(60 * mi), "Forced assimilation"); }
+      if (pol === "force" && mi > .003) add("commoners", -Math.round(60 * mi), "Forced assimilation");
+      const op = immOpinion(n), fe = Math.round(Math.min(25, 60 * op.fear + 150 * op.inflow));
+      if (fe) add("commoners", -fe, "Fear of being outnumbered");
+      if (op.labor > .01) { add("merchants", Math.round(Math.min(15, 60 * op.labor)), "Cheap labor from newcomers"); add("workers", -Math.round(Math.min(15, 50 * op.labor)), "Newcomers undercut wages"); } }
     if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
     { let nat = 0, tar = 0, sub = 0; for (const k in n.sec || {}) { if (!secUnlocked(n, k)) continue; const st = n.sec[k]; if (st.nat) nat++; if (st.tar && tradeOpen(n)) tar += st.tar; if (st.sub && !st.nat) sub += st.sub; }
@@ -3055,7 +3079,11 @@ function panelPeople() {
         <div class="bar-row"><span class="small">Assimilated</span><span class="bar thin"><i style="width:${Math.round(g.assim)}%;background:#7d5bd6"></i></span><span class="small">${Math.round(g.assim)}%</span></div>
         <div class="ln small"><span class="muted">${yrsAmong(g) < 1 ? "Newly arrived" : `Among you ${Math.round(yrsAmong(g))} years`}${g.via && g.via.length ? ` · ${esc(LANG_LABEL[g.lang] || capW(g.lang))} roots, by way of the ${g.via.map(esc).join(", then the ")}` : ""}</span><button class="btn small ghost" data-act="expel" data-k="${E0.indexOf(g)}">Expel</button></div>
         ${(() => { const at = setsOf(n).filter(x => x.eth && x.eth[g.k] * x.pop >= .5).map(x => ({ x, f: x.eth[g.k] * x.pop, r: x.rcv && x.rcv[g.k] != null ? x.rcv[g.k] : receptionAt(n, x, g) })).sort((a, b) => b.f - a.f);
-          return at.slice(0, 5).map(a => { const [w, c] = RCV(a.r); return `<div class="ln small"><span>📍 ${esc(a.x.name)} · ${fmtP(a.f)} famil${Math.round(a.f) === 1 ? "y" : "ies"}</span><b class="${c}">${w}</b></div>`; }).join("") + (at.length > 5 ? `<p class="small muted">…and ${at.length - 5} more places</p>` : ""); })()}</div>`; } });
+          return at.slice(0, 5).map(a => { const [w, c] = RCV(a.r), run = dominantAt(a.x) === g.k; return `<div class="ln small"><span>📍 ${esc(a.x.name)} · ${fmtP(a.f)} famil${Math.round(a.f) === 1 ? "y" : "ies"}</span><b class="${run ? "good" : c}">${run ? "👑 They run it" : w}</b></div>`; }).join("") + (at.length > 5 ? `<p class="small muted">…and ${at.length - 5} more places</p>` : ""); })()}</div>`; } });
+  { const ruled = setsOf(n).filter(x => dominantAt(x));
+    if (ruled.length) { h += `<h4 style="margin-top:12px">👑 Places run by another people</h4><p class="small muted">Where another people are most of a place, they set its ways and its welcome, and its leaders come from among them.</p>`;
+      for (const x of ruled.slice(0, 6)) { const g = E0.find(q => q.k === dominantAt(x)); if (!g) continue; const [w, c] = x.rcvMain != null ? RCV(x.rcvMain) : ["", ""];
+        h += `<div class="ln small"><span>📍 ${esc(x.name)} · ${esc(g.name)} ${Math.round(x.eth[g.k] * 100)}%</span><b class="${c}">${w ? `Your people: ${w}` : ""}</b></div>`; } } }
   if (!E0.length) h += `<p class="small muted">Only the ${esc(demonym(n))} live in your lands.</p>`;
   else { const cur = n.laws.assim || "free";
     h += `<p class="small muted">Each place decides for itself how it receives newcomers: the locals, their mood and their leader. Where they're welcome, they stay and others come to join them; where they're not, they move on or leave your lands.</p>
@@ -3063,6 +3091,14 @@ function panelPeople() {
     for (const [k, a] of Object.entries(ASSIM)) h += `<button class="opt ${cur === k ? "on" : ""}" data-act="assim" data-k="${k}"><span class="oi">${a.icon}</span><span class="ot"><b>${a.name}${cur === k ? " ✓" : ""}</b><small>${a.d}</small></span></button>`;
     h += `</div>`; }
   h += `</div>`;
+  { const op = immOpinion(n);
+    if (E0.length || op.inflow > .002) { const fe = Math.round(Math.min(25, 60 * op.fear + 150 * op.inflow)), pro = op.labor > .01;
+      h += `<div class="card"><h4>🗣️ For and against newcomers</h4>
+        ${line("👎 Commoners: fear of being outnumbered", fe ? `−${fe} mood` : "Calm", fe ? "bad" : "")}
+        ${facActive(n, "merchants") && pro ? line("👍 Merchants: cheap labor", `+${Math.round(Math.min(15, 60 * op.labor))} mood`, "good") : ""}
+        ${facActive(n, "workers") && pro ? line("👎 Workers: wages undercut", `−${Math.round(Math.min(15, 50 * op.labor))} mood`, "bad") : ""}
+        ${eco(n, "wages") && op.wageCut > .005 ? line("Wages", `${Math.round(op.wageCut * 100)}% lower`) : ""}
+        <p class="small muted">People who see many newcomers arrive fear for their own ways, most of all where newcomers are already many. Others gain from newcomers' work.</p></div>`; } }
   h += `<div class="card"><h4>🎭 Character</h4><p class="small muted">Your people's character shifts slowly, over generations, with how they live and how they feel.</p>`;
   for (const [k, t] of Object.entries(TRAITS)) { const v = T[k] != null ? T[k] : 50, d = (tg[k] != null ? clamp(tg[k], 0, 100) : v) - v;
     const word = v < 20 ? `Very ${t.lo.toLowerCase()}` : v < 40 ? t.lo : v <= 60 ? "Middling" : v <= 80 ? t.hi : `Very ${t.hi.toLowerCase()}`;
