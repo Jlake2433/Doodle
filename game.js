@@ -2653,7 +2653,7 @@ function setRow(s, n) {
     const biggest = setsOf(n).filter(x => x.r === s.r && x.t === 0).sort((a, b) => b.pop - a.pop)[0];
     if (s.t === 0 && biggest === s) { const c = townCheck(n, s);
       acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
-    else if (s.t === 1) { const c = cityCheck(n, s);
+    else if (s.t === 1 && has(n, "masonry")) { const c = cityCheck(n, s); // no cities before the Bronze Age
       acts += `<button class="btn small" data-act="city" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏙️ Upgrade to city · ${costTxt(cityCost(n))}</button>${c.ok || !c.why ? "" : `<span class="why">${esc(c.why)}</span>`}`; }
     if (s.t >= 1 && eco(n, "cityPolicy")) { const L = ensureLeader(s, n), pol = Object.entries(L.pol || {}).filter(([, v]) => v !== "none");
       if (L.loop && L.loopKnown) acts += `<span class="why bad">🕳️ ${esc(L.name)} is sneaking cheap ${esc(SECTORS[L.loop].name.toLowerCase())} past your tariff. The city's poor love it; your producers lose protection.</span><button class="btn small" data-act="crack" data-s="${s.id}">Crack down</button>`;
