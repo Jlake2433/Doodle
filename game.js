@@ -817,17 +817,18 @@ const UNLOCKS = [
 const ERA_ARMS = ["", "Bronze spears, shields and the first chariots", "Iron swords and drilled legions", "Armored knights and stone castles", "Gunpowder: muskets and cannon", "Rifles, artillery and railways to the front", "Tanks, aircraft and radio", "Precision missiles, drones and satellites"];
 function checkGovMil(n, fresh, pend) {
   const seen = n.ecoSeen, add = (id, ok) => { if (seen[id] || !ok) return false; seen[id] = 1; return !fresh; };
-  const govs = Object.entries(GOVS).filter(([g, G2]) => G2.tech && add("gov:" + g, has(n, G2.tech)));
+  const canGov = !tribal(n), cities = setsOf(n).some(x => canAcad(n, x));
+  const govs = Object.entries(GOVS).filter(([g, G2]) => G2.tech && add("gov:" + g, canGov && has(n, G2.tech)));
   if (govs.length) pend.push({ icon: "🏛️", title: govs.length > 1 ? "New forms of government" : `New government: ${govs[0][1].name}`, text: govs.map(([, G2]) => `${G2.name}: ${G2.d}`).join(" ") + " You can switch in the Laws tab." });
   const laws = [];
-  for (const lk of Object.keys(LAWS)) { const L = lawView(n, lk); if (L.tech && add("law:" + lk, has(n, L.tech))) laws.push(`${L.name} law: ${Object.values(L.opts).map(o => o[0]).join(" or ")}.`);
-    for (const [ok, o] of Object.entries(L.opts)) if (o[1] && (!L.tech || has(n, L.tech)) && add("lawopt:" + lk + ":" + ok, has(n, o[1]))) laws.push(`${L.name}: ${o[0]}. ${o[2]}`); }
+  for (const lk of Object.keys(LAWS)) { const vis = !tribal(n) || ["cons", "migr", "rel"].includes(lk), L = lawView(n, lk); if (L.tech && add("law:" + lk, vis && has(n, L.tech))) laws.push(`${L.name} law: ${Object.values(L.opts).map(o => o[0]).join(" or ")}.`);
+    for (const [ok, o] of Object.entries(L.opts)) if (o[1] && (!L.tech || has(n, L.tech)) && add("lawopt:" + lk + ":" + ok, vis && has(n, o[1]))) laws.push(`${L.name}: ${o[0]}. ${o[2]}`); }
   if (laws.length) pend.push({ icon: "📜", title: laws.length > 1 ? "New laws" : "New law", text: laws.join(" ") + " See the Laws tab." });
   const cmds = Object.entries(CMDS).filter(([k, c]) => c.tech && add("cmd:" + k, has(n, c.tech)));
   if (cmds.length) pend.push({ icon: "🎖️", title: cmds.length > 1 ? "New ways to command the army" : `New army command: ${cmds[0][1].name}`, text: cmds.map(([, c]) => `${c.name}: ${c.d}`).join(" ") + " Reorganize in the Army tab (each choice is locked in for 25 years)." });
-  if (add("milacad", has(n, "bronze"))) pend.push({ icon: "🏰", title: "Military academies", text: "Your cities can now found military academies. They train officers, who make every regiment stronger, and now and then a general who leads attacks. You're limited by the size of your nation. See the Army tab." });
-  if (add("acad", has(n, "writing"))) pend.push({ icon: "🎓", title: "Academies", text: "With writing, your cities can found academies that train scientists. Each scientist speeds up research, but they draw a salary. See the Research tab." });
-  const strat = STRAT_NEED.filter(x => x.from <= n.era && x.to >= n.era && (!RES[x.res].tech || has(n, RES[x.res].tech)) && add("strat:" + x.res, true));
+  if (add("milacad", has(n, "bronze") && cities)) pend.push({ icon: "🏰", title: "Military academies", text: "Your cities can now found military academies. They train officers, who make every regiment stronger, and now and then a general who leads attacks. You're limited by the size of your nation. See the Army tab." });
+  if (add("acad", has(n, "writing") && cities)) pend.push({ icon: "🎓", title: "Academies", text: "With writing, your cities can found academies that train scientists. Each scientist speeds up research, but they draw a salary. See the Research tab." });
+  const strat = STRAT_NEED.filter(x => x.from <= n.era && x.to >= n.era && (!RES[x.res].tech || has(n, RES[x.res].tech)) && add("strat:" + x.res, !tribal(n) && tradeOpen(n))); // only once you can trade for it
   if (strat.length) pend.push({ icon: RES[strat[0].res].icon, title: "Armies need new resources", text: strat.map(x => `${RES[x.res].icon} ${RES[x.res].name}: ${x.pen ? `without it your army fights at −${Math.round(x.pen * 100)}%` : `having it gives +${Math.round(x.bonus * 100)}% strength`}.`).join(" ") + " Hold land with it, or import it from a trade partner." });
   if (n.era > 0 && add("arms:" + n.era, true)) pend.push({ icon: "⚔️", title: `${ERAS[n.era]} armies`, text: `${ERA_ARMS[n.era]}. Your regiments are much stronger than before, but so are theirs, and upkeep rises.` });
 }
@@ -1467,13 +1468,13 @@ function processNation(n) {
   } else if (n.trust > 40) n.trustWarned = false;
   if (n.trust <= 0) civilWar(n);
   // growth: each settlement grows toward its limit. Full villages stop growing.
-  const sr = clamp(E.surplus / Math.max(1, E.need), -1, 1);
+  const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3); // plenty of food means more children survive
   const sets = setsOf(n);
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
-      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .05 * Math.min(1, sr) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
+      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .2 * Math.max(0, Math.min(3, sr)) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
       const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3), TD); s.g = 0; }
@@ -1967,11 +1968,12 @@ function driftRelations() {
 }
 
 // ================= EVENTS =================
+const evScale = () => clamp(14 * TD, .08, 1); // events come every few years now, so each one is smaller than a whole old turn's worth
 const fx = {
-  gold: (n, v) => { n.gold += v; }, mat: (n, v) => { n.mat += v; },
-  fac: (n, k, v, t = 6, why = "Recent event") => n.facMods.push({ k, v, why, t }),
-  pop: (n, f) => setsOf(n).forEach(s => { s.pop = Math.min(capOf(s, n), s.pop * f); }),
-  sci: (n, v) => { n.sciPts += v; },
+  gold: (n, v) => { n.gold += v * evScale(); }, mat: (n, v) => { n.mat += v * evScale(); },
+  fac: (n, k, v, t = 6, why = "Recent event") => n.facMods.push({ k, v, why, t: t * evScale() }),
+  pop: (n, f) => { f = 1 + (f - 1) * evScale(); setsOf(n).forEach(s => { s.pop = Math.min(capOf(s, n), s.pop * f); }); },
+  sci: (n, v) => { n.sciPts += v * evScale(); },
   army: (n, v) => { n.army = Math.max(0, n.army + v); },
 };
 const eraScale = n => Math.pow(1.6, n.era) * .6;
@@ -1981,6 +1983,32 @@ const EVENTS = [
     text: () => "Heavy rains swelled the river. Fields are underwater and villages are damaged.",
     ch: [{ t: "Pay to rebuild", d: n => `−${fmt(20 * eraScale(n))} gold`, f: n => fx.gold(n, -20 * eraScale(n)) },
          { t: "Let them manage", d: () => "−8% population, Commoners upset", f: n => { fx.pop(n, .92); fx.fac(n, "commoners", -10, 5, "Ignored the flood"); } }] },
+  { id: "herd", title: "The Great Herd", era: [0, 0], icon: "🦬", cond: n => tribal(n),
+    text: () => "Scouts report a vast herd moving through the valley. It won't stay long.",
+    ch: [{ t: "Everyone joins the hunt", d: () => "A feast: more people, but the warriors are tired", f: n => { fx.pop(n, 1.12); fx.fac(n, "warriors", -4, 2, "Exhausting hunt"); } },
+         { t: "Only the hunters go", d: () => "A smaller gain, no strain", f: n => fx.pop(n, 1.05) }] },
+  { id: "strangers", title: "Strangers at the Fire", era: [0, 1], icon: "🔥", cond: n => tribal(n),
+    text: () => "Travelers from a distant people sit at your fire. They know things your elders don't.",
+    ch: [{ t: "Share stories through the night", d: () => "The elders learn from them", f: n => { fx.sci(n, 6 * eraScale(n)); fx.fac(n, "elders", 5, 3, "Strangers' tales"); } },
+         { t: "Trade with them", d: () => "Tools and furs change hands", f: n => { fx.mat(n, 8 * eraScale(n)); fx.gold(n, 4 * eraScale(n)); } },
+         { t: "Drive them off", d: () => "Warriors approve", f: n => fx.fac(n, "warriors", 5, 3, "Strangers driven off") }] },
+  { id: "wolves", title: "Wolves in the Night", era: [0, 1], icon: "🐺", cond: n => tribal(n),
+    text: () => "A wolf pack has been taking children and goats from the edge of camp.",
+    ch: [{ t: "Hunt the pack down", d: () => "Dangerous, but the warriors earn glory", f: n => { fx.army(n, rnd() < .3 ? -1 : 0); fx.fac(n, "warriors", 8, 4, "Wolf hunt"); } },
+         { t: "Build fences of thorn", d: () => "Costs materials, keeps everyone safe", f: n => fx.mat(n, -5 * eraScale(n)) }] },
+  { id: "omen", title: "A Strange Omen", era: [0, 1], icon: "🌑", cond: n => tribal(n),
+    text: () => "The sun went dark at midday. The people look to the shamans for answers.",
+    ch: [{ t: "A great sacrifice", d: () => "Elders and commoners are reassured; it costs food and goods", f: n => { fx.pop(n, .97); fx.fac(n, "elders", 8, 4, "Sacrifice"); fx.fac(n, "commoners", 4, 4, "Sacrifice"); } },
+         { t: "The shamans study the sky", d: () => "Knowledge grows, but the people stay uneasy", f: n => { fx.sci(n, 8 * eraScale(n)); fx.fac(n, "commoners", -4, 3, "Unexplained omen"); } }] },
+  { id: "feud", title: "Clan Feud", era: [0, 1], icon: "🗡️", cond: n => tribal(n) && setsOf(n).length >= 2,
+    text: () => "Two clans of your tribe are feuding over a stolen bride. Blood has already been spilled.",
+    ch: [{ t: "The elders judge", d: () => "Elders gain respect; the losing clan sulks", f: n => { fx.fac(n, "elders", 6, 4, "Elders' judgment"); fx.fac(n, "commoners", -3, 3, "Feud"); } },
+         { t: "Let them fight it out", d: () => "Warriors cheer, some die", f: n => { fx.pop(n, .96); fx.fac(n, "warriors", 6, 3, "Feud settled by arms"); } },
+         { t: "Arrange a marriage between them", d: () => "Costs gifts, peace returns", f: n => { fx.gold(n, -5 * eraScale(n)); fx.fac(n, "commoners", 4, 4, "Clans united"); } }] },
+  { id: "berries", title: "Fruit in Abundance", era: [0, 0], icon: "🫐", cond: n => tribal(n),
+    text: () => "The hillsides are heavy with berries, nuts and wild honey this year.",
+    ch: [{ t: "Gather everything", d: () => "Full bellies, more children", f: n => fx.pop(n, 1.08) },
+         { t: "Dry and store it", d: () => "Stores for hard times", f: n => fx.mat(n, 6 * eraScale(n)) }] },
   { id: "migrants", title: "Wandering Families", era: [0, 3], icon: "🧳",
     text: () => "A band of wandering families asks to settle among your people.",
     ch: [{ t: "Welcome them", d: () => "More people in your capital, Elders wary", f: n => { const c = capSet(n); if (c) c.pop = Math.min(capOf(c, n), c.pop * 1.1 + 3); fx.fac(n, "elders", -6, 5, "Foreign newcomers"); } },
@@ -2119,10 +2147,12 @@ const EVENTS = [
          { t: "Sell the artifacts", d: n => `+${fmt(15 * eraScale(n))} gold`, f: n => fx.gold(n, 15 * eraScale(n)) }] },
 ];
 function rollEvent() {
-  const n = P(); if (!n.alive || G.tt < G.nextEvent) return null;
+  const n = P(); if (!n.alive) return null;
+  if (G.nextEvent - G.tt > 24 * TD) G.nextEvent = G.tt + (4 + rnd() * 8) * TD; // older saves scheduled events a century out
+  if (G.tt < G.nextEvent) return null;
   const ok = EVENTS.filter(e => n.era >= e.era[0] && n.era <= e.era[1] && (!e.cond || e.cond(n)) && e.id !== G.lastEvent);
   if (!ok.length) return null;
-  G.nextEvent = G.tt + 3 + rnd() * 3;
+  G.nextEvent = G.tt + (8 + rnd() * 12) * TD; // something happens every 2-5 years
   const e = pick(ok); G.lastEvent = e.id;
   return { id: e.id, text: e.text(n) };
 }
@@ -2143,6 +2173,7 @@ function endTurn() {
   if (G.month >= 12) { G.month = 0; G.year++; if (G.year === 0) G.year = 1; } // there is no year 0
   setTD();
   const me = P();
+  if (!G.over && (!me.alive || !setsOf(me).length)) { me.alive = false; defeat(); }
   if (me.alive && terrCount(me) >= Math.ceil(NR * .4)) victory(me, "domination");
   const rival = G.nations.find(n => n.alive && n.ai && terrCount(n) >= Math.ceil(NR * .5));
   if (rival && !G.over) { G.over = true; G.outcome = { win: false, why: `The ${nm(rival)} now rules half the world. Your story ends here.` }; }
@@ -2156,7 +2187,7 @@ function endTurn() {
 function score(n) { const sets = setsOf(n); return Math.round(terrCount(n) * 25 + sets.reduce((a, s) => a + U(s.pop) * 2 + s.t * 4, 0) + n.techs.length * 8 + n.army); }
 function ranking() { return G.nations.filter(n => n.alive).sort((a, b) => score(b) - score(a)); }
 function victory(n, why) { if (G.over || n.id !== G.player) return; G.over = true; G.outcome = { win: true, why: why === "science" ? "Your colonists have landed on Mars. From a village of thirty people to a new world among the stars: humanity's future is yours." : "Your nation now controls 40% of the world's territories. No power on Earth can rival you." }; }
-function defeat() { G.over = true; G.outcome = { win: false, why: "Your nation has fallen. Its story lives on only in the history books of others." }; }
+function defeat() { G.fogAll = true; G.over = true; G.outcome = { win: false, why: "Your nation has fallen. Its story lives on only in the history books of others." }; }
 
 // ================= SAVE =================
 const SAVE_KEY = "cradle-cosmos-save-v2";
@@ -2994,13 +3025,13 @@ function panelResearch() {
       h += `</div></details>`;
     }
   }
-  const ahead = Math.max(1, ...CHAINS.map(c => reachAhead(n, c.k)));
+  const ahead = Math.max(0, ...CHAINS.map(c => reachAhead(n, c.k))); // future ages only appear when an emphasized field lets you reach ahead
   const order = Array.from({ length: ahead + 1 }, (_, i) => n.era + i).filter(e => e <= 7);
   for (let e = n.era - 1; e >= 0; e--) order.push(e);
   for (const e of order) {
     if (e === n.era - 1) h += `<details class="past"><summary class="era-h">Earlier ages</summary>`;
     h += `<h4 class="era-h">${ERAS[e]}${e === n.era ? " · now" : e === n.era + 1 ? " · next" : " · ahead"}</h4><div class="techs">`;
-    for (const t of TECHS.filter(t => t.era === e)) {
+    for (const t of TECHS.filter(t => t.era === e && (e <= n.era || e <= n.era + techAhead(n, t)))) {
       const done = has(n, t.id), cur = n.research === t.id, early = e > n.era && e <= n.era + techAhead(n, t), locked = (e > n.era && !early) || (t.id === "mars" && lv(n, "marsmission") < 3);
       const tc = techCost(n, t), pct = cur ? Math.min(100, n.sciPts / tc * 100) : 0;
       h += `<button class="tech ${done ? "done" : cur ? "cur" : locked ? "locked" : ""}" data-act="tech" data-t="${t.id}" ${done || locked ? "disabled" : ""}>
