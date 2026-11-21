@@ -798,6 +798,7 @@ const ECO_NAME = { markets: "Bronze Working", tariffs: "Currency", embargo: "Cur
 const eco = (n, f) => has(n, ECO[f]);
 // popups the moment a new part of the economy opens up for you
 const UNLOCKS = [
+  { id: "research", ok: n => resOpen(n), icon: "🔬", title: "Knowledge", text: "The elders' talks have changed your people. What they learn can now be kept, shared and built upon. The Research tab opens a path of discoveries to pursue, and in Develop your people can build up fields of work: farming, crafts, trade and more." },
   { id: "state", ok: n => !!n.stateUp, icon: "📒", title: "Division of labor", text: "Your people have grown too many for hunters and warriors to feed. Families take up trades: farmers, potters, builders, soldiers. Now there's real wealth to manage: instead of deciding who hunts and who fights, each year you set a budget, the army is paid from it instead of hunting for its keep, and you can choose how you're governed and set laws on taxes and trade." },
   { id: "markets", ok: n => eco(n, "markets"), icon: "🏭", title: "Industries", text: "Your people now work in industries: Housing, Agriculture, Construction and Mining. In the Trade tab, each one shows what your people need, what you make, and what you buy or sell abroad. You can invest public money in them or subsidize them." },
   { id: "money", ok: n => eco(n, "wages"), icon: "💰", title: "Money", text: "Coins change everything. Workers now earn wages, and better-paid people spend more, which you collect in taxes. You pay everyone the state employs. You can put tariffs on foreign goods and embargo other peoples, and each town's leader now sets local trade policy following the direction you choose in the Trade tab." },
@@ -1033,6 +1034,31 @@ function timeOf(n) {
   if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
   if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; } return n.time; }
 const timeShare = (n, k) => { const t = timeOf(n); let sum = 0; for (const x in TIME) sum += t[x] || 0; return sum > 0 ? (t[k] || 0) / sum : 0; };
+// ---- elder discussions: before there is research, the elders talk things through, one subject after another.
+// The last talks turn to knowledge itself and to who the people are; then research truly begins ----
+const ELDER_TALKS = [
+  { id: "fire", t: "Around the fire", d: "The elders retell the old stories, and the tribe remembers who it is.", cost: 5 },
+  { tech: "agriculture", t: "Seeds that grow", d: "Some seeds, pushed into the earth, come back as food. Perhaps we could stay and tend them." },
+  { tech: "husbandry", t: "Taming the herds", d: "Young animals raised by the fire follow us. We could keep them instead of hunting them." },
+  { tech: "pottery", t: "Shaping clay", d: "River clay hardens in the fire. Pots keep grain dry and water close." },
+  { tech: "mining", t: "Stones that shine", d: "Some stones are harder than others, and some can be dug from the hills." },
+  { tech: "mysticism", t: "Spirits of the land", d: "The elders agree on the spirits of sky, river and ancestors, and the rites to honor them." },
+  { tech: "tribal", t: "The law of the elders", d: "Disputes are settled by custom, not by the strongest arm. The tribe has laws now." },
+  { id: "counting", t: "Counting and marking", d: "Notches on bone track herds and moons. What we know no longer has to live only in memory.", cost: 14 },
+  { id: "nation", t: "Who are we?", d: "The elders speak of the peoples beyond the hills, and of what binds this tribe together: a people, perhaps one day a nation.", cost: 18 },
+];
+const talkCost = x => x.tech ? TECH[x.tech].cost : x.cost;
+function resOpen(n) { if (!n.resOpen && (n.era >= 1 || Object.keys(n.fields || {}).length > 0 && (n.elderStep == null))) n.resOpen = true; return !!n.resOpen; } // older saves already had research
+const curTalk = n => ELDER_TALKS[n.elderStep || 0];
+function elderTalks(n) {
+  let guard = 0;
+  while (!n.resOpen && guard++ < 4) { const x = curTalk(n); if (!x) { n.resOpen = true; break; }
+    if (x.tech && has(n, x.tech)) { n.elderStep = (n.elderStep || 0) + 1; continue; }
+    const c = talkCost(x); if (n.sciPts < c) break;
+    n.sciPts -= c; if (x.tech) n.techs.push(x.tech); n.elderStep = (n.elderStep || 0) + 1;
+    if (!n.ai) log(`The elders have spoken: ${x.t}${/[?!.]$/.test(x.t) ? "" : "."} ${x.d}`, "🔥");
+    if ((n.elderStep || 0) >= ELDER_TALKS.length) { n.resOpen = true; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; if (!n.ai) log("Knowledge can be kept, shared and built upon. Your people begin to study the world.", "🔬"); } }
+}
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
 const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
 // you ask a friendly people for military assistance and they send their own troops, for a fee paid to them
@@ -1466,7 +1492,8 @@ function processNation(n) {
   for (const ri of pres(n)) { const k = consOf(n.id, ri); if (k) { B(n.id, ri)[k] = 1; setCons(n.id, ri, null); if (!n.ai) log(`${BK[k].name} completed in ${W.regions[ri].n}.`, BK[k].icon); } }
   // research
   n.sciPts += E.sci * TD;
-  let guard = 0;
+  if (!resOpen(n)) elderTalks(n);
+  let guard = resOpen(n) ? 0 : 99;
   while (guard++ < 5) {
     let it = resItem(n, n.research);
     if (!it || it.done || ((it.mastery || it.develop) && n.autoResearch && !n.resManual && chooseTech(n)) || (it.mastery && n.autoResearch && !n.resManual && chooseDevelop(n))) { n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; it = resItem(n, n.research); }
@@ -1839,7 +1866,8 @@ function aiTurn(n) {
     if (d.trade && d.rel < -25 && rnd() < pr(.15)) { d.trade = false; tradeNote(n, o, `The ${nm(n)} cancelled their trade agreement with you.`, "✂️"); }
     else if (!o.ai && !d.trade && !d.offer && tradeOpen(o) && d.rel > 20 && rnd() < pr(.1) && aiAccept(n, "trade", o)) { d.offer = n.id; tradeNote(n, o, `The ${nm(n)} offer you a trade agreement. Accept it from the World tab.`, "📦"); }
   }
-  // develop fields
+  // develop fields (only once the tribe has moved past elder talk)
+  if (!resOpen(n)) return;
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
   for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
@@ -2446,9 +2474,13 @@ function hud() {
   $("cGold").className = "chip" + (n.gold < 0 ? " bad" : "");
   $("cGold").innerHTML = `<span class="ci">🪙</span><b>${n.gold < 0 ? "−" + fmt(-n.gold) : fmt(n.gold)}</b><i class="${E.goldNet < 0 ? "neg" : ""}">${sgn(E.goldNet)}</i>`;
   $("cMat").innerHTML = `<span class="ci">🪵</span><b>${fmt(n.mat)}</b><i>${sgn(E.mat)}</i>`;
-  const t = resItem(n, n.research);
-  $("cSci").innerHTML = t ? `<span class="ci">🔬</span><b>${Math.min(99, Math.floor(n.sciPts / t.cost * 100))}%</b><i>${esc(t.mastery || t.develop ? t.name + " " + (lv(n, t.f.k) + 1) : t.name)}</i>` : `<span class="ci">🔬</span><b>—</b><i>Pick research</i>`;
-  $("cSci").classList.toggle("alert", !t && TECHS.some(x => !has(n, x.id) && x.era <= n.era));
+  { const open = resOpen(n), rt = document.querySelector('.tab[data-p="research"]'), dt = document.querySelector('.tab[data-p="develop"]');
+    if (rt) rt.innerHTML = open ? "<span>🔬</span>Research" : "<span>🔥</span>Elders";
+    if (dt && dt.hidden !== !open) { dt.hidden = !open; const tabs = dt.parentElement; tabs.style.gridTemplateColumns = `repeat(${[...tabs.children].filter(x => !x.hidden).length}, 1fr)`; }
+    if (!open) { const x = curTalk(n); $("cSci").innerHTML = `<span class="ci">🔥</span><b>${x ? Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100)) + "%" : "—"}</b><i>${x ? esc(x.t) : ""}</i>`; $("cSci").classList.remove("alert"); } }
+  const t = resOpen(n) ? resItem(n, n.research) : null;
+  if (resOpen(n)) $("cSci").innerHTML = t ? `<span class="ci">🔬</span><b>${Math.min(99, Math.floor(n.sciPts / t.cost * 100))}%</b><i>${esc(t.mastery || t.develop ? t.name + " " + (lv(n, t.f.k) + 1) : t.name)}</i>` : `<span class="ci">🔬</span><b>—</b><i>Pick research</i>`;
+  if (resOpen(n)) $("cSci").classList.toggle("alert", !t && TECHS.some(x => !has(n, x.id) && x.era <= n.era));
   $("cStab").innerHTML = `<span class="ci">${n.stab >= 65 ? "😊" : n.stab >= 40 ? "😐" : "😠"}</span><b>${Math.round(n.stab)}</b><i>${n.stab >= 65 ? "Content" : n.stab >= 40 ? "Uneasy" : n.stab >= 20 ? "Restless" : "Chaos"}</i>`;
   $("cStab").className = "chip " + (n.stab >= 65 ? "good" : n.stab >= 40 ? "" : "bad");
   $("cFood").innerHTML = `<span class="ci">🌾</span><b>${sgn(E.surplus)}</b><i>${E.surplus >= 0 ? "Fed" : "Famine"}</i>`;
@@ -2709,6 +2741,7 @@ function panelNation() {
   return h;
 }
 function panelDevelop() {
+  if (!resOpen(P())) return ph("Develop", "") + `<p class="note">Your people don't have trades or fields of work yet.</p>`;
   const n = P(); let h = ph("Develop", "Set up fields, then expand them. Level 3 opens the next stage.");
   const miss = fieldsMissing(n);
   if (miss.length && n.era < 7) h += `<p class="note">To enter the ${ERAS[n.era + 1]}, each field needs ${2 + 2 * n.era} levels (or all its unlocked stages full). Still short: ${miss.map(c => `${c.icon} ${esc(c.name)} ${chainHave(n, c)}/${chainNeed(n, c)}`).join(", ")}.</p>`;
@@ -2896,7 +2929,17 @@ function panelTrade() {
       ${st.sub && !st.nat ? `<p class="small muted">Subsidies cost ${q(x.sub)} 🪙 a quarter.</p>` : ""}${st.nat ? `<p class="small muted">The state runs it: steady output whatever the cost. Sales minus materials ${x.stateNet < 0 ? `lose ${q(-x.stateNet)}` : `earn ${q(x.stateNet)}`} 🪙 a quarter, and you pay its workers ${q(x.stWage)} 🪙 in wages. Merchants dislike it; workers approve.</p>` : x.stWage ? `<p class="small muted">Public projects here employ workers: ${q(x.stWage)} 🪙 a quarter in wages.</p>` : ""}${open && eco(n, "tariffs") ? `<p class="small muted">${st.tar ? `Your tariff makes foreign ${S0.name.toLowerCase()} dearer so your own producers can compete and build up (it brings in ${q(x.tarRev)} 🪙). ${x.priv < x.D * .05 && !st.nat ? "<b>Even so, your land is too poor for private producers to compete: add subsidies or public investment.</b> " : ""}` : x.comp > x.suE ? "Cheaper foreign producers are undercutting yours; left alone, imports will hollow this industry out. A tariff lets your producers compete. " : ""}Every tariff raises production costs a little across your economy and prices for your people.</p>` : ""}</div>`; }
   return h;
 }
+function panelElders(n) {
+  const E = econM(n), step = n.elderStep || 0, x = curTalk(n);
+  let h = ph("The elders", "Around the fire, the elders talk things through");
+  h += `<div class="card"><h4>🔥 ${x ? esc(x.t) : "…"}</h4>${x ? `<p class="small">${esc(x.d)}</p><div class="bar-row"><small>${Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100))}%</small><div class="bar"><i style="width:${Math.min(100, n.sciPts / talkCost(x) * 100)}%;background:var(--accent)"></i></div><span>${etaTxt(talkCost(x) - n.sciPts, E.sci)}</span></div>` : ""}
+    <p class="small muted">More elders & shamans in "Who does what" (Nation tab) means faster talks.</p></div>`;
+  const done = ELDER_TALKS.slice(0, step);
+  if (done.length) h += `<div class="card"><h4>What the elders have settled</h4>${done.slice().reverse().map(d => `<div class="ln"><span>✓ ${esc(d.t)}</span></div>`).join("")}</div>`;
+  return h;
+}
 function panelResearch() {
+  if (!resOpen(P())) return panelElders(P());
   const n = P(), E = econM(n);
   let h = ph("Research", `${fmt(E.sci)} science a quarter · ${ERAS[n.era]}`);
   { const links = knowledgeLinks(n), big = links.filter(x => x.w === 1).length;
@@ -3226,7 +3269,7 @@ function afterTurnFlow() {
     return true;
   };
   const askMastery = () => {
-    const n = P(); if (!n.alive || chooseTech(n) || n.resManual) return;
+    const n = P(); if (!n.alive || !resOpen(n) || chooseTech(n) || n.resManual) return;
     const dev = []; for (const c of fieldsMissing(n)) for (const [k] of c.f) { const f = FIELDS[k]; if (devOk(n, f)) dev.push(f); }
     const opts = Object.values(FIELDS).filter(f => masteryOk(n, f)).sort((a, b) => masteryCost(n, a) - masteryCost(n, b));
     if (!opts.length && !dev.length) return;
