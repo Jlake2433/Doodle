@@ -539,16 +539,21 @@ function near(n, a, b) { // can people walk/sail from region a to region b?
 
 let sampler = null;
 // 1 map unit is roughly 24 km. A village of 50 people works about 5 km of land.
-function samplePoint(ri, nearPt, owner = -1) {
+// how far settlers will walk (or row) from their old home to found a new village
+const settleRange = (n, directed) => (2 + .5 * (n ? n.era : 0) + (n && has(n, "wheel") ? .5 : 0)) * (directed ? 2 : 1);
+function overLand(ax, ay, bx, by) { const lp = getLandPath(), steps = Math.max(2, Math.ceil(Math.hypot(bx - ax, by - ay) / .35)); for (let i = 1; i < steps; i++) if (!sampler.isPointInPath(lp, ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps, "evenodd")) return false; return true; }
+function samplePoint(ri, nearPt, owner = -1, maxD = 40, needLand = false) {
   const S = W.regions[ri];
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
   const c = nearPt || { x: S.lx, y: S.ly };
   const h0 = .07;
   let best = null, bd = 1e9;
-  for (let R = .22; R < 40 && !best; R *= 1.45) {
+  for (let R = .22; R < maxD * 1.5 && !best; R *= 1.45) {
     for (let i = 0; i < 24; i++) {
       const a = rnd() * Math.PI * 2, d = R * (.55 + rnd() * .45), x = c.x + Math.cos(a) * d, y = c.y + Math.sin(a) * d;
+      if (d > maxD) continue; // settlers don't wander far
       if (!sampler.isPointInPath(S.path, x, y, "evenodd")) continue;
+      if (needLand && nearPt && !overLand(c.x, c.y, x, y)) continue; // without boats, they can't cross water
       let ok = true, crowd = 0;
       for (const o of nearSets(x, y, 4)) {
         const cheb = Math.hypot(o.x - x, o.y - y), oh = o.h || .08;
@@ -587,8 +592,9 @@ function nearSets(x, y, r) {
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) { const a = grid.get(gx + "," + gy); if (a) for (const s of a) out.push(s); }
   return out;
 }
-function addSettlement(nid, ri, pop, from, name, tier = 0) {
-  const pt = samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
+function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false) {
+  const nn = G.nations[nid];
+  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && has(nn, "sailing"))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
   const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
@@ -738,7 +744,7 @@ function foundCheck(n, ri) {
   return { ok: true, donor: d, c };
 }
 function foundVillage(n, ri, donor) {
-  const s = addSettlement(n.id, ri, MOVERS, donor);
+  const s = addSettlement(n.id, ri, MOVERS, donor, null, 0, true);
   if (!s) return null;
   const c = villageCost(n); n.gold -= c.g; n.mat -= c.m;
   donor.pop -= MOVERS;
@@ -1481,7 +1487,8 @@ function processNation(n) {
     const ri = bestVillageSpot(n, s.r);
     if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
     s.crowd = false;
-    const nv = addSettlement(n.id, ri, Math.min(s.ov, 25), s);
+    let nv = addSettlement(n.id, ri, Math.min(s.ov, 25), s);
+    if (!nv && ri !== s.r) nv = addSettlement(n.id, s.r, Math.min(s.ov, 25), s); // the far land was out of reach: settle close to home instead
     if (!nv) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
     born.push([nv, s]); s.ov = 0;
   }
