@@ -1032,7 +1032,7 @@ const TIME = {
   food:    { name: "Hunters & gatherers", farm: "Farmers & herders", icon: "🏹", farmIcon: "🌾", def: 45, d: "Feed the tribe." },
   build:   { name: "Builders", icon: "🪓", def: 20, d: "Huts, tools and stores: materials." },
   elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
-  scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Range far: you see more of the land and meet neighbors sooner." },
+  scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
 const roleName = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farm : TIME[k].name;
 const roleIcon = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farmIcon : TIME[k].icon;
@@ -1363,6 +1363,15 @@ function updateExplore() {
   if (has(n, "flight")) { G.fogAll = true; G.exp.fill(1); return; }
   const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1);
   for (const s of setsOf(n)) addDisc(s.x, s.y, (s.h || .1) * 1.5 + sight * (1 + s.t * .6));
+  // scouts walk out past the borders and map what they find, a few trips each season
+  { const sets = setsOf(n), scouts = tribal(n) ? popOf(n) * timeShare(n, "scout") : popOf(n) * .002 * (bud(n).travel || 0);
+    n.scoutAcc = Math.min(8, (n.scoutAcc || 0) + Math.min(6, scouts * .5));
+    const walk = settleRange(n) * 1.5;
+    if (!sampler) sampler = document.createElement("canvas").getContext("2d");
+    const lp = getLandPath();
+    while (sets.length && n.scoutAcc >= 1) { n.scoutAcc--;
+      const from = pick(sets), a = rnd() * Math.PI * 2, d = (from.h || .1) + rnd() * walk, x = from.x + Math.cos(a) * d, y = from.y + Math.sin(a) * d;
+      if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing")) addDisc(x, y, .7); } }
   for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
     const c = capSet(o); if (c) addDisc(c.x, c.y, .5);
     if (dip(n.id, o.id).trade || dip(n.id, o.id).ally) for (const s of setsOf(o)) if (s.t >= 1) addDisc(s.x, s.y, s.h * 2 + .3); }
@@ -2661,7 +2670,7 @@ function timeFill(root) {
   set('[data-tx="food"]', `${pc(.9 * sh("food") - .3)} food. ${TIME.food.d}`);
   set('[data-tx="build"]', `${pc(sh("build") - .2)} materials. ${TIME.build.d}`);
   set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
-  set('[data-tx="scout"]', `${pc(2 * sh("scout") - .1)} how far you see. ${TIME.scout.d}`);
+  set('[data-tx="scout"]', `${Math.round(Math.min(6, popOf(n) * sh("scout") * .5) * 10) / 10} scouting trips a season. ${TIME.scout.d}`);
   const war = G.nations.some(o => atWar(n.id, o.id)), hungry = E.surplus < 0;
   set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, "food").toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 20% warriors, 45% ${roleName(n, "food").toLowerCase()}, 20% builders, 10% elders, 5% scouts.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
 }
