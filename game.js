@@ -230,7 +230,7 @@ const cmdLocked = n => (n.cmdUntil || -1e9) > G.year;
 const yearTxt = y => y < 0 ? `${-y} BCE` : `${y} CE`;
 function appointCommander(n, g) { // g: a general from the roster, or null for an unproven appointee
   if (g) { n.generals = (n.generals || []).filter(x => x !== g); n.commander = { name: g.name, skill: g.skill, left: Math.max(g.left, 12), known: true }; }
-  else n.commander = { name: genName(8), skill: clamp(Math.round(1 + rnd() * 4 + travelQ(n) * rnd()), 1, 5), left: 20 + Math.floor(rnd() * 20), known: false };
+  else n.commander = { name: nameFor(n, "person"), skill: clamp(Math.round(1 + rnd() * 4 + travelQ(n) * rnd()), 1, 5), left: 20 + Math.floor(rnd() * 20), known: false };
   return n.commander;
 }
 function setCommand(n, k, g) { n.cmd = k; n.cmdUntil = G.year + CMD_YEARS; if (k === "supreme") appointCommander(n, g); else n.commander = null; }
@@ -361,6 +361,70 @@ const FACTIONS = {
 const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f", "#1fb5b0", "#e45aa0", "#8a5a33", "#5b6ee1", "#a5c234", "#c0392b", "#16a085", "#d35400", "#7d3c98", "#34495e", "#ff8fab", "#00a8e8", "#6c5ce7", "#00b894", "#e1a10b", "#e17055", "#0984e3", "#b33771", "#3b3b98", "#58b19f", "#cd6133", "#4b4b7a", "#ff9f43", "#218c74", "#82589f", "#8e7d5b", "#d63031", "#2d98da"];
 const CRADLES = ["Lower Egypt", "Mesopotamia", "Indus", "North China Plain", "Jiangnan", "Punjab", "Anatolia", "Greece", "Southern Italy", "Central Mexico", "Peru", "Mali", "Ethiopia", "Northern Gaul", "England", "Persia", "Japan", "Muscovy", "Midwest", "Java", "Eastern Mongolia", "Castile", "Bengal", "Zimbabwe", "Korea", "Rhineland", "Gold Coast", "Southern Plains", "Pampas", "New South Wales", "Great Lakes Africa", "Yucatan"];
 const SYL = ["ka", "ra", "tal", "mor", "eth", "vin", "sul", "dor", "ash", "ul", "ren", "bar", "kesh", "an", "ith", "or", "zan", "lo", "mir", "gal", "hun", "tep", "yar", "ob", "nek", "sa", "tor", "al", "qua", "ri", "ven", "ito", "ba", "du", "shen", "ko", "zi", "mar", "el", "ost", "ta", "ny", "vel", "kor", "ae", "bri", "hal", "wen"];
+// ---- languages: every people names its land, towns and leaders in the style of the place it comes from ----
+const LANGS = {
+  greek:    { s: ["ka","to","ly","me","ne","sa","pe","ri","the","kle","xa","phi","de","mo","ar","eu","ko","ste"], p: ["os","ai","ene","ia","polis","ion","eia","on","ike"], h: ["os","es","as","on","ia","ike","eus","ides","ippos","andros","kles"] },
+  latin:    { s: ["ma","ru","ca","ve","tu","li","ser","va","ro","fla","cor","quin","ti","an","au","ful","clau"], p: ["um","ia","ae","ona","entum","ium","ina"], h: ["us","ius","a","ia","inus","illa","o","ianus"] },
+  celtic:   { s: ["bri","ga","dun","lo","ver","ca","mor","ta","dru","bel","ar","ne","cu","sca","eb","tre"], p: ["dunum","ia","acum","ona","briga","ach","in"], h: ["ix","os","a","an","oc","rix","ach","wen"] },
+  iberian:  { s: ["bil","ta","ur","sa","ar","il","ka","bel","tor","ne","lu","os","ce"], p: ["ia","briga","is","ena","urgi","ica","obe"], h: ["ar","on","is","ia","ko","bel","eki"] },
+  germanic: { s: ["ger","wal","sig","hro","ber","hild","ad","gun","al","ot","thur","fri","lud","ar","ed"], p: ["heim","burg","ingen","feld","ia","mar","wald"], h: ["ric","mund","hild","bert","wulf","a","win","hard"] },
+  norse:    { s: ["sig","ulf","bjor","hal","rag","ey","tor","as","grim","ing","sva","dag","yng","har","ket"], p: ["heim","vik","fjord","by","land","stad","holm"], h: ["ar","ulf","rid","mund","a","grim","ny","vald","bjorn"] },
+  finnic:   { s: ["vai","kar","ilm","jo","ta","ku","sai","ve","lem","ah","po","ka","ul"], p: ["la","nen","maa","ri","va","joki","mo"], h: ["o","i","nen","tar","kki","ja","ko"] },
+  slavic:   { s: ["vla","bor","mir","sla","rad","dob","sve","zor","lu","vel","dra","mi","ya","stan","ze"], p: ["ov","grad","ets","ia","sk","ava","ino"], h: ["mir","slav","an","a","ko","ka","dan","ena"] },
+  egyptian: { s: ["ankh","hor","ra","nef","set","mer","ptah","ka","ta","neb","djed","amen","sobek","wen","khe"], p: ["et","is","ut","ope","ne","an","ys"], h: ["mose","hotep","re","et","nakht","ankh","ti","ka"] },
+  semitic:  { s: ["ba","al","ash","tar","mel","qar","ha","dan","ish","zur","sha","yar","mal","ad","ab"], p: ["at","on","ib","ath","ur","an","ar"], h: ["bal","el","ath","im","ar","ub","ram"] },
+  berber:   { s: ["ta","maz","ghi","iz","am","ou","ar","tin","ma","sin","ag","ul","mas"], p: ["ast","ine","at","ou","ert","an"], h: ["en","a","ine","as","ou","ssa"] },
+  sumer:    { s: ["ur","nin","shu","ki","ma","en","lil","gal","ish","sar","na","dub","zi","kish","ea"], p: ["uk","ash","ur","du","ak","ri","ug"], h: ["ki","ur","gal","dug","ma","shum","lu"] },
+  anatol:   { s: ["hat","tu","shi","mur","ar","na","ku","tel","pi","zid","ha","las","sup"], p: ["sa","assa","wa","ana","uwa","ia","ili"], h: ["ili","as","is","ta","shu","wa","ziti"] },
+  persian:  { s: ["ar","da","xer","mi","ra","pa","vah","bar","zar","kur","ast","fra","sha","gau"], p: ["an","istan","abad","ana","esh","pur","kand"], h: ["es","ush","ar","an","a","ad","uk"] },
+  indic:    { s: ["ra","ma","shi","ka","dev","pra","su","vi","in","bha","sa","cha","nan","har","kum"], p: ["pur","desh","nagar","ka","ala","avati","pada"], h: ["an","a","ya","esh","ita","ra","endra"] },
+  dravid:   { s: ["chol","pan","ta","ka","ve","ma","ra","la","kan","ya","ner","mu","kil"], p: ["ai","am","oor","uru","alam","adu"], h: ["an","i","ar","ai","appan","ammal"] },
+  tibetan:  { s: ["tsan","dor","lha","tash","nor","gya","pel","sang","dha","rin","so"], p: ["ling","tse","po","gang","khar"], h: ["je","po","ma","chen","dup","gyal"] },
+  seasia:   { s: ["kha","sri","pra","nam","chan","bo","tha","kam","lan","van","pa","ra","sak"], p: ["pura","nam","thai","ang","bang","lo"], h: ["vong","dara","sak","chai","nuch","phon"] },
+  chinese:  { s: ["shang","zhou","han","wei","qin","lu","song","ming","chu","yan","jin","zhao","liang","hua","ning","yu","li","feng","an","xi"], han: true },
+  korean:   { s: ["han","sil","ba","gu","ryeo","jo","sun","min","ho","seo","ga","ya","baek","kyung"], han: true },
+  japanese: { s: ["ka","ta","mi","ya","na","to","ki","sa","ha","ru","yo","ko","shi","mo","ise","tsu"], p: ["shima","yama","no","ta","gawa","zu","oka"], h: ["o","ko","mi","ro","ji","ka","nori","maru"] },
+  steppe:   { s: ["tem","ar","kha","bat","tur","ul","ak","bul","ker","yes","toq","mon","ogh","ilt","sar"], p: ["an","ur","kan","tai","ul","dag"], h: ["ur","ai","bek","khan","tai","ghun","jin"] },
+  austro:   { s: ["ma","ka","la","pu","ta","ni","ha","ko","lu","ri","sa","wa","ba","ang","mo"], p: ["nu","ka","pura","wa","lani","ang","hiva"], h: ["ni","ka","ma","lea","ku","sih","tu"] },
+  abor:     { s: ["wa","ru","bin","gu","mar","kul","yar","dja","ba","li","ra","nu"], p: ["ga","ri","nup","bara","ingi","alla"], h: ["ri","a","indi","uk","ara","jin"] },
+  bantu:    { s: ["ba","ka","lu","nda","mbu","nya","zi","to","shi","nge","wa","mu","ku","nzi","so"], p: ["nga","la","mbe","ndu","ka","mba","ni"], h: ["la","ndi","be","zi","ko","mba","nge"] },
+  wafrica:  { s: ["ma","so","kan","dia","ke","ba","mu","oko","ye","ga","sa","fa","ndi","ka","ton"], p: ["ri","ba","dugu","koro","ne","fe","wa"], h: ["ta","ke","ba","du","fa","mi","ra"] },
+  ethiop:   { s: ["ak","sum","teg","yo","mar","ha","za","be","ge","las","ta","wol","kal"], p: ["um","ra","ya","ena","ash","at"], h: ["u","e","ana","ay","om","ta"] },
+  nahuatl:  { s: ["tla","xoch","ma","itz","coa","teo","tez","cua","ol","yol","ah","quetz","ix","tze"], p: ["tlan","co","pan","can","titlan","huac"], h: ["tl","oc","in","itl","atl","ac","ztli"] },
+  maya:     { s: ["kin","ix","ba","chan","kuk","ah","tun","yax","pak","bal","may","k'an"], p: ["al","tun","pan","ul","il","kab"], h: ["al","ich","ah","um","kin"] },
+  andean:   { s: ["inti","qu","wai","pa","cha","ma","yu","tu","huay","kus","illa","ka","ru","yupan"], p: ["co","pampa","marca","bamba","huasi","qocha"], h: ["pa","q","ri","illa","sisa","huaman","ki"] },
+  amazon:   { s: ["ta","gua","pi","ra","jur","ito","ma","ca","ya","ub","ara","ti","aru"], p: ["gua","tiba","pora","ara","uba","ita"], h: ["ra","ca","ti","ju","ana","pi"] },
+  northam:  { s: ["wa","sha","ko","ta","che","mi","na","po","ka","dah","ho","ki","we","nas","ono"], p: ["kee","ota","ewa","haw","ago","tuck","ka"], h: ["ka","we","to","sha","ni","hi","wa"] },
+  inuit:    { s: ["ana","ki","tu","nu","ka","ik","aq","si","pa","uk","nig","kaq"], p: ["vik","miut","juaq","liaq"], h: ["uk","aq","i","nik","tuq"] },
+};
+const LANG_OF = {};
+for (const [lg, list] of Object.entries({
+  greek: ["Greece", "Thrace"], latin: ["Northern Italy", "Southern Italy"], celtic: ["Aquitaine", "Northern Gaul", "Provence", "England", "Scotland", "Ireland", "Alps"], iberian: ["Portugal", "Castile", "Aragon"],
+  germanic: ["Rhineland", "North Germany", "Low Countries"], norse: ["Denmark", "Norway", "Sweden", "Iceland"], finnic: ["Finland", "Karelia", "Baltics", "Northern Russia", "Urals"],
+  slavic: ["Poland", "Bohemia", "Belarus", "Ukraine", "Muscovy", "Western Balkans", "Hungary", "Wallachia"], egyptian: ["Lower Egypt", "Nubia"],
+  semitic: ["Levant", "Hejaz", "Najd", "Al-Hasa", "Yemen", "Oman", "Carthage"], berber: ["Morocco", "Algeria", "Western Sahara", "Central Sahara", "Tripolitania", "Cyrenaica", "Tibesti"],
+  sumer: ["Mesopotamia"], anatol: ["Anatolia", "Armenia", "Caucasus"], persian: ["Persia", "Khorasan", "Afghanistan", "Baluchistan", "Transoxiana", "Turkmenia", "Pamir"],
+  indic: ["Indus", "Punjab", "Bengal", "Deccan", "Himalaya"], dravid: ["South India", "Sri Lanka"], tibetan: ["Tibet"], seasia: ["Burma", "Siam", "Mekong", "Tonkin"],
+  chinese: ["North China Plain", "Loess Plateau", "Sichuan", "Jiangnan", "Lingnan", "Yunnan", "Taiwan"], korean: ["Korea", "Manchuria"], japanese: ["Japan", "Hokkaido"],
+  steppe: ["Northern Kazakhstan", "Southern Kazakhstan", "Dzungaria", "Western Mongolia", "Eastern Mongolia", "Tarim", "Volga", "Baikal", "Western Siberia", "Central Siberia", "Taymyr", "Yakutia", "Kolyma", "Kamchatka", "Amur"],
+  austro: ["Malaya", "Philippines", "Sumatra", "Java", "Borneo", "Moluccas", "Madagascar", "Hawaii", "North Island", "South Island"],
+  abor: ["New Guinea", "Western Australia", "Northern Territory", "Queensland", "New South Wales", "Victoria", "South Australia", "Tasmania"],
+  bantu: ["Cameroon", "Western Congo", "Eastern Congo", "Katanga", "Great Lakes Africa", "Kenya", "Tanganyika", "Mozambique", "Angola", "Zimbabwe", "Highveld", "Natal", "Cape", "Namibia", "Kalahari"],
+  wafrica: ["Senegambia", "Mali", "Guinea Coast", "Gold Coast", "Niger Delta", "Hausaland", "Lake Chad", "Darfur"], ethiop: ["Ethiopia", "Somalia"],
+  nahuatl: ["Northern Mexico", "Central Mexico", "Caribbean"], maya: ["Yucatan", "Central America"], andean: ["Peru", "Bolivia", "Ecuador", "Atacama", "Central Chile", "Patagonia", "Pampas"],
+  amazon: ["Colombia", "Venezuela", "Guianas", "Western Amazon", "Eastern Amazon", "Brazilian Northeast", "Brazilian Highlands", "Minas Gerais", "Southern Brazil", "Gran Chaco"],
+  inuit: ["Alaska", "Yukon", "Northwest Territories", "Nunavut", "Arctic Isles", "Greenland", "Labrador"] })) for (const r of list) LANG_OF[r] = lg;
+const langOfRegion = ri => (ri != null && ri >= 0 && W.regions[ri] && LANG_OF[W.regions[ri].n]) || "northam";
+function langOf(n) { if (!n) return "northam"; if (!n.lang) { const c = capSet(n) || setsOf(n)[0]; n.lang = c ? langOfRegion(c.r) : "northam"; } return n.lang; }
+const capW = w => w ? w[0].toUpperCase() + w.slice(1) : w;
+const tidy = w => w.replace(/(.)\1\1+/g, "$1$1").replace(/([aeiou])\1([aeiou])/g, "$1$2");
+function placeName(lg) { const L = LANGS[lg] || LANGS.northam;
+  if (L.han) return capW(pick(L.s) + (rnd() < .45 ? pick(L.s) : ""));
+  let w = pick(L.s) + (rnd() < .45 ? pick(L.s) : "") + pick(L.p); w = tidy(w); return capW(w.length > 12 ? w.slice(0, 12) : w); }
+function personName(lg) { const L = LANGS[lg] || LANGS.northam;
+  if (L.han) return capW(pick(L.s)) + " " + capW(pick(L.s) + (rnd() < .5 ? pick(L.s) : ""));
+  let w = pick(L.s) + (rnd() < .35 ? pick(L.s) : "") + pick(L.h); w = tidy(w); return capW(w.length > 12 ? w.slice(0, 12) : w); }
+const nameFor = (n, kind) => kind === "person" ? personName(langOf(n)) : placeName(langOf(n));
 function genName(max = 9) { let s = pick(SYL) + pick(SYL); if (rnd() < .4) s += pick(SYL); s = s.replace(/(.)\1\1/, "$1$1"); return s[0].toUpperCase() + s.slice(1, max); }
 // ---- culture: what a people values most. A major factor in research, armies and the economy ----
 const CULTURES = {
@@ -497,7 +561,7 @@ function addSettlement(nid, ri, pop, from, name, tier = 0) {
   const pt = samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
-  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || genName(8), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
+  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || placeName(langOf(G.nations[nid])), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
   if (from && nid === G.player && G.fog) { // the settlers know the way they walked
     const d = Math.hypot(x - from.x, y - from.y), steps = Math.ceil(d / .8);
     for (let i = 1; i < steps; i++) addDisc(from.x + (x - from.x) * i / steps, from.y + (y - from.y) * i / steps, .9);
@@ -572,7 +636,7 @@ function recomputeControl(ri) {
 
 function newNation(name, color, ri, ai, pers, culture) {
   const id = G.nations.length;
-  const n = { id, name, color, ai, pers: pers || "builder", cul: culture || "mixed", culCool: 0, alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
+  const n = { id, name, color, ai, lang: ri >= 0 ? langOfRegion(ri) : null, pers: pers || "builder", cul: culture || "mixed", culCool: 0, alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
     laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", rp: "std", focus: "bal" },
     gold: 15, mat: 10, sciPts: 0, research: "agriculture", techs: [], era: 0, army: 1, used: 0,
     fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0, fields: {} };
@@ -588,7 +652,7 @@ function newGame(opts) {
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder", opts.cul || "mixed");
   const used = [start], colors = COLORS.filter(c => c !== opts.color);
-  const addTribe = r => { used.push(r); const n = newNation(genName(), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); { const r0 = rnd(); n.cul = r0 < .1 ? "scholarly" : r0 < .2 ? "mixed" : ({ aggressive: "martial", zealot: rnd() < .5 ? "martial" : "agrarian", builder: rnd() < .5 ? "industrious" : rnd() < .5 ? "agrarian" : "martial", trader: rnd() < .7 ? "mercantile" : "martial" })[n.pers]; }
+  const addTribe = r => { used.push(r); const n = newNation(placeName(langOfRegion(r)), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); { const r0 = rnd(); n.cul = r0 < .1 ? "scholarly" : r0 < .2 ? "mixed" : ({ aggressive: "martial", zealot: rnd() < .5 ? "martial" : "agrarian", builder: rnd() < .5 ? "industrious" : rnd() < .5 ? "agrarian" : "martial", trader: rnd() < .7 ? "mercantile" : "martial" })[n.pers]; }
     n.laws.rp = n.cul === "scholarly" ? "high" : rnd() < .12 ? "high" : (n.pers === "aggressive" || n.pers === "zealot" || rnd() < .4) ? "low" : "std"; n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
   const livable = r => TER[W.regions[r].t].food >= .9;
   // two neighboring tribes a day or two's walk away (about 100-220 km)
@@ -806,7 +870,7 @@ const CPOL = { none: { name: "Hands off", icon: "—" }, export: { name: "Export
 function ensureLeader(x, n) {
   if (x.t < 1) return null;
   if (!x.lead || x.lead.left <= 0) { const tq = n ? travelQ(n) : 0, ed = n ? eduOf(n) / 100 : 0;
-    x.lead = { name: genName(7), trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), loyal: 1 + Math.floor(rnd() * 5), left: 2 + rnd() * 3, pol: {} }; } // loyalty is hidden from you
+    x.lead = { name: nameFor(n || G.nations[x.o], "person"), trade: clamp(Math.round(1 + rnd() * 3 + rnd() * (tq * .4 + ed)), 1, 5), loyal: 1 + Math.floor(rnd() * 5), left: 2 + rnd() * 3, pol: {} }; } // loyalty is hidden from you
   if (x.lead.loyal == null) x.lead.loyal = 1 + Math.floor(rnd() * 5);
   return x.lead;
 }
@@ -1431,7 +1495,7 @@ function processNation(n) {
   { const ma = setsOf(n).filter(x => x.mil), op = (n.officers || 0) / 10;
     const tq = travelQ(n);
     for (const a of ma) if (n.generals.length < ma.length * 2 && rnd() < pr(.06 * (1 + .6 * tq))) {
-      const skill = clamp(Math.round(1 + rnd() * 2 + op * .25 + rnd() + tq * rnd()), 1, 5), g = { name: genName(8), skill, left: 25 + Math.floor(rnd() * 25), from: a.name };
+      const skill = clamp(Math.round(1 + rnd() * 2 + op * .25 + rnd() + tq * rnd()), 1, 5), g = { name: nameFor(n, "person"), skill, left: 25 + Math.floor(rnd() * 25), from: a.name };
       n.generals.push(g); if (!n.ai) log(`General ${g.name} (${"★".repeat(skill)}) graduated from the military academy in ${a.name}.`, "🎖️");
     } }
   n.warmonger = Math.max(0, n.warmonger - TD);
@@ -1497,7 +1561,7 @@ function revolt(n, s) {
   } else {
     const used = new Set(G.nations.map(x => x.color));
     const col = COLORS.find(c => !used.has(c)) || `hsl(${Math.floor(rnd() * 360)},65%,55%)`;
-    const rb = newNation(s.name, col, -1, true, pick(Object.keys(PERS)));
+    const rb = newNation(s.name, col, -1, true, pick(Object.keys(PERS))); rb.lang = langOf(n);
     s.o = rb.id; s.c = rb.id; s.u = 0; s.q = 0; rb.cap = s.id; G.sv++;
     rb.gold = 15 * (n.era + 1); rb.techs = n.techs.slice(); rb.era = n.era; rb.army = Math.max(1, Math.round(n.army * .15)); rb.gov = n.gov === "tribe" ? "tribe" : "chiefdom"; rb.research = chooseResearch(rb);
     n.army = Math.max(0, n.army - Math.round(n.army * .1));
@@ -1539,7 +1603,7 @@ function civilWar(n) {
   const rebelsS = far.slice(0, Math.max(1, Math.round(sets.length * .45)));
   const used = new Set(G.nations.map(x => x.color));
   const col = COLORS.find(c => !used.has(c)) || `hsl(${Math.floor(rnd() * 360)},65%,52%)`;
-  const rb = newNation(genName(), col, -1, true, pick(Object.keys(PERS)), n.cul);
+  const rb = newNation(placeName(langOf(n)), col, -1, true, pick(Object.keys(PERS)), n.cul); rb.lang = langOf(n);
   const share = rebelsS.reduce((a, x) => a + x.pop, 0) / Math.max(1, sets.reduce((a, x) => a + x.pop, 0));
   rb.techs = n.techs.slice(); rb.era = n.era; rb.fields = { ...(n.fields || {}) }; rb.laws = { ...n.laws }; rb.budget = { ...bud(n) }; rb.research = chooseResearch(rb);
   const govs = Object.keys(GOVS).filter(g => g !== n.gov && (!GOVS[g].tech || has(n, GOVS[g].tech)));
@@ -3188,7 +3252,7 @@ $("btnNew").onclick = () => openSetup();
 $("btnHelp").onclick = () => showHelp();
 function openSetup() {
   $("title").hidden = true; $("setup").hidden = false;
-  setupState = { name: genName(), color: COLORS[0], start: "Lower Egypt", diff: 1, cul: "mixed" };
+  setupState = { name: placeName(langOfRegion(RID["Lower Egypt"])), autoName: true, color: COLORS[0], start: "Lower Egypt", diff: 1, cul: "mixed" };
   renderSetup();
 }
 function renderSetup() {
@@ -3202,16 +3266,16 @@ function renderSetup() {
   $("sCulInfo").textContent = CULTURES[st.cul].d;
   G.setup = true; sel = ri; centerRegion(ri, Math.max(minK() * 2.2, 2.5));
 }
-$("sName").oninput = e => { setupState.name = e.target.value.slice(0, 18); };
+$("sName").oninput = e => { setupState.name = e.target.value.slice(0, 18); setupState.autoName = false; };
 $("sColors").onclick = e => { const b = e.target.closest("[data-c]"); if (b) { setupState.color = b.dataset.c; renderSetup(); } };
-$("sStarts").onclick = e => { const b = e.target.closest("[data-s]"); if (b) { setupState.start = b.dataset.s; renderSetup(); } };
+$("sStarts").onclick = e => { const b = e.target.closest("[data-s]"); if (b) { setupState.start = b.dataset.s; if (setupState.autoName) setupState.name = placeName(langOfRegion(RID[b.dataset.s])); renderSetup(); } };
 $("sCul").onclick = e => { const b = e.target.closest("[data-cu]"); if (b) { setupState.cul = b.dataset.cu; renderSetup(); } };
 $("sDiff").onclick = e => { const b = e.target.closest("[data-d]"); if (b) { setupState.diff = +b.dataset.d; renderSetup(); } };
-$("sRandomName").onclick = () => { setupState.name = genName(); renderSetup(); };
-function setupPick(ri) { setupState.start = W.regions[ri].n; renderSetup(); }
+$("sRandomName").onclick = () => { setupState.name = placeName(langOfRegion(RID[setupState.start])); setupState.autoName = true; renderSetup(); };
+function setupPick(ri) { setupState.start = W.regions[ri].n; if (setupState.autoName) setupState.name = placeName(langOfRegion(ri)); renderSetup(); }
 $("sBack").onclick = () => { $("setup").hidden = true; G.setup = false; sel = -1; showTitle(); };
 $("sGo").onclick = () => {
-  const st = setupState; const name = (st.name || "").trim() || genName();
+  const st = setupState; const name = (st.name || "").trim() || placeName(langOfRegion(RID[st.start]));
   $("setup").hidden = true; G = null;
   newGame({ name: name.replace(/^\w/, c => c.toUpperCase()), color: st.color, start: st.start, diff: st.diff, cul: st.cul });
   G.lastReport = []; save();
@@ -3241,7 +3305,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
