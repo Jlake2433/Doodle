@@ -468,27 +468,27 @@ const CULTURES = {
 };
 /* national religion: only faiths that exist by the current date can be chosen */
 const RELIGIONS = {
-  animism:    { name: "Spirits of the land", icon: "🌿", y: -1e9, fam: "folk", pie: 10, fx: { food: .05 }, fac: { elders: 4 }, d: "The old ways: spirits in the rivers, the beasts and the ancestors. +5% food." },
-  mystic:     { name: "Mysticism", icon: "🔮", y: -1e9, fam: "folk", pie: 18, fx: { sci: .05 }, fac: { elders: 8, warriors: -3 }, d: "Seers, visions and secret knowledge passed from master to student. +5% science; the elders hold great sway." },
-  poly:       { name: "The old gods", icon: "🏺", y: -3500, fam: "poly", pie: 12, fx: { pow: .05, gold: .03 }, fac: { elders: 6, nobles: 3 }, d: "A family of gods with temples and priests, and rulers close to the divine. +5% army strength, +3% gold." },
-  hindu:      { name: "Hinduism", icon: "🕉️", y: -1500, fam: "dharma", pie: 12, fx: { food: .05, grow: .005 }, fac: { elders: 6, nobles: 4 }, d: "Dharma, many paths to the divine, and a society ordered by duty. +5% food, faster growth." },
-  judaism:    { name: "Judaism", icon: "✡️", y: -1200, fam: "jew", pie: 12, fx: { sci: .08, trade: .05 }, fac: { elders: 6, intellectuals: 4 }, d: "One God, a covenant, and a tradition of law and learning. +8% science, +5% trade." },
-  zoro:       { name: "Zoroastrianism", icon: "🔥", y: -1000, fam: "zoro", pie: 10, fx: { gold: .05, pow: .03 }, fac: { elders: 6, nobles: 3 }, d: "Good thoughts, good words, good deeds, and a cosmic struggle of light against darkness. +5% gold." },
-  jain:       { name: "Jainism", icon: "🤲", y: -550, fam: "dharma", pie: 14, fx: { trade: .08, pow: -.1 }, fac: { merchants: 6, warriors: -6 }, d: "Non-violence toward every living thing. +8% trade, −10% army strength." },
-  buddhism:   { name: "Buddhism", icon: "☸️", y: -500, fam: "dharma", pie: 10, fx: { sci: .05, pow: -.05 }, fac: { commoners: 6, warriors: -3 }, d: "The middle way and an end to suffering. +5% science, calmer people, −5% army strength." },
-  confucian:  { name: "Confucianism", icon: "📜", y: -500, fam: "east", pie: 4, fx: { sci: .05, gold: .05 }, fac: { nobles: 6, intellectuals: 4 }, d: "Order, duty to family and state, and rule by educated officials. +5% science, +5% gold." },
-  taoism:     { name: "Taoism", icon: "☯️", y: -400, fam: "east", pie: 8, fx: { food: .05, sci: .03 }, fac: { commoners: 4 }, d: "Living in harmony with the Way of nature. +5% food, +3% science." },
-  shinto:     { name: "Shinto", icon: "⛩️", y: -300, fam: "east", pie: 10, fx: { pow: .05 }, fac: { warriors: 4, elders: 4 }, d: "The kami of places, ancestors and the ruling house. +5% army strength." },
-  christian:  { name: "Christianity", icon: "✝️", y: 33, to: 1054, fam: "christ", pie: 12, fx: { grow: .01 }, fac: { commoners: 5, elders: 4 }, d: "Salvation through Christ, charity and one church. Faster growth." },
-  islam:      { name: "Islam", icon: "☪️", y: 610, to: 661, fam: "islam", pie: 14, fx: { trade: .08, sci: .04 }, fac: { elders: 6, merchants: 4 }, d: "Submission to one God, as revealed to the Prophet. +8% trade, +4% science." },
-  catholic:   { name: "Catholic Christianity", icon: "⛪", y: 1054, fam: "christ", pie: 12, fx: { gold: .05, grow: .005 }, fac: { elders: 6, nobles: 4 }, d: "The church of Rome, led by the Pope. +5% gold, faster growth." },
-  orthodox:   { name: "Orthodox Christianity", icon: "☦️", y: 1054, fam: "christ", pie: 12, fx: { pow: .05 }, fac: { elders: 6, nobles: 2 }, d: "The Eastern churches, close to the throne. +5% army strength." },
-  sunni:      { name: "Sunni Islam", icon: "☪️", y: 661, fam: "islam", pie: 14, fx: { trade: .08, sci: .04 }, fac: { elders: 6, merchants: 4 }, d: "The way of the Prophet and the community's chosen caliphs. +8% trade, +4% science." },
-  shia:       { name: "Shia Islam", icon: "🕌", y: 661, fam: "islam", pie: 16, fx: { sci: .05, pow: .04 }, fac: { elders: 8 }, d: "Followers of Ali and the Imams of the Prophet's family. +5% science, +4% army strength." },
-  sikh:       { name: "Sikhism", icon: "🙏", y: 1469, fam: "dharma", pie: 12, fx: { pow: .08 }, fac: { warriors: 6 }, d: "One God, equality, and the saint-soldier. +8% army strength." },
-  protestant: { name: "Protestant Christianity", icon: "📖", y: 1517, fam: "christ", pie: 10, fx: { prod: .08, sci: .05 }, fac: { merchants: 6, workers: 4 }, d: "Scripture in the people's own tongue and hard work as a calling. +8% materials, +5% science." },
-  secular:    { name: "Secular", icon: "⚖️", y: 1700, fam: "none", pie: -15, fx: { sci: .05, trade: .03 }, fac: { intellectuals: 6, elders: -4 }, d: "No state religion: people are free to believe as they choose. +5% science, +3% trade." },
-  atheist:    { name: "State atheism", icon: "🚫", y: 1917, fam: "none", pie: -35, fx: { sci: .1, prod: .05 }, fac: { intellectuals: 4, elders: -12, commoners: -4 }, d: "Religion is pushed out of public life. +10% science, +5% materials. The devout are bitter." } };
+  animism:    { name: "Spirits of the land", icon: "🌿", y: -1e9, fam: "folk", pie: 10, d: "The old ways: spirits in the rivers, the beasts and the ancestors." },
+  mystic:     { name: "Mysticism", icon: "🔮", y: -1e9, fam: "folk", pie: 18, d: "Seers, visions and secret knowledge passed from master to student." },
+  poly:       { name: "The old gods", icon: "🏺", y: -3500, fam: "poly", pie: 12, d: "A family of gods with temples and priests, and rulers close to the divine." },
+  hindu:      { name: "Hinduism", icon: "🕉️", y: -1500, fam: "dharma", pie: 12, d: "Dharma, many paths to the divine, and a society ordered by duty." },
+  judaism:    { name: "Judaism", icon: "✡️", y: -1200, fam: "jew", pie: 12, d: "One God, a covenant, and a tradition of law and learning." },
+  zoro:       { name: "Zoroastrianism", icon: "🔥", y: -1000, fam: "zoro", pie: 10, d: "Good thoughts, good words, good deeds, and a cosmic struggle of light against darkness." },
+  jain:       { name: "Jainism", icon: "🤲", y: -550, fam: "dharma", pie: 14, d: "Non-violence toward every living thing." },
+  buddhism:   { name: "Buddhism", icon: "☸️", y: -500, fam: "dharma", pie: 10, d: "The middle way and an end to suffering." },
+  confucian:  { name: "Confucianism", icon: "📜", y: -500, fam: "east", pie: 4, d: "Order, duty to family and state, and rule by educated officials." },
+  taoism:     { name: "Taoism", icon: "☯️", y: -400, fam: "east", pie: 8, d: "Living in harmony with the Way of nature." },
+  shinto:     { name: "Shinto", icon: "⛩️", y: -300, fam: "east", pie: 10, d: "The kami of places, ancestors and the ruling house." },
+  christian:  { name: "Christianity", icon: "✝️", y: 33, to: 1054, fam: "christ", pie: 12, d: "Salvation through Christ, charity and one church." },
+  islam:      { name: "Islam", icon: "☪️", y: 610, to: 661, fam: "islam", pie: 14, d: "Submission to one God, as revealed to the Prophet." },
+  catholic:   { name: "Catholic Christianity", icon: "⛪", y: 1054, fam: "christ", pie: 12, d: "The church of Rome, led by the Pope." },
+  orthodox:   { name: "Orthodox Christianity", icon: "☦️", y: 1054, fam: "christ", pie: 12, d: "The Eastern churches, close to the throne." },
+  sunni:      { name: "Sunni Islam", icon: "☪️", y: 661, fam: "islam", pie: 14, d: "The way of the Prophet and the community's chosen caliphs." },
+  shia:       { name: "Shia Islam", icon: "🕌", y: 661, fam: "islam", pie: 16, d: "Followers of Ali and the Imams of the Prophet's family." },
+  sikh:       { name: "Sikhism", icon: "🙏", y: 1469, fam: "dharma", pie: 12, d: "One God, equality, and the saint-soldier." },
+  protestant: { name: "Protestant Christianity", icon: "📖", y: 1517, fam: "christ", pie: 10, d: "Scripture in the people's own tongue and hard work as a calling." },
+  secular:    { name: "Secular", icon: "⚖️", y: 1700, fam: "none", pie: -15, d: "No state religion: people are free to believe as they choose." },
+  atheist:    { name: "State atheism", icon: "🚫", y: 1917, fam: "none", pie: -35, d: "Religion is pushed out of public life." } };
 const relOf = n => RELIGIONS[(n && n.relig) || "animism"] || RELIGIONS.animism;
 const relOpen = k => { const R = RELIGIONS[k]; return R && G.year >= R.y && !(R.to && G.year >= R.to); };
 const relYear = y => y < -1e8 ? "since time began" : y < 0 ? `about ${-y} BCE` : `${y} CE`;
@@ -497,8 +497,7 @@ function relFit(a, b) { a = a || "animism"; b = b || "animism"; if (a === b) ret
 const REL_PATH = { euro: [[-3500, "poly"], [380, "christian"], [1054, "catholic"]], uralic: [[1200, "catholic"]], near: [[-3500, "poly"], [650, "islam"], [661, "sunni"]], south: [[-1500, "hindu"]], east: [[-3500, "poly"], [-300, "confucian"]], steppe: [[1300, "sunni"]], ocean: [], africa: [], amer: [[-1000, "poly"]] };
 const REL_LANG = { slavic: [[-3500, "poly"], [988, "christian"], [1054, "orthodox"]], greek: [[-3500, "poly"], [380, "christian"], [1054, "orthodox"]], germanic: [[-3500, "poly"], [600, "christian"], [1054, "catholic"], [1530, "protestant"]], norse: [[-3500, "poly"], [1000, "catholic"], [1530, "protestant"]], english: [[-3500, "poly"], [600, "christian"], [1054, "catholic"], [1534, "protestant"]], dutch: [[1054, "catholic"], [1580, "protestant"]], persian: [[-1000, "zoro"], [650, "islam"], [661, "sunni"], [1501, "shia"]], semitic: [[-3500, "poly"], [-1000, "judaism"], [630, "islam"], [661, "sunni"]], tibetan: [[700, "buddhism"]], seasia: [[300, "buddhism"]], japanese: [[-300, "shinto"]], korean: [[-100, "confucian"]], ethiop: [[330, "christian"], [1054, "orthodox"]], wafrica: [[1100, "sunni"]], egyptian: [[-3500, "poly"], [350, "christian"], [700, "sunni"]], berber: [[700, "sunni"]], indic: [[-1500, "hindu"]], dravid: [[-1500, "hindu"]], amazon: [], inuit: [], abor: [], bantu: [] };
 function regionalFaith(n) { const lg = langOf(n), path = REL_LANG[lg] || REL_PATH[LANG_FAM[lg]] || []; let r = "animism"; for (const [y, k] of path) if (G.year >= y) r = k; return r; }
-const cul = n => { const C = CULTURES[n.cul] || CULTURES.mixed, R = relOf(n); if (!R.fx) return C; const key = (n.cul || "mixed") + "|" + (n.relig || "animism"); let m = culCache.get(key);
-  if (!m) { m = { ...C }; for (const k in R.fx) m[k] = (m[k] || 0) + R.fx[k]; culCache.set(key, m); } return m; };
+const cul = n => CULTURES[n.cul] || CULTURES.mixed;
 const culCache = new Map();
 /* peoples: who lives in your nation, how close their ways are to yours, and how far they've blended in */
 const LANG_FAM = {};
@@ -1017,7 +1016,7 @@ function checkFaiths(n) {
   if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dip(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
   const seen = G.relSeen || (G.relSeen = {});
   for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue;
-    (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d.split(". +")[0].split(". −")[0]}. You can make it your national religion in the Laws tab.` }); }
+    (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d} You can make it your national religion in the Laws tab.` }); }
   if (RELIGIONS[n.relig] && RELIGIONS[n.relig].to && G.year >= RELIGIONS[n.relig].to && !n.relSplitSeen) { n.relSplitSeen = 1;
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: RELIGIONS[n.relig].icon, title: `${RELIGIONS[n.relig].name} has split`, text: `The faithful have divided into rival branches. For now your people keep the old ways; you can choose a branch in the Laws tab.` }); }
 }
@@ -1619,7 +1618,6 @@ function facTargets(n, E) {
   add("workers", { low: 8, high: -8, extort: -15 }[L.tax] || 0, "Taxes");
   add("workers", L.focus === "ind" ? 6 : 0, "Industry focus");
   for (const k in cul(n).fac) add(k, cul(n).fac[k], `${cul(n).name} culture`);
-  { const R = relOf(n); for (const k in R.fac) add(k, R.fac[k], R.name); }
   for (const k in cmd(n).fac || {}) add(k, cmd(n).fac[k], cmd(n).name);
   if (n.culShift > 0) add("commoners", -10, "Cultural upheaval");
   for (const m of n.facMods) add(m.k, m.v, m.why);
