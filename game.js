@@ -1474,7 +1474,7 @@ function processNation(n) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
-      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .2 * Math.max(0, Math.min(3, sr)) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
+      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr)) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
       const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3), TD); s.g = 0; }
