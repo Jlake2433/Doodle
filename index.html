@@ -219,6 +219,14 @@ h4 { font-size: 17px; margin: 14px 0 8px; display: flex; gap: 8px; align-items: 
 .compass button { border: 2.5px solid var(--ink); background: var(--panel); border-radius: 12px; padding: 8px 4px; font: 800 15px var(--body); }
 .compass button.on { background: var(--ink); color: #fff; }
 .compass button:nth-child(5) { font-size: 11px; }
+.pcol > summary { display: flex; justify-content: space-between; align-items: center; gap: 8px; cursor: pointer; list-style: none; font-size: 15px; padding: 2px 0; }
+.pcol > summary::-webkit-details-marker { display: none; }
+.pcol > summary::before { content: "▸"; font-size: 12px; margin-right: 4px; transition: transform .15s; }
+.pcol[open] > summary::before { transform: rotate(90deg); }
+.pcol > summary > span:first-child { flex: 1; }
+.pcol .psum { font-size: 13px; font-weight: 700; text-align: right; }
+details.card.pcol { padding-top: 12px; padding-bottom: 12px; }
+details.card.pcol[open] > summary { margin-bottom: 8px; }
 .askrow { display: flex; gap: 8px; align-items: center; font-weight: 700; font-size: 14px; margin: 8px 0; }
 .nat { width: 100%; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; text-align: left; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 14px; padding: 9px 10px; margin-bottom: 8px; box-shadow: 0 3px 0 var(--ink); }
 .nat .nt { min-width: 0; }

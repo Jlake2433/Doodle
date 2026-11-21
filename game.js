@@ -2846,6 +2846,7 @@ function openBudget(yearly) {
 }
 function secInput(e) { const t = e.target; if (!t.dataset || t.dataset.sinv == null || !G) return; const n = P(), k = t.dataset.sinv; secOf(n, k).inv = +t.value; const lab = panel.querySelector(`[data-sv="${k}"]`); if (lab) lab.textContent = `${t.value}% · ${fmt(econM(n).raw.sectors[k].ig * TD)} 🪙`; hud(); }
 panel.addEventListener("input", secInput);
+panel.addEventListener("toggle", e => { const d = e.target; if (d && d.dataset && d.dataset.pk) { if (d.open) prodOpen.add(d.dataset.pk); else prodOpen.delete(d.dataset.pk); } }, true);
 panel.addEventListener("change", e => { if (e.target.id === "prodSet") { prodSet = +e.target.value; refresh(); } });
 [panel, modal].forEach(el => el.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.time && G) { const t = timeOf(P()), k = e.target.dataset.time; let others = 0; for (const x in TIME) if (x !== k) others += t[x] || 0;
     const v = Math.min(+e.target.value, 100 - others); if (+e.target.value !== v) e.target.value = v; t[k] = v; /* only what's left unassigned can be given */ timeFill(e.target.closest(".timeal")); hud(); } }));
@@ -2898,7 +2899,7 @@ function panelNation() {
   h += `<div class="card"><h4>Game</h4><div class="row wrap"><button class="btn small ghost" data-act="help">How to play</button><button class="btn small ghost" data-act="newgame">New game</button></div></div>`;
   return h;
 }
-let prodTab = "housing", prodSet = null;
+let prodTab = "housing", prodSet = null; const prodOpen = new Set(); // what you've expanded in Production (everything starts collapsed)
 function panelProduction(n) {
   const P0 = prodState(n), sets = setsOf(n).slice().sort((a, b) => b.t - a.t || b.pop - a.pop);
   let x = setById(prodSet); if (!x || x.o !== n.id) { x = setById(n.cap) || sets[0]; prodSet = x ? x.id : null; }
@@ -2908,21 +2909,22 @@ function panelProduction(n) {
   let h = ph("Production", `${TIERS[x.t].name} of ${esc(x.name)} · ${fmtP(x.pop)} families`);
   h += `<label class="fld">Settlement<select id="prodSet">${sets.map(y => `<option value="${y.id}" ${y.id === x.id ? "selected" : ""}>${y.t === 2 ? "🏙️" : y.t === 1 ? "🏘️" : "🛖"} ${esc(y.name)} · ${fmtP(y.pop)} families${(y.pq && y.pq.length) ? ` · building` : ""}${lacking(y) ? " ⚠️" : ""}</option>`).join("")}</select></label>`;
   const cur = x.pq.length ? itemOf(x.pq[0]) : null;
-  h += `<div class="card"><h4>🔨 Being built in ${esc(x.name)}</h4>`;
+  const cur0 = x.pq.length ? itemOf(x.pq[0]) : null;
+  h += `<details class="card pcol" data-pk="q" ${prodOpen.has("q") ? "open" : ""}><summary><span>🔨 <b>Being built</b></span><span class="psum">${cur0 ? `${cur0.icon} ${esc(cur0.repeat ? capW(cur0.one) : cur0.name)} · ${seasonsTxt((cur0.hours - x.qp) / H)}${x.pq.length > 1 ? ` · +${x.pq.length - 1} queued` : ""}` : '<span class="muted">Idle</span>'}</span></summary>`;
   if (!x.pq.length) h += `<p class="small muted">Nothing. Pick something below. Each settlement's own builder families do the work; more builders (Who does what) build faster.</p>`;
   else { let t = 0; h += x.pq.map((id, i) => { const it = itemOf(id); t += (it.hours - (i ? 0 : x.qp)) / H;
     return `<div class="ln"><span>${it.icon} ${esc(it.repeat ? capW(it.one) : it.name)}${i === 0 ? ` <small class="muted">${Math.floor(x.qp / it.hours * 100)}%</small>` : ""}</span><b>${seasonsTxt(t)} <button class="btn small ghost" data-act="pdel" data-k="${i}" aria-label="Remove">✕</button></b></div>${i === 0 ? `<div class="bar"><i style="width:${Math.min(100, x.qp / it.hours * 100)}%;background:var(--accent)"></i></div>` : ""}`; }).join(""); }
-  h += `</div>`;
+  h += `</details>`;
   // borders
   { const e = x.exp || 0, need = garrisonNeed(n), have = forces(n);
-    h += `<div class="card"><h4>🚩 Borders of ${esc(x.name)}</h4>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
+    h += `<details class="card pcol" data-pk="b" ${prodOpen.has("b") ? "open" : ""}><summary><span>🚩 <b>Borders</b></span><span class="psum">${e ? `Expanded ${e}/${EXP_MAX} ${x.expDir == null ? "all around" : "one way"}` : "Natural reach"}${need > have ? ' · <span class="bad">under-guarded</span>' : ""}</span></summary>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
       ${need > have ? `<p class="small bad">Too few warriors to guard what you claim: defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker everywhere.</p>` : ""}
       <p class="small muted">Expanding claims a little more land around ${esc(x.name)} for hunting, fields and new villages. Each step raises the warriors you need on guard by ${1 + x.t}. You don't have to field them, but your defense suffers if you don't.</p>
       <p class="small"><b>Which way?</b></p>
       <div class="compass">${[["NW", -.75], ["N", -.5], ["NE", -.25], ["W", 1], ["ALL", null], ["E", 0], ["SW", .75], ["S", .5], ["SE", .25]].map(([lab, a]) => { const ang = a == null ? null : a * Math.PI, on = (x.expDir == null && ang == null) || (x.expDir != null && ang != null && Math.abs(x.expDir - ang) < .01);
         return `<button class="${on ? "on" : ""}" data-act="pdir" data-v="${ang == null ? "all" : ang}">${lab === "ALL" ? "All around" : { NW: "↖", N: "↑", NE: "↗", W: "←", E: "→", SW: "↙", S: "↓", SE: "↘" }[lab]}</button>`; }).join("")}</div>
       <p class="small muted">${x.expDir == null ? "All around: a modest ring of extra land on every side." : "One direction: reaches much further that way, and no further elsewhere."}</p>
-      <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></div>`; }
+      <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></details>`; }
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT];
   const tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && itemOpenAt(n, x, it)));
   if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
@@ -2930,12 +2932,12 @@ function panelProduction(n) {
   for (const it of all.filter(q => q.tab === prodTab && itemOpenAt(n, x, q))) {
     const queued = x.pq.filter(q => q === it.id).length, time = seasonsTxt(it.hours / H);
     if (it.repeat) { const dem = needAt(n, x, it.id), have = builtAt(x, it.id), short = Math.max(0, dem - have);
-      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${it.name}</b>${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}</b></div><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
+      h += `<details class="need pcol" data-pk="i:${it.id}" ${prodOpen.has("i:" + it.id) ? "open" : ""}><summary><span>${it.icon} <b>${it.name}</b>${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}${queued ? ` <small class="muted">+${queued}</small>` : ""}</b></summary><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
         <p class="small muted">${esc(it.d)} ${short ? `<b class="bad">${fmtP(short)} short here.</b>` : "Enough here for now."} One takes ${time}.${queued ? ` ${queued} queued.` : ""}</p>
-        ${short > queued ? `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button>` : ""}</div>`; }
+        ${short > queued ? `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button>` : ""}</details>`; }
     else { const done = P0.done[it.id], queuedAny = setsOf(n).some(y => y.pq && y.pq.includes(it.id));
-      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queuedAny ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></div><p class="small muted">${esc(it.d)}${done || queuedAny ? "" : ` Takes ${time} here.`}</p>
-        ${done || queuedAny ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && x.pq.length < 8 ? "" : "disabled"}>Build it in ${esc(x.name)}</button>`}</div>`; }
+      h += `<details class="need pcol" data-pk="i:${it.id}" ${prodOpen.has("i:" + it.id) ? "open" : ""}><summary><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queuedAny ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></summary><p class="small muted">${esc(it.d)}${done || queuedAny ? "" : ` Takes ${time} here.`}</p>
+        ${done || queuedAny ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && x.pq.length < 8 ? "" : "disabled"}>Build it in ${esc(x.name)}</button>`}</details>`; }
   }
   return h + `</div>`;
 }
