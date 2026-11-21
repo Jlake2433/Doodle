@@ -468,31 +468,49 @@ const CULTURES = {
 };
 /* national religion: only faiths that exist by the current date can be chosen */
 const RELIGIONS = {
-  animism:    { name: "Spirits of the land", icon: "🌿", y: -1e9, fam: "folk", pie: 10, d: "The old ways: spirits in the rivers, the beasts and the ancestors." },
-  mystic:     { name: "Mysticism", icon: "🔮", y: -1e9, fam: "folk", pie: 18, d: "Seers, visions and secret knowledge passed from master to student." },
-  poly:       { name: "The old gods", icon: "🏺", y: -3500, fam: "poly", pie: 12, d: "A family of gods with temples and priests, and rulers close to the divine." },
-  hindu:      { name: "Hinduism", icon: "🕉️", y: -1500, fam: "dharma", pie: 12, d: "Dharma, many paths to the divine, and a society ordered by duty." },
-  judaism:    { name: "Judaism", icon: "✡️", y: -1200, fam: "jew", pie: 12, d: "One God, a covenant, and a tradition of law and learning." },
-  zoro:       { name: "Zoroastrianism", icon: "🔥", y: -1000, fam: "zoro", pie: 10, d: "Good thoughts, good words, good deeds, and a cosmic struggle of light against darkness." },
-  jain:       { name: "Jainism", icon: "🤲", y: -550, fam: "dharma", pie: 14, d: "Non-violence toward every living thing." },
-  buddhism:   { name: "Buddhism", icon: "☸️", y: -500, fam: "dharma", pie: 10, d: "The middle way and an end to suffering." },
-  confucian:  { name: "Confucianism", icon: "📜", y: -500, fam: "east", pie: 4, d: "Order, duty to family and state, and rule by educated officials." },
-  taoism:     { name: "Taoism", icon: "☯️", y: -400, fam: "east", pie: 8, d: "Living in harmony with the Way of nature." },
-  shinto:     { name: "Shinto", icon: "⛩️", y: -300, fam: "east", pie: 10, d: "The kami of places, ancestors and the ruling house." },
-  christian:  { name: "Christianity", icon: "✝️", y: 33, to: 1054, fam: "christ", pie: 12, d: "Salvation through Christ, charity and one church." },
-  islam:      { name: "Islam", icon: "☪️", y: 610, to: 661, fam: "islam", pie: 14, d: "Submission to one God, as revealed to the Prophet." },
-  catholic:   { name: "Catholic Christianity", icon: "⛪", y: 1054, fam: "christ", pie: 12, d: "The church of Rome, led by the Pope." },
-  orthodox:   { name: "Orthodox Christianity", icon: "☦️", y: 1054, fam: "christ", pie: 12, d: "The Eastern churches, close to the throne." },
-  sunni:      { name: "Sunni Islam", icon: "☪️", y: 661, fam: "islam", pie: 14, d: "The way of the Prophet and the community's chosen caliphs." },
-  shia:       { name: "Shia Islam", icon: "🕌", y: 661, fam: "islam", pie: 16, d: "Followers of Ali and the Imams of the Prophet's family." },
-  sikh:       { name: "Sikhism", icon: "🙏", y: 1469, fam: "dharma", pie: 12, d: "One God, equality, and the saint-soldier." },
-  protestant: { name: "Protestant Christianity", icon: "📖", y: 1517, fam: "christ", pie: 10, d: "Scripture in the people's own tongue and hard work as a calling." },
-  secular:    { name: "Secular", icon: "⚖️", y: 1700, fam: "none", pie: -15, d: "No state religion: people are free to believe as they choose." },
-  atheist:    { name: "State atheism", icon: "🚫", y: 1917, fam: "none", pie: -35, d: "Religion is pushed out of public life." } };
+  animism:    { name: "Spirits of the land", icon: "🌿", y: -1e9, fam: "folk", pie: 10, tags: "spirits ancest harmony", d: "The old ways: spirits in the rivers, the beasts and the ancestors." },
+  mystic:     { name: "Mysticism", icon: "🔮", y: -1e9, fam: "folk", pie: 18, tags: "spirits visions meditate", d: "Seers, visions and secret knowledge passed from master to student." },
+  poly:       { name: "The old gods", icon: "🏺", y: -3500, fam: "poly", pie: 12, tags: "poly clergy kingship", d: "A family of gods with temples and priests, and rulers close to the divine." },
+  hindu:      { name: "Hinduism", icon: "🕉️", y: -1500, fam: "dharma", pie: 12, tags: "poly rebirth clergy pilgrim diet meditate", d: "Dharma, many paths to the divine, and a society ordered by duty." },
+  judaism:    { name: "Judaism", icon: "✡️", y: -1200, fam: "jew", pie: 12, tags: "mono scripture chosen diet fasting learning", d: "One God, a covenant, and a tradition of law and learning." },
+  zoro:       { name: "Zoroastrianism", icon: "🔥", y: -1000, fam: "zoro", pie: 10, tags: "mono scripture clergy charity", d: "Good thoughts, good words, good deeds, and a cosmic struggle of light against darkness." },
+  jain:       { name: "Jainism", icon: "🤲", y: -550, fam: "dharma", pie: 14, tags: "rebirth nonviol diet fasting monastic", d: "Non-violence toward every living thing." },
+  buddhism:   { name: "Buddhism", icon: "☸️", y: -500, fam: "dharma", pie: 10, tags: "rebirth meditate monastic nonviol mission", d: "The middle way and an end to suffering." },
+  confucian:  { name: "Confucianism", icon: "📜", y: -500, fam: "east", pie: 4, tags: "filial ancest learning kingship", d: "Order, duty to family and state, and rule by educated officials." },
+  taoism:     { name: "Taoism", icon: "☯️", y: -400, fam: "east", pie: 8, tags: "harmony meditate monastic", d: "Living in harmony with the Way of nature." },
+  shinto:     { name: "Shinto", icon: "⛩️", y: -300, fam: "east", pie: 10, tags: "spirits ancest kingship chosen", d: "The kami of places, ancestors and the ruling house." },
+  christian:  { name: "Christianity", icon: "✝️", y: 33, to: 1054, fam: "christ", pie: 12, tags: "mono scripture clergy mission charity", d: "Salvation through Christ, charity and one church." },
+  islam:      { name: "Islam", icon: "☪️", y: 610, to: 661, fam: "islam", pie: 14, tags: "mono scripture pilgrim fasting diet charity equality", d: "Submission to one God, as revealed to the Prophet." },
+  catholic:   { name: "Catholic Christianity", icon: "⛪", y: 1054, fam: "christ", pie: 12, tags: "mono scripture clergy mission charity monastic pilgrim", d: "The church of Rome, led by the Pope." },
+  orthodox:   { name: "Orthodox Christianity", icon: "☦️", y: 1054, fam: "christ", pie: 12, tags: "mono scripture clergy monastic fasting kingship", d: "The Eastern churches, close to the throne." },
+  sunni:      { name: "Sunni Islam", icon: "☪️", y: 661, fam: "islam", pie: 14, tags: "mono scripture pilgrim fasting diet charity equality", d: "The way of the Prophet and the community's chosen caliphs." },
+  shia:       { name: "Shia Islam", icon: "🕌", y: 661, fam: "islam", pie: 16, tags: "mono scripture clergy pilgrim fasting diet charity", d: "Followers of Ali and the Imams of the Prophet's family." },
+  sikh:       { name: "Sikhism", icon: "🙏", y: 1469, fam: "dharma", pie: 12, tags: "mono scripture equality charity warrior", d: "One God, equality, and the saint-soldier." },
+  protestant: { name: "Protestant Christianity", icon: "📖", y: 1517, fam: "christ", pie: 10, tags: "mono scripture mission work equality", d: "Scripture in the people's own tongue and hard work as a calling." },
+  secular:    { name: "Secular", icon: "⚖️", y: 1700, fam: "none", pie: -15, tags: "freedom reason", d: "No state religion: people are free to believe as they choose." },
+  atheist:    { name: "State atheism", icon: "🚫", y: 1917, fam: "none", pie: -35, tags: "reason", d: "Religion is pushed out of public life." } };
+/* characteristics a faith gives your culture; many faiths share them. Some nudge how your people's character drifts */
+const RTAGS = {
+  spirits:  { name: "Spirits in nature", icon: "🌿" }, ancest: { name: "Ancestor veneration", icon: "🕯️" }, harmony: { name: "Harmony with nature", icon: "☯️" },
+  visions:  { name: "Visions & seers", icon: "🔮", t: { pie: 5 }, lean: "devout" }, meditate: { name: "Meditation", icon: "🧘" },
+  poly:     { name: "Many gods", icon: "🏛️" }, mono: { name: "One God", icon: "☝️" }, clergy: { name: "Priesthood", icon: "⛪", t: { pie: 5 }, lean: "devout" },
+  kingship: { name: "Sacred rulers", icon: "👑", t: { con: 3 }, lean: "content" }, rebirth: { name: "Rebirth", icon: "🔄" },
+  pilgrim:  { name: "Pilgrimage", icon: "🚶", t: { open: 4 }, lean: "open" }, diet: { name: "Dietary laws", icon: "🍽️" },
+  scripture:{ name: "Holy scripture", icon: "📜" }, chosen: { name: "A people apart", icon: "🧬", t: { open: -6 }, lean: "insular" },
+  fasting:  { name: "Fasting", icon: "🌙", t: { res: 4 }, lean: "hardy" }, learning: { name: "Learning & law", icon: "📚" },
+  charity:  { name: "Charity", icon: "🤲", t: { con: 4 }, lean: "content" }, nonviol: { name: "Non-violence", icon: "🕊️", t: { mar: -12 }, lean: "peaceable" },
+  monastic: { name: "Monasteries", icon: "🏯", t: { pie: 5 }, lean: "devout" }, mission: { name: "Missionaries", icon: "🧭", t: { open: 8 }, lean: "open" },
+  filial:   { name: "Duty to family", icon: "👪" }, equality: { name: "Equality of believers", icon: "🤝" },
+  warrior:  { name: "Warrior tradition", icon: "⚔️", t: { mar: 8 }, lean: "warlike" }, work: { name: "Work as a calling", icon: "⚒️", t: { ind: 10 }, lean: "industrious" },
+  freedom:  { name: "Freedom of belief", icon: "🗽", t: { open: 8 }, lean: "open" }, reason: { name: "Reason over faith", icon: "💡", t: { pie: -5 }, lean: "worldly" } };
+const tagsOf = k => ((RELIGIONS[k] || RELIGIONS.animism).tags || "").split(" ").filter(Boolean);
+const relNudge = (n, trait) => tagsOf(n.relig || "animism").reduce((a, t) => a + ((RTAGS[t] && RTAGS[t].t && RTAGS[t].t[trait]) || 0), 0);
+const tagChips = (k, mine) => tagsOf(k).map(t => `<span class="rtag ${mine && mine.includes(t) ? "on" : ""}">${RTAGS[t].icon} ${RTAGS[t].name}</span>`).join("");
 const relOf = n => RELIGIONS[(n && n.relig) || "animism"] || RELIGIONS.animism;
 const relOpen = k => { const R = RELIGIONS[k]; return R && G.year >= R.y && !(R.to && G.year >= R.to); };
 const relYear = y => y < -1e8 ? "since time began" : y < 0 ? `about ${-y} BCE` : `${y} CE`;
-function relFit(a, b) { a = a || "animism"; b = b || "animism"; if (a === b) return 10; const A = RELIGIONS[a], B = RELIGIONS[b]; if (!A || !B || A.fam === "none" || B.fam === "none" || A.fam === B.fam) return 0; return A.fam === "folk" || B.fam === "folk" ? -3 : -10; }
+function relFit(a, b) { a = a || "animism"; b = b || "animism"; if (a === b) return 10; const A = RELIGIONS[a], B = RELIGIONS[b]; if (!A || !B || A.fam === "none" || B.fam === "none") return 0;
+  const ta = tagsOf(a), tb = tagsOf(b), sh = ta.filter(t => tb.includes(t)).length, un = new Set([...ta, ...tb]).size; return Math.round(-10 + 18 * sh / Math.max(1, un)); } /* the more they share, the closer they feel */
 /* the faith a people of each land tends to take up, by date (other nations follow these) */
 const REL_PATH = { euro: [[-3500, "poly"], [380, "christian"], [1054, "catholic"]], uralic: [[1200, "catholic"]], near: [[-3500, "poly"], [650, "islam"], [661, "sunni"]], south: [[-1500, "hindu"]], east: [[-3500, "poly"], [-300, "confucian"]], steppe: [[1300, "sunni"]], ocean: [], africa: [], amer: [[-1000, "poly"]] };
 const REL_LANG = { slavic: [[-3500, "poly"], [988, "christian"], [1054, "orthodox"]], greek: [[-3500, "poly"], [380, "christian"], [1054, "orthodox"]], germanic: [[-3500, "poly"], [600, "christian"], [1054, "catholic"], [1530, "protestant"]], norse: [[-3500, "poly"], [1000, "catholic"], [1530, "protestant"]], english: [[-3500, "poly"], [600, "christian"], [1054, "catholic"], [1534, "protestant"]], dutch: [[1054, "catholic"], [1580, "protestant"]], persian: [[-1000, "zoro"], [650, "islam"], [661, "sunni"], [1501, "shia"]], semitic: [[-3500, "poly"], [-1000, "judaism"], [630, "islam"], [661, "sunni"]], tibetan: [[700, "buddhism"]], seasia: [[300, "buddhism"]], japanese: [[-300, "shinto"]], korean: [[-100, "confucian"]], ethiop: [[330, "christian"], [1054, "orthodox"]], wafrica: [[1100, "sunni"]], egyptian: [[-3500, "poly"], [350, "christian"], [700, "sunni"]], berber: [[700, "sunni"]], indic: [[-1500, "hindu"]], dravid: [[-1500, "hindu"]], amazon: [], inuit: [], abor: [], bantu: [] };
@@ -634,6 +652,7 @@ function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(
 function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = 1 / TPY;
   if (!n.trait) { n.trait = {}; for (const k in TRAITS) n.trait[k] = clamp(tg[k], 0, 100); n.trait.res = Math.max(n.trait.res, 55); }
   const T = n.trait;
+  for (const k in TRAITS) tg[k] += relNudge(n, k);
   for (const k in TRAITS) { const t = clamp(tg[k], 0, 100), r = k === "res" ? (t > T[k] ? .2 : .03) : .06; T[k] += (t - T[k]) * (1 - Math.pow(1 - r, yrs)); }
   n.traitT = tg; }
 const trv = (n, k) => n.trait && n.trait[k] != null ? n.trait[k] : 50;
@@ -3516,11 +3535,11 @@ function panelPolicy() {
   if (!tribal(n)) h += `</div></div>`;
   else h += `<div class="card"><h4>The tribe</h4><p class="small muted">${esc(GOVS[n.gov].name)}. The elders and the strongest warriors decide things around the fire. There's little to govern yet.</p></div>`;
   { const R = relOf(n), cool = Math.max(0, Math.ceil((n.relAt != null ? n.relAt + 20 : -1e9) - G.year)), org = R.fam !== "none" && !tribal(n), avail = Object.keys(RELIGIONS).filter(k => k !== (n.relig || "animism") && relOpen(k));
-    h += `<div class="card"><h4>🙏 National religion</h4><div class="ln"><span>${R.icon} <b>${esc(R.name)}</b></span><span class="muted small">${relYear(R.y)}</span></div><p class="small muted">${esc(R.d)}</p>`;
+    h += `<div class="card"><h4>🙏 National religion</h4><div class="ln"><span>${R.icon} <b>${esc(R.name)}</b></span><span class="muted small">${relYear(R.y)}</span></div><p class="small muted">${esc(R.d)}</p><div class="rtags">${tagChips(n.relig || "animism")}</div>${(() => { const ln = [...new Set(tagsOf(n.relig || "animism").map(t => RTAGS[t].lean).filter(Boolean))]; return ln.length ? `<p class="small muted">Over generations, your people lean ${ln.join(", ")}.</p>` : ""; })()}`;
     if (cool) h += `<p class="small warn">The people are still settling into this faith. You can change it again in ${cool} year${cool === 1 ? "" : "s"}.</p>`;
-    if (avail.length) h += `<details class="pcol"><summary>Choose a different faith <span class="muted small">(${avail.length})</span></summary><div class="opts">`;
+    if (avail.length) h += `<details class="pcol"><summary>Choose a different faith <span class="muted small">(${avail.length})</span></summary><p class="small muted">Highlighted characteristics are shared with your faith. Peoples whose faith shares more with yours feel closer to your people.</p><div class="opts">`;
     for (const k of avail) { const Q = RELIGIONS[k];
-      h += `<button class="opt" data-act="relig" data-k="${k}" ${cool || locked ? "disabled" : ""}><span class="oi">${Q.icon}</span><span class="ot"><b>${esc(Q.name)}</b><small>${esc(Q.d)}</small></span></button>`; }
+      h += `<button class="opt" data-act="relig" data-k="${k}" ${cool || locked ? "disabled" : ""}><span class="oi">${Q.icon}</span><span class="ot"><b>${esc(Q.name)}</b><small>${esc(Q.d)}</small><span class="rtags">${tagChips(k, tagsOf(n.relig || "animism"))}</span></span></button>`; }
     if (avail.length) h += `</div></details>`;
     if (org) { const tolOk = has(n, "philosophy");
       h += `<h4 style="margin-top:10px">Faith and state</h4><div class="seg"><button class="${n.laws.rel !== "tol" ? "on" : ""}" data-act="law" data-l="rel" data-o="faith" ${locked ? "disabled" : ""}>Enforced</button>${tolOk ? `<button class="${n.laws.rel === "tol" ? "on" : ""}" data-act="law" data-l="rel" data-o="tol" ${locked ? "disabled" : ""}>Tolerated others</button>` : ""}</div>
