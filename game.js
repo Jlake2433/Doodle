@@ -1032,8 +1032,12 @@ const roleName = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.far
 const roleIcon = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farmIcon : TIME[k].icon;
 function timeOf(n) {
   if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
-  if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; } return n.time; }
-const timeShare = (n, k) => { const t = timeOf(n); let sum = 0; for (const x in TIME) sum += t[x] || 0; return sum > 0 ? (t[k] || 0) / sum : 0; };
+  if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; }
+  let sum = 0; for (const k in TIME) sum += n.time[k] || 0;
+  if (sum > 100) for (const k in TIME) n.time[k] = Math.floor((n.time[k] || 0) * 100 / sum / 5) * 5; // shares never add up to more than everyone
+  return n.time; }
+const timeShare = (n, k) => (timeOf(n)[k] || 0) / 100; // each role is a straight share of all your people
+const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) sum += t[k] || 0; return Math.max(0, 100 - sum); };
 // ---- elder discussions: before there is research, the elders talk things through, one subject after another.
 // The last talks turn to knowledge itself and to who the people are; then research truly begins ----
 const ELDER_TALKS = [
@@ -1798,7 +1802,8 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
-    Object.assign(t, { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 }); }
+    const want = { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
+    const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
     B0.qual = n.pers === "aggressive" ? 20 : n.cul === "martial" ? 30 : 15;
@@ -2637,12 +2642,13 @@ function armyBudgetHTML(n) {
 }
 function timeHTML(n) {
   const t = timeOf(n);
-  return `<div class="budget timeal">${Object.entries(TIME).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="rec" data-trec></p></div>`;
+  return `<div class="budget timeal">${Object.entries(TIME).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="small" data-tidle></p><p class="rec" data-trec></p></div>`;
 }
 function timeFill(root) {
   if (!root || !G) return; const n = P(), E = econM(n), sh = k => timeShare(n, k), set = (sel, v) => { const el = root.querySelector(sel); if (el) el.innerHTML = AW(v); };
   const pop = popOf(n);
   for (const k in TIME) set(`[data-tv="${k}"]`, `${Math.round(sh(k) * 100)}% · ${fmtP(pop * sh(k))} people`);
+  { const idle = timeIdle(n); set("[data-tidle]", idle ? `<b class="bad">${idle}% of your people (${fmtP(pop * idle / 100)}) have no role and do nothing.</b> Give them one.` : `<span class="muted">Everyone has a role: 100% assigned.</span>`); }
   const pc = v => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}%`, wb = Math.round(maxArmy(n) * sh("warrior") / .2);
   set('[data-tx="warrior"]', `Fields <b>${wb}</b> war band${wb === 1 ? "" : "s"}. ${TIME.warrior.d}`);
   set('[data-tx="food"]', `${pc(.9 * sh("food") - .3)} food. ${TIME.food.d}`);
@@ -2690,7 +2696,8 @@ function openBudget(yearly) {
 }
 function secInput(e) { const t = e.target; if (!t.dataset || t.dataset.sinv == null || !G) return; const n = P(), k = t.dataset.sinv; secOf(n, k).inv = +t.value; const lab = panel.querySelector(`[data-sv="${k}"]`); if (lab) lab.textContent = `${t.value}% · ${fmt(econM(n).raw.sectors[k].ig * TD)} 🪙`; hud(); }
 panel.addEventListener("input", secInput);
-[panel, modal].forEach(el => el.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.time && G) { timeOf(P())[e.target.dataset.time] = +e.target.value; timeFill(e.target.closest(".timeal")); hud(); } }));
+[panel, modal].forEach(el => el.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.time && G) { const t = timeOf(P()), k = e.target.dataset.time; let others = 0; for (const x in TIME) if (x !== k) others += t[x] || 0;
+    const v = Math.min(+e.target.value, 100 - others); if (+e.target.value !== v) e.target.value = v; t[k] = v; /* only what's left unassigned can be given */ timeFill(e.target.closest(".timeal")); hud(); } }));
 [panel, modal].forEach(el => el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.time) save(); }));
 panel.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.sinv != null) { save(); refresh(); } });
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
