@@ -1392,6 +1392,12 @@ const STRUCTS = {
   rampart:  { tab: "defense", tier: 1, name: "Earthen rampart", one: "earthen rampart", icon: "⛰️", hours: 18000, d: "Towns only. A great bank and ditch: this town is far harder to take." },
   temple:   { tab: "spirit", tier: 2, name: "Temple", one: "temple", icon: "🛕", hours: 30000, d: "Cities only. A house for the gods: stability across your lands and elders' favor." },
   field:    { tab: "food", tech: "agriculture", name: "Farm plots", one: "farm plot", icon: "🌱", hours: 1200, d: "One for each farming family. Farmers without a plot scratch out small gardens, which feed far less." },
+  hearth:   { tab: "amen", name: "Fire pits", one: "fire pit", icon: "🍲", hours: 900, d: "One for every 5 families. Warmth and cooked food: fewer die in winter, and families live better." },
+  hides:    { tab: "amen", name: "Tanning frames", one: "tanning frame", icon: "🧥", hours: 1500, d: "One for every 8 families. Hides become clothes and blankets: winter is easier to survive." },
+  refuse:   { tab: "amen", name: "Refuse pits", one: "refuse pit", icon: "🕳️", hours: 800, d: "One for every 10 families. Waste kept away from the huts: less sickness." },
+  water:    { tab: "amen", tech: "pottery", name: "Wells", one: "well", icon: "🪣", hours: 4000, d: "One for every 20 families, once a settlement has more than 25. Clean water close at hand: less sickness." },
+  circle:   { tab: "amen", name: "Gathering ground", one: "gathering ground", icon: "🪘", hours: 3000, d: "One in every settlement. A cleared place for stories, dances and feasts: families are happier." },
+  lodge:    { tab: "amen", tech: "mysticism", name: "Sweat lodges", one: "sweat lodge", icon: "♨️", hours: 2500, d: "One for every 15 families. Healing heat and cleansing rites: less sickness." },
   canoe:    { tab: "food", name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
 };
 const GREAT = [
@@ -1399,7 +1405,7 @@ const GREAT = [
   { id: "longhouse", tab: "housing", tech: "husbandry", name: "Longhouses", icon: "🏠", hours: 50000, mat: 12, d: "Big shared houses. Villages hold 25% more families." },
   { id: "stones", tab: "spirit", tech: "tribal", name: "Stone circle", icon: "🗿", hours: 150000, mat: 20, d: "A ring of standing stones where the elders meet. Elder talks go 20% faster, and the elders are pleased." },
 ];
-const PROD_TABS = { housing: { name: "Housing", icon: "🛖" }, food: { name: "Food", icon: "🍖" }, crafts: { name: "Crafts", icon: "🪓" }, spirit: { name: "Spirit", icon: "🔥" }, defense: { name: "Defense", icon: "🪵" }, travel: { name: "Travel", icon: "🥾" } };
+const PROD_TABS = { housing: { name: "Housing", icon: "🛖" }, food: { name: "Food", icon: "🍖" }, amen: { name: "Amenities", icon: "🪘" }, crafts: { name: "Crafts", icon: "🪓" }, spirit: { name: "Spirit", icon: "🔥" }, defense: { name: "Defense", icon: "🪵" }, travel: { name: "Travel", icon: "🥾" } };
 const itemOf = id => STRUCTS[id] ? Object.assign({ id, repeat: true }, STRUCTS[id]) : GREAT.find(g => g.id === id);
 const itemOpen = (n, it) => it && (!it.tech || has(n, it.tech)) && (!it.coastal || coastal(n));
 function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, assign: {}, done: {}, great: null, gprog: 0 }); if (!P0.queue) { P0.queue = []; P0.qprog = 0; }
@@ -1408,7 +1414,9 @@ function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, as
 const projDone = (n, k) => !!(n && n.prod && n.prod.done && n.prod.done[k]);
 const coastal = n => setsOf(n).some(x => W.regions[x.r].c);
 // every village, town and city has its own needs and its own builders
-function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop) }; if (!x.pq) { x.pq = []; x.qp = 0; } return x.b; }
+function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop) }; if (!x.pq) { x.pq = []; x.qp = 0; }
+  if (!x.amenV) { x.amenV = 1; const f = Math.max(1, x.pop); if (x.b.hearth == null) x.b.hearth = Math.ceil(f / 5); if (x.b.hides == null) x.b.hides = Math.ceil(f / 8); if (x.b.circle == null) x.b.circle = 1; if (x.b.refuse == null) x.b.refuse = Math.ceil(f / 10); }
+  return x.b; }
 const onCoast = x => !!W.regions[x.r].c;
 function needAt(n, x, k) {
   const fam = x.pop, sh = r => tribal(n) ? timeShare(n, r) : 0, it = STRUCTS[k];
@@ -1421,10 +1429,24 @@ function needAt(n, x, k) {
     case "shop": return Math.ceil(fam * sh("build") / 4);
     case "shrine": case "palisade": return 1;
     case "canoe": return onCoast(x) ? Math.ceil(fam * sh("food") / 5) : 0;
+    case "hearth": return Math.ceil(fam / 5);
+    case "hides": return Math.ceil(fam / 8);
+    case "refuse": return Math.ceil(fam / 10);
+    case "water": return fam > 25 ? Math.ceil(fam / 20) : 0;
+    case "circle": return 1;
+    case "lodge": return Math.ceil(fam / 15);
     default: return 1; // town and city buildings: one each
   }
 }
 const builtAt = (x, k) => (x.b && x.b[k]) || 0;
+/* amenities: warmth, health and gathering. How well each settlement lives beyond a roof and food */
+const AMEN = { warmth: { name: "Warmth", icon: "🔥", k: ["hearth", "hides"], d: "Fire pits and clothes. Without them, more die in winter, even in huts." },
+  health: { name: "Health", icon: "🩺", k: ["refuse", "water", "lodge"], d: "Refuse pits, wells and sweat lodges. Without them, sickness spreads in bigger settlements." },
+  joy: { name: "Gathering", icon: "🪘", k: ["circle", "hearth"], d: "A place to gather, and fires to gather around. Without them, families are unhappy." } };
+function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) return null; const d = needAt(n, x, k); return d > 0 ? Math.min(1, builtAt(x, k) / d) : null; }
+function amenAt(n, x) { const r = {}; let t = 0, c = 0; for (const a in AMEN) { const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; t += r[a]; c++; } r.all = t / c; return r; }
+function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
+  for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
 function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
 function structCov(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
 const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS;
@@ -1692,7 +1714,8 @@ function facTargets(n, E) {
     { const tp = setsOf(n).filter(x => builtAt(x, "temple")).length; if (tp) { add("elders", Math.min(12, 6 * tp), "Temples"); add("commoners", Math.min(8, 3 * tp), "Temples"); } }
     if (tribal(n)) { const room = roomOf(n), steps = setsOf(n).reduce((a, x) => a + (x.exp || 0), 0);
       add("commoners", room < 1 ? -Math.round(12 * (1 - room)) : Math.min(8, 2 * steps + Math.round(3 * Math.min(1, room - 1))), room < 1 ? "Crowded land" : "Room to roam");
-      add("elders", Math.round(6 * structCov(n, "shrine")), "Shrines"); { const hm = homeShares(n), soft = 1 - .5 * trv(n, "res") / 100; if (hm.shk > .005) add("commoners", -Math.round(26 * hm.shk * soft), "Families living in shacks"); if (hm.none > .005) add("commoners", -Math.round(35 * hm.none * soft), "Families with no roof"); } }
+      add("elders", Math.round(6 * structCov(n, "shrine")), "Shrines"); { const am = amenOf(n); if (am.all < .95) add("commoners", -Math.round(16 * (1 - am.all)), "Lacking comforts"); else add("commoners", 2, "Comfortable lives"); }
+      { const hm = homeShares(n), soft = 1 - .5 * trv(n, "res") / 100; if (hm.shk > .005) add("commoners", -Math.round(26 * hm.shk * soft), "Families living in shacks"); if (hm.none > .005) add("commoners", -Math.round(35 * hm.none * soft), "Families with no roof"); } }
     if (n.trait) { const m = Math.round((n.trait.mar - 50) / 5), q = Math.round((n.trait.pie - 50) / 5);
       if (m) add("warriors", m, m > 0 ? "Warlike people" : "Peaceable people"); if (q) add("elders", q, q > 0 ? "Devout people" : "Worldly people"); }
     { let fr = 0, mi = 0; for (const g of n.eth || []) { fr += g.share * (1 - g.assim / 100) * (1 - compatOf(n, g) / 100); mi += g.share * (1 - g.assim / 100); }
@@ -1810,6 +1833,7 @@ function fertility(n, E) {
   const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3);
   f.push(["Food", sr < 0 ? .5 : clamp(.85 + .15 * sr, .85, 1.3)]);
   f.push(["Homes", .4 + .6 * Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk)]);
+  if (tribal(n)) f.push(["Comforts", .8 + .25 * amenOf(n).all]);
   const room = roomOf(n); f.push([room < 1 ? "Crowded land" : "Room to roam", crowdF(room)]);
   const mood = n.fac && n.fac.commoners != null ? clamp(.85 + n.fac.commoners / 330, .85, 1.12) : 1; f.push(["Mood", mood]);
   return { mult: f.reduce((a, x) => a * x[1], 1), f };
@@ -1886,8 +1910,13 @@ function processNation(n) {
   const sets = setsOf(n), FERT = fertility(n, E); n.fert = FERT.mult;
   // families without a hut throw up shacks of their own: they get through most winters, barely, and they resent it
   let H = 0;
-  if (tribal(n)) { let left = 0, died = 0, dS = 0; const winter = Math.floor((G.month || 0) / 3) === 0, cold = 1.25 - .75 * trv(n, "res") / 100;
-    for (const x of sets) { const need = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
+  if (tribal(n)) { let left = 0, died = 0, dS = 0; const winter = Math.floor((G.month || 0) / 3) === 0, cold0 = 1.25 - .75 * trv(n, "res") / 100;
+    let sick = 0, coldH = 0;
+    for (const x of sets) { sb(x); const am = amenAt(n, x), cold = cold0 * (1.4 - .6 * am.warmth);
+      /* without fire and clothes, even families in huts suffer in winter; without clean ways, sickness spreads where people crowd */
+      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0; x.pop -= d; coldH += d; }
+      if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * (1 - am.health) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
+      const need = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
       x.shk = Math.min(x.shk || 0, need); /* families move out of shacks into new huts */
       let roof = need - x.shk;
       if (roof < .5) x.homelessT = 0; else { x.homelessT = (x.homelessT || 0) + 1; x.shk += roof * .5; roof = need - x.shk; }
@@ -1896,7 +1925,10 @@ function processNation(n) {
       if (x.homelessT > TPY && roof >= .5) { d = winter ? roof * .12 * cold : 0; l = roof * .05; }
       const tot = ds + ls + d + l, loss = Math.min(Math.max(0, x.pop - 2), tot); if (loss <= 0) continue; const k = loss / tot;
       x.pop -= loss; x.shk = Math.max(0, x.shk - (ds + ls) * k); died += (ds + d) * k; dS += ds * k; left += (ls + l) * k; }
-    const hm = homeShares(n); H = .6 * hm.shk + hm.none + 4 * (died + left) / Math.max(1, popOf(n));
+    n.lostSick = (n.lostSick || 0) + sick; n.lostColdH = (n.lostColdH || 0) + coldH;
+    if (!n.ai && n.lostSick >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostSick); n.lostSick -= v; alertLoss(n, v, "🤒", "Sickness", `Sickness carried off ${v} famil${v === 1 ? "y" : "ies"}. Refuse pits${has(n, "pottery") ? ", wells" : ""}${has(n, "mysticism") ? " and sweat lodges" : ""} keep people healthy (Production › Amenities).`); }
+    if (!n.ai && n.lostColdH >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostColdH); n.lostColdH -= v; alertLoss(n, v, "🥶", "A hard winter", `${v} famil${v === 1 ? "y" : "ies"} died of cold despite their huts. Fire pits and tanning frames keep families warm (Production › Amenities).`); }
+    const hm = homeShares(n); H = .6 * hm.shk + hm.none + 4 * (died + left + sick + coldH) / Math.max(1, popOf(n));
     n.lostD = (n.lostD || 0) + died; n.lostS = (n.lostS || 0) + dS; n.lostL = (n.lostL || 0) + left; /* count whole families before telling you */
     if (!n.ai && n.lostD + n.lostL >= 1) { const D = Math.floor(n.lostD), Lf = Math.floor(n.lostL + (n.lostD - D)), inShacks = n.lostS >= n.lostD / 2; n.lostD = 0; n.lostL = 0; n.lostS = 0;
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
@@ -3215,6 +3247,13 @@ function panelPeople() {
   const n = P(), pop = popOf(n), E0 = ethOf(n), T = n.trait || {}, tg = n.traitT || {}, tr = tribal(n);
   const lab = LANG_LABEL[langOf(n)] || capW(langOf(n)), main = Math.max(0, 1 - E0.reduce((a, g) => a + g.share, 0));
   let h = ph("Our people", `${fmtP(pop)} ${tr ? "families" : "people"} · ${esc(demonym(n))}`);
+  if (tr) { const E1 = econM(n), am = amenOf(n), fed = E1.raw.surplus >= 0, pct = v => `${Math.round(v * 100)}%`, cls = v => v < .6 ? "bad" : v < .95 ? "warn" : "good";
+    const hc = Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk);
+    h += `<div class="card"><h4>🏕️ Needs</h4><p class="small muted">Every family needs a home, food, and the comforts that make life bearable.</p>
+      ${line("🛖 Homes", pct(hc), cls(hc))}${line("🍖 Food", fed ? "Fed" : "Hungry", fed ? "good" : "bad")}
+      ${Object.values(AMEN).map(a => line(`${a.icon} ${a.name}`, pct(am[Object.keys(AMEN).find(k => AMEN[k] === a)]), cls(am[Object.keys(AMEN).find(k => AMEN[k] === a)]))).join("")}
+      ${Object.entries(AMEN).filter(([k]) => am[k] < .95).map(([k, a]) => `<p class="small muted">${a.icon} ${a.d}</p>`).join("")}
+      <p class="small muted">Build amenities for each settlement in Production › Amenities.</p></div>`; }
   if (tr) { const hm = homeShares(n), huts = setsOf(n).reduce((a, x) => a + Math.min(x.pop, builtAt(x, "hut")), 0);
     h += `<div class="card"><h4>🛖 Homes</h4>${line("In huts", fmtP(huts))}${line("In shacks they built themselves", fmtP(hm.nShk), hm.nShk >= .5 ? "bad" : "")}${line("No roof at all", fmtP(hm.nNone), hm.nNone >= .5 ? "bad" : "")}
       <p class="small muted">Families without a hut put up shacks of their own. A shack gets a family through the winter, barely: some still die in the cold, and they resent you for it. Hardship also makes a people hardy.</p></div>`; }
