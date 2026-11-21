@@ -506,6 +506,59 @@ const RTAGS = {
 const tagsOf = k => ((RELIGIONS[k] || RELIGIONS.animism).tags || "").split(" ").filter(Boolean);
 const relNudge = (n, trait) => tagsOf(n.relig || "animism").reduce((a, t) => a + ((RTAGS[t] && RTAGS[t].t && RTAGS[t].t[trait]) || 0), 0);
 const tagChips = (k, mine) => tagsOf(k).map(t => `<span class="rtag ${mine && mine.includes(t) ? "on" : ""}">${RTAGS[t].icon} ${RTAGS[t].name}</span>`).join("");
+/* customs: how your people live. No bonuses: they shape character over generations and how close other peoples feel */
+const CUSTOMS = {
+  burial:  { name: "The dead", icon: "⚱️", opts: {
+    earth: { name: "Buried in the earth", d: "The dead rest in graves near the living, with the things they will need." },
+    fire:  { name: "Cremation", d: "The dead are given to the fire, and their ashes to the wind or the river." },
+    sky:   { name: "Sky burial", d: "The dead are laid out on high places for the birds, returned to the world.", lean: "hardy" },
+    tomb:  { name: "Tombs and preserving", tech: "masonry", d: "The great are preserved and sealed in tombs for the life to come.", lean: "devout" } } },
+  kin:     { name: "Kinship", icon: "👪", opts: {
+    clan:  { name: "Clans & kin", d: "Everyone belongs to a clan, and the clan comes first.", lean: "content insular" },
+    house: { name: "Households", tech: "agriculture", d: "Each family keeps its own hearth and its own land." },
+    self:  { name: "Individuals", tech: "enlightenment", d: "People make their own way, apart from their kin if they choose.", lean: "open restless" } } },
+  marry:   { name: "Marriage", icon: "💍", opts: {
+    within: { name: "Within the clan", d: "Marriages keep families and their ways close together.", lean: "insular" },
+    out:    { name: "With neighbors", d: "Marriages tie the tribe to the peoples around it.", lean: "open" },
+    arranged: { name: "Arranged alliances", tech: "monarchy", d: "Families arrange marriages for land, wealth and alliance." },
+    free:   { name: "Free choice", tech: "enlightenment", d: "People marry whom they love.", lean: "content" } } },
+  lead:    { name: "Who is listened to", icon: "🧓", opts: {
+    elders: { name: "The eldest", d: "Age brings wisdom, and the old are obeyed.", lean: "devout content" },
+    strong: { name: "The strongest", d: "Those who win fights and hunts have the loudest voice.", lean: "warlike" },
+    able:   { name: "The most able", tech: "philosophy", d: "People are heard for their skill and learning, not their age or strength.", lean: "industrious" } } },
+  justice: { name: "Justice", icon: "⚖️", opts: {
+    feud:   { name: "Blood feud", d: "A wrong is avenged by the victim's kin.", lean: "warlike restless" },
+    price:  { name: "Payment for wrongs", tech: "tribal", d: "A wrong is settled with a price paid to the victim's family.", lean: "content" },
+    written: { name: "Written law", tech: "writing", d: "Laws are carved where all can see them, the same for everyone." },
+    rights: { name: "Courts and rights", tech: "enlightenment", d: "Judges weigh the evidence, and the accused has rights.", lean: "open" } } },
+  guests:  { name: "Strangers", icon: "🏕️", opts: {
+    guest:  { name: "Sacred hospitality", d: "A guest at your fire is protected, whoever they are.", lean: "open" },
+    wary:   { name: "Wary of strangers", d: "Outsiders are watched until they prove themselves.", lean: "insular" } } },
+  work:    { name: "Men's and women's work", icon: "🧺", opts: {
+    split:  { name: "Separate roles", d: "Men hunt and fight; women gather, raise the children and keep the camp." },
+    shared: { name: "Side by side", tech: "agriculture", d: "Everyone works the fields and herds together.", lean: "industrious" },
+    equal:  { name: "Equal standing", tech: "ideology", d: "Men and women stand equal in work, property and voice.", lean: "open industrious" } } },
+  arts:    { name: "Arts and stories", icon: "🎨", opts: {
+    oral:   { name: "Songs and stories", d: "The past lives on in songs, stories and dances passed down by mouth." },
+    monument: { name: "Great monuments", tech: "masonry", d: "Carved stone and great buildings speak for the people.", lean: "devout" },
+    patron: { name: "Patronage", tech: "guilds", d: "The rich and powerful pay artists to glorify them." },
+    free:   { name: "Free expression", tech: "massmedia", d: "Anyone may make and say what they like.", lean: "open restless" } } },
+  feasts:  { name: "Festivals", icon: "🎉", opts: {
+    season: { name: "Seasonal feasts", d: "The people gather to feast at the turn of the seasons.", lean: "content" },
+    holy:   { name: "Holy days", tech: "mysticism", d: "Days set apart for the gods and the ancestors.", lean: "devout" },
+    games:  { name: "Public games", tech: "construction", d: "Races, contests and spectacles for the crowds.", lean: "content warlike" } } },
+  youth:   { name: "Coming of age", icon: "🏹", opts: {
+    trial:  { name: "Trials of courage", d: "The young prove themselves through pain and danger.", lean: "hardy warlike" },
+    rite:   { name: "Initiation rites", d: "The young are taught the sacred secrets of the people.", lean: "devout" },
+    school: { name: "Schooling", tech: "printing", d: "The young learn letters and numbers.", lean: "industrious" } } } };
+const LEAN = { hardy: { res: 5 }, warlike: { mar: 6 }, peaceable: { mar: -6 }, devout: { pie: 5 }, worldly: { pie: -5 }, open: { open: 6 }, insular: { open: -6 }, content: { con: 4 }, restless: { con: -4 }, industrious: { ind: 6 } };
+const cusOpen = (n, o) => !o.tech || has(n, o.tech);
+function ensureCustoms(n) { const c = n.cus || (n.cus = {});
+  for (const k in CUSTOMS) { const O = CUSTOMS[k].opts; if (c[k] && O[c[k]] && cusOpen(n, O[c[k]])) continue;
+    const open = Object.keys(O).filter(o => cusOpen(n, O[o])); c[k] = n.ai ? pick(open) : open[0]; }
+  return c; }
+const cusNudge = (n, trait) => { let v = 0; const c = n.cus || {}; for (const k in c) { const o = CUSTOMS[k] && CUSTOMS[k].opts[c[k]]; if (o && o.lean) for (const w of o.lean.split(" ")) v += (LEAN[w] && LEAN[w][trait]) || 0; } return v; };
+function cusFit(a, b) { if (!a || !b) return 0; let v = 0; for (const k in CUSTOMS) if (a[k] && b[k]) v += a[k] === b[k] ? 1.5 : -1; return clamp(Math.round(v), -10, 12); }
 const relOf = n => RELIGIONS[(n && n.relig) || "animism"] || RELIGIONS.animism;
 const relOpen = k => { const R = RELIGIONS[k]; return R && G.year >= R.y && !(R.to && G.year >= R.to); };
 const relYear = y => y < -1e8 ? "since time began" : y < 0 ? `about ${-y} BCE` : `${y} CE`;
@@ -526,7 +579,7 @@ const ASSIM = { /* the national law on newcomers: whether they must take up your
   force: { name: "Our tongue, our customs", icon: "⛓️", m: 2.2, d: "Speaking your tongue and keeping your customs is required. Fastest, but both peoples resent it." },
   apart: { name: "Separate ways", icon: "🧱", m: .3, d: "They keep their own tongue and customs by law. Less friction, but they stay strangers for many generations." } };
 function compatOf(n, g) { const fit = lg => lg === langOf(n) ? 80 : LANG_FAM[lg] && LANG_FAM[lg] === LANG_FAM[langOf(n)] ? 60 : 35; let c = Math.max(fit(g.lang), g.lang2 ? fit(g.lang2) - 5 : 0);
-  if (g.cul && g.cul === n.cul) c += 10; c += relFit(n.relig, g.relig); c += ((n.trait && n.trait.open != null ? n.trait.open : 50) - 50) / 5; return clamp(Math.round(c), 5, 95); }
+  if (g.cul && g.cul === n.cul) c += 10; c += relFit(n.relig, g.relig) + cusFit(n.cus, g.cus); c += ((n.trait && n.trait.open != null ? n.trait.open : 50) - 50) / 5; return clamp(Math.round(c), 5, 95); }
 function ethOf(n) { if (!n.eth) { n.eth = []; n.ethV = 1; } return n.eth; }
 /* each settlement knows what share of its families belong to which people; the national shares are their sum */
 const setEth = x => x.eth || (x.eth = {});
@@ -536,14 +589,14 @@ function takeSome(x, k, f) { const e = x.eth; if (!e || !e[k]) return 0; f = Mat
   for (const j in e) e[j] = j === k ? Math.max(0, (e[j] * x.pop - f) / np) : e[j] * x.pop / np; if (e[k] < 1e-4) delete e[k]; x.pop = np; return f; }
 function recalcShares(n) { const E = ethOf(n), tot = Math.max(1, popOf(n)), c = {}, me = String(n.id);
   for (const x of setsOf(n)) if (x.eth) for (const k in x.eth) { if (k === me || !E.some(g => g.k === k)) { if (k === me || !G.nations[k]) { delete x.eth[k]; continue; }
-      const o = G.nations[k]; E.push({ k, name: demonym(o), lang: langOf(o), cul: o.cul, relig: o.relig || "animism", share: 0, assim: 0, since: G.year }); } c[k] = (c[k] || 0) + x.pop * x.eth[k]; }
+      const o = G.nations[k]; E.push({ k, name: demonym(o), lang: langOf(o), cul: o.cul, relig: o.relig || "animism", cus: { ...(o.cus || {}) }, share: 0, assim: 0, since: G.year }); } c[k] = (c[k] || 0) + x.pop * x.eth[k]; }
   for (const g of E) g.share = (c[g.k] || 0) / tot; }
 function groupMeta(n, d, assim, fam, text) { const E = ethOf(n), k = String(d.k); let g = E.find(x => x.k === k);
   if (g) { const w = fam / Math.max(1, popOf(n)); g.assim = (g.assim * g.share + assim * w) / Math.max(1e-6, g.share + w); return g; }
   g = { ...d, k, share: 0, assim, since: G.year }; E.push(g);
   if (!n.ai && fam / Math.max(1, popOf(n)) >= .002) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🧑‍🤝‍🧑", title: "A new people among us", text: text || `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${g.name} now live among the ${demonym(n)}. Their ways ${compatOf(n, g) >= 60 ? "are close to yours" : "are strange to your people"}. Their children may grow up as ${demonym(n)}. The People tab shows how they're received.` });
   return g; }
-function addPeople(n, o, fam, assim = 0, x) { if (!o || o.id === n.id) return; return addGroup(n, { k: String(o.id), name: demonym(o), lang: langOf(o), cul: o.cul, relig: o.relig || "animism" }, fam, assim, null, x); }
+function addPeople(n, o, fam, assim = 0, x) { if (!o || o.id === n.id) return; return addGroup(n, { k: String(o.id), name: demonym(o), lang: langOf(o), cul: o.cul, relig: o.relig || "animism", cus: { ...(o.cus || {}) } }, fam, assim, null, x); }
 function addGroup(n, d, fam, assim = 0, text, x) { if (!(fam > 0) || String(d.k) === String(n.id)) return null;
   const g = groupMeta(n, d, assim, fam, text);
   if (x) putIn(x, g.k, fam); /* already counted where they live */
@@ -552,14 +605,14 @@ function addGroup(n, d, fam, assim = 0, text, x) { if (!(fam > 0) || String(d.k)
   recalcShares(n); return g; }
 function convertSet(n, dn, s) { /* a conquered settlement: its people become a people among yours */ const e = s.eth || {}, ne = {}; let minor = 0;
   for (const k in e) { minor += e[k]; if (k === String(n.id)) continue; const og = ethOf(dn).find(g => g.k === k); if (!og) continue;
-    ne[k] = e[k]; groupMeta(n, { k, base: og.base, name: og.name, lang: og.lang, lang2: og.lang2, cul: og.cul, relig: og.relig, via: og.via }, 0, e[k] * s.pop); }
-  const main = Math.max(0, 1 - minor); if (main > 0) { ne[String(dn.id)] = main; groupMeta(n, { k: String(dn.id), name: demonym(dn), lang: langOf(dn), cul: dn.cul, relig: dn.relig || "animism" }, 0, main * s.pop); }
+    ne[k] = e[k]; groupMeta(n, { k, base: og.base, name: og.name, lang: og.lang, lang2: og.lang2, cul: og.cul, relig: og.relig, cus: og.cus, via: og.via }, 0, e[k] * s.pop); }
+  const main = Math.max(0, 1 - minor); if (main > 0) { ne[String(dn.id)] = main; groupMeta(n, { k: String(dn.id), name: demonym(dn), lang: langOf(dn), cul: dn.cul, relig: dn.relig || "animism", cus: { ...(dn.cus || {}) } }, 0, main * s.pop); }
   s.eth = ne; }
 /* where another people makes up most of a place, they run it: they set its ways and its welcome */
 function dominantAt(x) { if (!x.eth) return null; let bk = null, bv = .5; for (const k in x.eth) if (x.eth[k] > bv) { bv = x.eth[k]; bk = k; } return bk; }
 function fitPair(a, b) { const f = (p, q) => p === q ? 80 : LANG_FAM[p] && LANG_FAM[p] === LANG_FAM[q] ? 60 : 35;
-  return clamp(Math.max(f(a.lang, b.lang), a.lang2 ? f(a.lang2, b.lang) - 5 : 0, b.lang2 ? f(a.lang, b.lang2) - 5 : 0) + (a.cul && a.cul === b.cul ? 10 : 0) + relFit(a.relig, b.relig), 5, 95); }
-const mainOf = n => ({ k: String(n.id), name: demonym(n), lang: langOf(n), cul: n.cul, relig: n.relig || "animism" });
+  return clamp(Math.max(f(a.lang, b.lang), a.lang2 ? f(a.lang2, b.lang) - 5 : 0, b.lang2 ? f(a.lang, b.lang2) - 5 : 0) + (a.cul && a.cul === b.cul ? 10 : 0) + relFit(a.relig, b.relig) + cusFit(a.cus, b.cus), 5, 95); }
+const mainOf = n => ({ k: String(n.id), name: demonym(n), lang: langOf(n), cul: n.cul, relig: n.relig || "animism", cus: n.cus });
 const foreignAt = (n, x) => { let f = 0; if (x.eth) for (const k in x.eth) { const g = ethOf(n).find(q => q.k === k); f += x.eth[k] * (1 - (g ? g.assim : 0) / 100); } return f; };
 /* for and against newcomers: some fear being outnumbered, employers love the cheap labor */
 function immOpinion(n) { if (n._io && n._io.t === G.turn && n._io.sv === G.sv) return n._io.v; const v = immOpinion0(n); n._io = { t: G.turn, sv: G.sv, v }; return v; }
@@ -579,8 +632,8 @@ const adjOf = n => { const d = demonym(n); return d.endsWith("ians") || d.endsWi
 const yrsAmong = g => Math.max(0, G.year - (g.since != null ? g.since : G.year));
 /* a people that leaves after generations carries its host's ways with it, and becomes a people of two roots */
 function diasporaOf(n, g) { const base = g.base || g.name, same = demonym(n) === base, long = yrsAmong(g) >= 50 && g.assim >= 15 && !same;
-  return long ? { k: `${g.k}~${n.id}`, base, name: `${adjOf(n)} ${base}`, lang: g.lang, lang2: langOf(n), cul: n.cul, relig: g.relig, via: [...(g.via || []), demonym(n)], long }
-    : { k: g.k, base: g.base, name: g.name, lang: g.lang, lang2: g.lang2, cul: g.cul, relig: g.relig, via: g.via, long: false }; }
+  return long ? { k: `${g.k}~${n.id}`, base, name: `${adjOf(n)} ${base}`, lang: g.lang, lang2: langOf(n), cul: n.cul, relig: g.relig, cus: g.cus, via: [...(g.via || []), demonym(n)], long }
+    : { k: g.k, base: g.base, name: g.name, lang: g.lang, lang2: g.lang2, cul: g.cul, relig: g.relig, cus: g.cus, via: g.via, long: false }; }
 function pickHome(n, g) { const c0 = capSet(n), home = g.k.split("~")[0];
   const opts = G.nations.filter(o => o.alive && o.id !== n.id && setsOf(o).length && (dip(n.id, o.id).met || String(o.id) === home)).map(o => { const c = capSet(o) || setsOf(o)[0];
     return { o, sc: trv(o, "open") + (String(o.id) === home ? 15 : 0) + 25 * rnd() - (c0 && c ? Math.hypot(c.x - c0.x, c.y - c0.y) * .6 : 0) - (dip(n.id, o.id).war ? 30 : 0) }; }).sort((a, b) => b.sc - a.sc);
@@ -652,7 +705,7 @@ function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(
 function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = 1 / TPY;
   if (!n.trait) { n.trait = {}; for (const k in TRAITS) n.trait[k] = clamp(tg[k], 0, 100); n.trait.res = Math.max(n.trait.res, 55); }
   const T = n.trait;
-  for (const k in TRAITS) tg[k] += relNudge(n, k);
+  for (const k in TRAITS) tg[k] += relNudge(n, k) + cusNudge(n, k);
   for (const k in TRAITS) { const t = clamp(tg[k], 0, 100), r = k === "res" ? (t > T[k] ? .2 : .03) : .06; T[k] += (t - T[k]) * (1 - Math.pow(1 - r, yrs)); }
   n.traitT = tg; }
 const trv = (n, k) => n.trait && n.trait[k] != null ? n.trait[k] : 50;
@@ -1030,6 +1083,11 @@ function checkGovMil(n, fresh, pend) {
   if (n.era > 0 && add("arms:" + n.era, true)) pend.push({ icon: "⚔️", title: `${ERAS[n.era]} armies`, text: `${ERA_ARMS[n.era]}. Your regiments are much stronger than before, but so are theirs, and upkeep rises.` });
 }
 function checkFaiths(n) {
+  ensureCustoms(n);
+  if (n.ai) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
+  else { const seen = n.cusSeen || (n.cusSeen = {}), fresh = !n.cusSeen._init; seen._init = 1;
+    for (const k in CUSTOMS) for (const o in CUSTOMS[k].opts) { const O = CUSTOMS[k].opts[o], id = k + "." + o; if (seen[id] || !cusOpen(n, O)) continue; seen[id] = 1;
+      if (!fresh && O.tech) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: CUSTOMS[k].icon, title: `A new custom: ${O.name}`, text: `${O.d} Your people could take it up (Laws › Customs › ${CUSTOMS[k].name}).` }); } }
   if (!n.relig) n.relig = n.laws && n.laws.rel === "sec" && relOpen("secular") ? "secular" : "animism";
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
   if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dip(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
@@ -3545,6 +3603,13 @@ function panelPolicy() {
       h += `<h4 style="margin-top:10px">Faith and state</h4><div class="seg"><button class="${n.laws.rel !== "tol" ? "on" : ""}" data-act="law" data-l="rel" data-o="faith" ${locked ? "disabled" : ""}>Enforced</button>${tolOk ? `<button class="${n.laws.rel === "tol" ? "on" : ""}" data-act="law" data-l="rel" data-o="tol" ${locked ? "disabled" : ""}>Tolerated others</button>` : ""}</div>
         <p class="small muted">${n.laws.rel === "tol" ? "Other faiths may worship freely. Balanced; conquered places settle down faster." : "The national faith is the only one allowed. The clergy are pleased, thinkers less so."}</p>`; }
     h += `</div>`; }
+  { const c = ensureCustoms(n);
+    h += `<div class="card"><h4>🎎 Customs</h4><p class="small muted">How your people live. Customs slowly shape your people's character, and peoples whose customs are like yours feel closer to you. Old customs change slowly: each can change once every 10 years.</p>`;
+    for (const k in CUSTOMS) { const C = CUSTOMS[k], cur = C.opts[c[k]], cool = Math.max(0, Math.ceil(((n.cusAt && n.cusAt[k]) != null ? n.cusAt[k] + 10 : -1e9) - G.year));
+      h += `<details class="pcol"><summary><span>${C.icon} ${C.name}</span><span class="muted small">${esc(cur.name)}</span></summary><div class="seg">`;
+      for (const o in C.opts) { const O = C.opts[o]; if (!cusOpen(n, O)) continue; h += `<button class="${c[k] === o ? "on" : ""}" data-act="cus" data-k="${k}" data-o="${o}" ${c[k] === o || cool || locked ? "disabled" : ""}>${esc(O.name)}</button>`; }
+      h += `</div><p class="small muted">${esc(cur.d)}</p>${cur.lean ? `<div class="rtags">${cur.lean.split(" ").map(w => `<span class="rtag">Leans ${w}</span>`).join("")}</div>` : ""}${cool ? `<p class="small warn">Can change again in ${cool} year${cool === 1 ? "" : "s"}.</p>` : ""}</details>`; }
+    h += `</div>`; }
   for (const lk in LAWS) {
     if (lk === "rel") continue; /* shown with the national religion */
     if (tribal(n) && !["cons", "migr"].includes(lk)) continue; // a tribe has only a few customs
@@ -3682,6 +3747,8 @@ panel.addEventListener("click", e => {
         const old = relOf(n); n.relig = k; n.relAt = G.year; n.laws.rel = Q.fam === "none" ? "sec" : (n.laws.rel === "sec" ? "faith" : n.laws.rel);
         if (old.fam !== "folk" || Q.fam !== "folk") { n.facMods.push({ k: "commoners", v: -hit, why: `Change of faith to ${Q.name}`, t: yrsT(10) }); n.facMods.push({ k: "elders", v: -Math.round(hit * 1.2), why: "The old priests lose their place", t: yrsT(15) }); }
         culCache.clear(); n.stab = stabilityOf(n, n.fac); log(`${Q.name} is now the national religion.`, Q.icon); refresh(); hud(); }); break; }
+    case "cus": { const k = b.dataset.k, o = b.dataset.o; ensureCustoms(n)[k] = o; (n.cusAt || (n.cusAt = {}))[k] = G.year;
+      n.facMods.push({ k: "commoners", v: -3, why: `Changing old customs (${CUSTOMS[k].name.toLowerCase()})`, t: yrsT(5) }); toast(`${CUSTOMS[k].opts[o].name}: the new custom will take root over the years`); refresh(); break; }
     case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
     case "nat": openNationDetail(id); break;
     case "world": openPanel("world"); break;
