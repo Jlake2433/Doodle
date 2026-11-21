@@ -915,11 +915,17 @@ const mercUnits = n => (n.mercs || []).reduce((a, m) => a + m.k, 0);
 const forces = n => n.army + mercUnits(n);
 function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m.k, k); m.k -= t; k -= t; if (!k) break; } n.mercs = (n.mercs || []).filter(m => m.k > 0); n.army = Math.max(0, n.army - k); } // hired blades fight in the front rank
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
-const mercCap = n => Math.max(1, Math.ceil(maxArmy(n) * .6));
-const mercFee = (n, k, deal) => Math.round(unitCost(n).g * 1.6 * k * deal.mult);
-const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "private military contractors";
-function hireMercs(n, k, deal) { n.gold -= mercFee(n, k, deal); (n.mercs || (n.mercs = [])).push({ k, left: deal.years * TPY, name: genName(6) }); }
-const power = n => (n.army + .9 * mercUnits(n)) * unitPower(n);
+const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
+// you ask a friendly people for military assistance and they send their own troops, for a fee paid to them
+const MERC_REL = 30;
+const mercSpare = o => Math.max(0, Math.floor(o.army * .35));
+function mercSuppliers(n) { return G.nations.filter(o => { if (!o.alive || o.id === n.id) return false; const d = dip(n.id, o.id);
+  return d.met && !d.war && d.rel >= MERC_REL && mercSpare(o) > 0 && (tradeReach(n, o) || bordersTouch(n, o)) && !G.nations.some(e => atWar(n.id, e.id) && (dip(o.id, e.id).ally)); }); } // they won't fight their own allies
+const mercFee = (o, k, deal) => Math.round(unitCost(o).g * 1.6 * k * deal.mult);
+function hireMercs(n, o, k, deal) { const f = mercFee(o, k, deal); n.gold -= f; o.gold += f; o.army -= k; dip(n.id, o.id).rel += 4;
+  (n.mercs || (n.mercs = [])).push({ k, left: deal.years * TPY, from: o.id, name: o.name }); }
+const mercPow = m => { const o = G.nations[m.from]; return o && o.alive ? unitPower(o) : 0; }; // they fight with their own people's weapons and training
+const power = n => n.army * unitPower(n) + .9 * (n.mercs || []).reduce((a, m) => a + m.k * mercPow(m), 0);
 function maxArmy(n) {
   const u = setsOf(n).reduce((a, s) => a + U(s.pop), 0);
   const rate = { vol: .12, levy: .2, mass: .35 }[n.laws.cons];
@@ -1401,8 +1407,11 @@ function processNation(n) {
     } }
   n.warmonger = Math.max(0, n.warmonger - TD);
   n.used = Math.max(0, (n.used || 0) - forces(n) * TD); // regiments rest and regroup after fighting
-  if (n.mercs && n.mercs.length) { for (const m of n.mercs) m.left--; const done = n.mercs.filter(m => m.left <= 0); n.mercs = n.mercs.filter(m => m.left > 0);
-    for (const m of done) if (!n.ai) log(`The contract with ${m.name}'s ${mercWord(n)} has ended: ${m.k} regiment${m.k === 1 ? "" : "s"} went home.`, "💰"); }
+  if (n.mercs && n.mercs.length) { for (const m of n.mercs) { m.left--; const o = G.nations[m.from]; if (!o || !o.alive) m.left = 0; else if (dip(n.id, o.id).war || dip(n.id, o.id).rel < 0) { m.left = 0; m.broke = true; } }
+    const done = n.mercs.filter(m => m.left <= 0); n.mercs = n.mercs.filter(m => m.left > 0);
+    for (const m of done) { const o = G.nations[m.from]; if (o && o.alive && !dip(n.id, o.id).war) o.army += m.k;
+      if (!n.ai) log(m.broke ? `The ${m.name} have recalled their ${m.k} regiment${m.k === 1 ? "" : "s"}: relations broke down.` : `Your contract with the ${m.name} has ended: their ${m.k} regiment${m.k === 1 ? "" : "s"} went home.`, "💰");
+      else if (o && o.id === G.player) log(`Your ${m.k} regiment${m.k === 1 ? "" : "s"} on loan to the ${nm(n)} have come home.`, "💰"); } }
   // unrest & revolts
   for (const s of setsOf(n)) {
     const foreign = s.c !== n.id && s.c >= 0 ? (n.laws.rel === "tol" ? 15 : 25) : 0;
@@ -1671,8 +1680,9 @@ function aiTurn(n) {
   const want = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratio + 1));
   const uc = unitCost(n);
   void want; void uc; // regiments now come from the military budget (set above)
-  if (wars.length && rnd() < pr(.5)) { const foe = Math.max(...wars.map(o => power(o))), k = Math.min(3, mercCap(n) - mercUnits(n)), deal = MERC_DEALS[0];
-    if (k > 0 && power(n) < foe * 1.1 && n.gold > mercFee(n, k, deal) * 1.5) hireMercs(n, k, deal); }
+  if (wars.length && rnd() < pr(.5)) { const foe = Math.max(...wars.map(o => power(o))), deal = MERC_DEALS[0];
+    const sup = mercSuppliers(n).filter(o => o.ai).sort((a, b) => unitPower(b) - unitPower(a))[0];
+    if (sup && power(n) < foe * 1.1) { const k = Math.min(3, mercSpare(sup)); if (k > 0 && n.gold > mercFee(sup, k, deal) * 1.5) hireMercs(n, sup, k, deal); } }
   // academies and command (close the least useful ones when money runs short)
   if (E.goldNet < 0 && n.gold < 50 * Math.pow(1.5, n.era)) { const x = setsOf(n).filter(x => x.acad || x.mil).sort((a, b) => a.pop - b.pop)[0];
     if (x) { if (x.acad && !(n.cul === "scholarly" && !x.mil)) x.acad = 0; else x.mil = false; } }
@@ -2572,11 +2582,11 @@ function panelMilitary() {
     ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiment${E.armyTarget === 1 ? "" : "s"}${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
     ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
     <p class="muted small">New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
-  { const mw = mercWord(n), cap = mercCap(n), have = mercUnits(n), room = cap - have;
-    h += `<div class="card"><h4>💰 ${mw[0].toUpperCase() + mw.slice(1)}</h4><p class="small muted">A one-time fee buys fighters on a fixed contract. They don't count against your budget or manpower, fight at 90% strength, take losses first, and leave when the contract runs out.</p>
-      ${(n.mercs || []).map(m => line(`${esc(m.name)}'s ${mw}`, `${m.k} regiment${m.k === 1 ? "" : "s"} · ${durTxt(m.left * TD)} left`)).join("")}
-      ${line("Available to hire", `${Math.max(0, room)} regiment${room === 1 ? "" : "s"}`)}
-      <div class="row wrap">${room > 0 ? MERC_DEALS.flatMap(dl => [1, 3].filter(k => k <= room).map(k => { const f = mercFee(n, k, dl); return `<button class="btn small" data-act="merc" data-k="${k}" data-d="${dl.id}" ${n.gold >= f ? "" : "disabled"}>Hire ${k} · ${dl.years} yrs · 🪙${fmt(f)}</button>`; })).join("") : `<span class="small muted">No more ${mw} will sign on right now.</span>`}</div></div>`; }
+  { const mw = mercWord(n), sups = mercSuppliers(n);
+    h += `<div class="card"><h4>🤝 Military assistance</h4><p class="small muted">Ask a people you're on good terms with (relations ${MERC_REL}+) to send troops. You pay them a one-time fee; their troops fight with their own weapons and training at 90% strength, take losses first, and go home when the contract ends or if relations break down. They won't fight their own allies.</p>
+      ${(n.mercs || []).map(m => line(`${esc(m.name)} troops`, `${m.k} regiment${m.k === 1 ? "" : "s"} · ${durTxt(m.left * TD)} left`)).join("")}
+      ${sups.length ? sups.slice(0, 6).map(o => { const sp = mercSpare(o), rel = (unitPower(o) / Math.max(1e-9, unitPower(n)));
+        return `<div class="ln"><span>${o.color ? `<span class="sw" style="background:${o.color}"></span> ` : ""}${esc(o.name)} <small class="muted">${sp} to spare · ${rel >= 1.05 ? `<span class="good">${Math.round(rel * 100)}% of your strength each</span>` : rel <= .95 ? `<span class="bad">${Math.round(rel * 100)}% of your strength each</span>` : "as strong as yours"}</small></span></div><div class="row wrap">${MERC_DEALS.flatMap(dl => [1, 3].filter(k => k <= sp).map(k => { const f = mercFee(o, k, dl); return `<button class="btn small" data-act="merc" data-id="${o.id}" data-k="${k}" data-d="${dl.id}" ${n.gold >= f ? "" : "disabled"}>${k} for ${dl.years} yrs · 🪙${fmt(f)}</button>`; })).join("")}</div>`; }).join("") : `<p class="small muted">No people you're on good enough terms with has troops to spare right now.</p>`}</div>`; }
   h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a quarter). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   // generals
   const gens = (n.generals || []).slice().sort((a, b) => b.skill - a.skill), best = bestGeneral(n);
@@ -2835,6 +2845,8 @@ function openNationDetail(id) {
     else h += `<button class="opt" data-act="dTradeEnd" data-id="${id}"><span class="oi">✂️</span><span class="ot"><b>Cancel trade agreement</b><small>Hurts relations</small></span></button>`;
     if (!d.ally) h += `<button class="opt" data-act="dAlly" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Propose an alliance</b><small>Defend each other. ${aiAccept(o, "ally", n) ? "Likely yes" : "Needs friendlier relations"}</small></span></button>`;
     else h += `<button class="opt" data-act="dAllyEnd" data-id="${id}"><span class="oi">💔</span><span class="ot"><b>End the alliance</b><small>Hurts relations a lot</small></span></button>`;
+    if (mercSuppliers(n).includes(o)) h += `<button class="opt" data-act="army"><span class="oi">🛡️</span><span class="ot"><b>Request military assistance</b><small>They have ${mercSpare(o)} to spare. Hire them in the Army tab.</small></span></button>`;
+    else if (d.rel < MERC_REL && !d.war) h += `<p class="small muted">With relations of ${MERC_REL}+ you could ask them for military assistance.</p>`;
     h += `<button class="opt" data-act="dTrib" data-id="${id}"><span class="oi">👊</span><span class="ot"><b>Demand ${fmt(trib)} gold tribute</b><small>${aiAccept(o, "tribute", n) ? "They fear you" : "They will likely refuse"}. Hurts relations.</small></span></button>`;
     const blocked = n.opposition > 0 ? "The opposition blocks war" : d.truce > 0 ? `Truce for ${durTxt(d.truce)} more` : !bordersTouch(n, o) ? "Your borders don't touch yet. Grow toward them first" : "";
     h += `<button class="opt war" data-act="dWar" data-id="${id}" ${blocked ? "disabled" : ""}><span class="oi">⚔️</span><span class="ot"><b>Declare war</b><small>${blocked || "Breaks treaties. Then attack their settlements from the map."}</small></span></button>`;
@@ -2849,7 +2861,7 @@ panel.addEventListener("click", e => {
   switch (a) {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
-    case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (n.gold < mercFee(n, k, dl)) break; hireMercs(n, k, dl); toast(`Hired ${k} regiment${k === 1 ? "" : "s"} of ${mercWord(n)} for ${dl.years} years`); refresh(); break; }
+    case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
     case "crack": { const x = setById(+b.dataset.s), L = x.lead; confirmModal(`Crack down on ${L.name}?`, `The loophole in ${x.name} closes and your tariff works again there. The city's poor will be angry, and ${L.name} will resent it.`, () => {
         L.loop = null; L.loopKnown = false; L.crack = G.tt + 2; L.loyal = Math.max(1, L.loyal - 1); x.u = Math.min(100, x.u + 12); n.facMods.push({ k: "commoners", v: -4, why: `Crackdown in ${x.name}`, t: 1.5 }); toast("Loophole closed"); hud(); closeSheet(); }); break; }
     case "tdir": n.tradeDir = b.dataset.v; for (const x of setsOf(n)) if (x.lead) { const list = cityInds(n).bySet.get(x.id) || []; x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); } save(); refresh(); break;
@@ -2891,6 +2903,7 @@ panel.addEventListener("click", e => {
     case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
     case "nat": openNationDetail(id); break;
     case "world": openPanel("world"); break;
+    case "army": openPanel("army"); break;
     case "help": showHelp(); break;
     case "newgame": confirmModal("Start a new game?", "Your current people will be lost.", () => { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} G = null; closePanel(); showTitle(); }); break;
     case "peaceYes": { const pp = G.pendingPeace; makePeace(n, G.nations[pp.from], pp.tribute, G.nations[pp.payer] || null); G.pendingPeace = null; G.news = []; refresh(); break; }
@@ -3071,7 +3084,7 @@ function showHelp() {
   <p><b>Cheap goods & the lower class.</b> Ordinary people love cheap, plentiful goods. Tariffs that keep out cheap imports protect your industries but make commoners unhappy, so you can't just tariff everything and call it good.</p>
   <p><b>City leaders.</b> Every town and city has a leader with a trade skill from 1 to 5 stars. Leaders set local trade policy for their city's industries (export drives, quality pushes, buy-local programs) following your national direction and tariffs, but they only get it right as often as their skill allows, and a weak leader's programs do less. Leaders serve a few decades; you can replace one, at a price and with unrest, and the new one's skill is a gamble.</p>
   <p><b>Loopholes.</b> Leaders have a loyalty you can't see. When your tariffs keep out cheap goods their people want, a disloyal leader may quietly open a loophole and let them in to win over the poor. That weakens your tariff and you may not notice for a while. Once you find out, you can crack down (angering the poor and the leader) or look the other way.</p>
-  <p><b>Mercenaries.</b> Your army's size follows your budget; you can't buy troops outright. But you can hire mercenaries (warriors for hire, early on) for a one-time fee on a 2- or 5-year contract. They don't count against your budget or manpower, fight at 90% strength, take losses first, and leave when the contract ends.</p>
+  <p><b>Military assistance.</b> Your army's size follows your budget; you can't buy troops outright. But a people you're on good terms with can send you their troops for a one-time fee, on a 2- or 5-year contract. They fight with their own weapons and training, take losses first, and go home when the contract ends or relations break down.</p>
   <p><b>Public wages.</b> You don't pay private wages, but you do pay everyone the state employs at the going wage: civil servants, scientists, officers, and the workers in nationalized sectors and public projects.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
