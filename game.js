@@ -704,7 +704,7 @@ const ECO_NAME = { markets: "Bronze Working", tariffs: "Currency", embargo: "Cur
 const eco = (n, f) => has(n, ECO[f]);
 // popups the moment a new part of the economy opens up for you
 const UNLOCKS = [
-  { id: "state", ok: n => !!n.stateUp, icon: "📒", title: "Division of labor", text: "Your people have grown too many for hunters and warriors to feed. Families take up trades: farmers, potters, builders, soldiers. Now there's real wealth to manage: instead of dividing the tribe's time, each year you set a budget, the army is paid from it instead of hunting for its keep, and you can choose how you're governed and set laws on taxes and trade." },
+  { id: "state", ok: n => !!n.stateUp, icon: "📒", title: "Division of labor", text: "Your people have grown too many for hunters and warriors to feed. Families take up trades: farmers, potters, builders, soldiers. Now there's real wealth to manage: instead of deciding who hunts and who fights, each year you set a budget, the army is paid from it instead of hunting for its keep, and you can choose how you're governed and set laws on taxes and trade." },
   { id: "markets", ok: n => eco(n, "markets"), icon: "🏭", title: "Industries", text: "Your people now work in industries: Housing, Agriculture, Construction and Mining. In the Trade tab, each one shows what your people need, what you make, and what you buy or sell abroad. You can invest public money in them or subsidize them." },
   { id: "money", ok: n => eco(n, "wages"), icon: "💰", title: "Money", text: "Coins change everything. Workers now earn wages, and better-paid people spend more, which you collect in taxes. You pay everyone the state employs. You can put tariffs on foreign goods and embargo other peoples, and each town's leader now sets local trade policy following the direction you choose in the Trade tab." },
   { id: "levels", ok: n => eco(n, "levels"), icon: "🛠️", title: "Guilds", text: "Craftsmen organize into guilds, so industries now build skill. Steady production and good wages raise each industry's level, and higher levels make more, more cheaply." },
@@ -914,20 +914,30 @@ function unitPower(n) {
 // ---- mercenaries: a one-time fee buys fighters on a fixed contract; they leave when it runs out ----
 const mercUnits = n => (n.mercs || []).reduce((a, m) => a + m.k, 0);
 const forces = n => n.army + mercUnits(n);
-function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m.k, k); m.k -= t; k -= t; if (!k) break; } n.mercs = (n.mercs || []).filter(m => m.k > 0); n.army = Math.max(0, n.army - k); } // hired blades fight in the front rank
+function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m.k, k); m.k -= t; k -= t; if (!k) break; } n.mercs = (n.mercs || []).filter(m => m.k > 0); // hired blades fight in the front rank
+  const own = Math.min(n.army, k);
+  if (own > 0 && tribal(n)) { // a tribe's war bands are its own sons and daughters
+    const sets = setsOf(n), pop = sets.reduce((a, x) => a + x.pop, 0), dead = Math.min(pop * .5, own * pop * timeShare(n, "warrior") / Math.max(1, n.army) * .7);
+    for (const x of sets) x.pop = Math.max(2, x.pop - dead * x.pop / Math.max(1, pop));
+    if (n.id === G.player && dead >= 1) log(`${Math.round(dead)} of your warriors died in battle. The tribe mourns them, and there are fewer hands for everything else.`, "⚰️"); }
+  n.army = Math.max(0, n.army - k); }
 // ---- the tribal stage: no budget and hardly any government. Warriors hunt and fight; the tribe fields everyone who can.
 // It ends with the division of labor, once there are too many mouths for hunters and warriors to feed ----
 const STATE_POP = 2000;
 const tribal = n => !n.stateUp;
-// a tribe has no budget: it has time. How the people spend their days decides food, fighting skill, tools, lore and what they discover
+// a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
 const TIME = {
-  hunt:  { name: "Hunting & gathering", icon: "🏹", def: 40, d: "Brings home food." },
-  train: { name: "Warrior training", icon: "⚔️", def: 20, d: "Makes your warriors better fighters." },
-  craft: { name: "Toolmaking", icon: "🪓", def: 20, d: "Stone tools, baskets and huts: materials." },
-  lore:  { name: "Rituals & lore", icon: "🔥", def: 10, d: "Elders teach and the tribe holds together: research and the elders' favor." },
-  scout: { name: "Scouting", icon: "🧭", def: 10, d: "Scouts range far: you see more of the land and meet neighbors sooner." },
+  warrior: { name: "Warriors", icon: "⚔️", def: 20, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
+  food:    { name: "Hunters & gatherers", farm: "Farmers & herders", icon: "🏹", farmIcon: "🌾", def: 45, d: "Feed the tribe." },
+  build:   { name: "Builders", icon: "🪓", def: 20, d: "Huts, tools and stores: materials." },
+  elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
+  scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Range far: you see more of the land and meet neighbors sooner." },
 };
-function timeOf(n) { if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; } return n.time; }
+const roleName = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farm : TIME[k].name;
+const roleIcon = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farmIcon : TIME[k].icon;
+function timeOf(n) {
+  if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
+  if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; } return n.time; }
 const timeShare = (n, k) => { const t = timeOf(n); let sum = 0; for (const x in TIME) sum += t[x] || 0; return sum > 0 ? (t[k] || 0) / sum : 0; };
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
 const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
@@ -1039,7 +1049,7 @@ function econ(n) {
   const luxGold = (luxKinds * .6 + luxExtra * 1.5) * (1 + .3 * n.era) * (L.trade === "prot" ? .6 : 1);
   const strat = stratStatus(n);
   const imports = strat.reduce((a, s) => a + s.cost, 0);
-  if (tribal(n)) { food *= .85 + .5 * timeShare(n, "hunt"); mat *= .85 + timeShare(n, "craft"); sci *= .85 + 1.5 * timeShare(n, "lore"); } // how the tribe spends its time
+  if (tribal(n)) { food *= .7 + .9 * timeShare(n, "food"); mat *= .8 + timeShare(n, "build"); sci *= .85 + 1.5 * timeShare(n, "elder"); } // who does what in the tribe
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
   const armyUp = tribal(n) ? 0 : n.army * unitUpkeep(n);
@@ -1050,9 +1060,9 @@ function econ(n) {
   const TB = tribal(n), up1 = unitUpkeep(n), manpower = maxArmy(n);
   const milGold = TB ? 0 : pctG("mil");
   let qtyGold = milGold * (1 - Bd.qual / 100), qualGold = milGold - qtyGold;
-  const armyTarget = TB ? manpower : Math.min(manpower, Math.floor(qtyGold / up1 + 1e-9)); // a tribe fields everyone who can fight
+  const armyTarget = TB ? Math.round(manpower * timeShare(n, "warrior") / .2) : Math.min(manpower, Math.floor(qtyGold / up1 + 1e-9)); // a tribe fields everyone who can fight
   const spare = TB ? 0 : Math.max(0, qtyGold - manpower * up1); qtyGold -= spare; qualGold += spare; // more money than men: it goes into quality
-  const milFund = TB || armyUp <= 0 ? 1 : qtyGold / armyUp, milQual = TB ? 1.5 * timeShare(n, "train") : qualGold / (Math.max(1, n.army, armyTarget) * up1);
+  const milFund = TB || armyUp <= 0 ? 1 : qtyGold / armyUp, milQual = TB ? .3 : qualGold / (Math.max(1, n.army, armyTarget) * up1);
   n.milFund = milFund; n.milQual = milQual;
   const prodGold = TB ? 0 : pctG("prod"), prodBoost = TB ? 0 : prodBoostOf(n); mat *= 1 + prodBoost + (TB ? 0 : welfareWork(n));
   const travelGold = TB ? 0 : pctG("travel"), subGold = TB ? 0 : pctG("sub"), propGold = TB ? 0 : pctG("prop");
@@ -1164,7 +1174,7 @@ function facTargets(n, E) {
     add("warriors", Math.round(clamp(mf - 1, -1, 1) * 12), mf < 1 ? "Army underpaid" : "Military budget");
     add("commoners", Math.round(2 * Math.sqrt(B0.sub)), "Subsidies"); add("merchants", Math.round(1.5 * Math.sqrt(B0.sub)), "Subsidies");
     add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income");
-    if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "lore") - .1)), "Time for rituals & lore"); add("warriors", Math.round(40 * (timeShare(n, "train") - .2)), "Time for training"); }
+    if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
     { let nat = 0, tar = 0, sub = 0; for (const k in n.sec || {}) { if (!secUnlocked(n, k)) continue; const st = n.sec[k]; if (st.nat) nat++; if (st.tar && tradeOpen(n)) tar += st.tar; if (st.sub && !st.nat) sub += st.sub; }
       let emb = 0; for (const o of G.nations) if (o.alive && o.id !== n.id && dip(n.id, o.id).emb) emb++;
@@ -1221,7 +1231,7 @@ function updateExplore() {
     for (const d of G.fog.slice().sort((a, b) => b.r - a.r)) if (!keep.some(k => Math.hypot(k.x - d.x, k.y - d.y) + d.r <= k.r + .003)) keep.push(d);
     G.fog = keep; }
   if (has(n, "flight")) { G.fogAll = true; G.exp.fill(1); return; }
-  const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .85 + 1.5 * timeShare(n, "scout") : 1);
+  const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1);
   for (const s of setsOf(n)) addDisc(s.x, s.y, (s.h || .1) * 1.5 + sight * (1 + s.t * .6));
   for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
     const c = capSet(o); if (c) addDisc(c.x, c.y, .5);
@@ -1666,7 +1676,7 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
-    Object.assign(t, { hunt: E.surplus < 0 ? 60 : 35, train: war ? 35 : 15, craft: n.pers === "builder" ? 30 : 20, lore: n.cul === "scholarly" ? 25 : 10, scout: n.pers === "trader" ? 15 : 8 }); }
+    Object.assign(t, { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 }); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
     B0.qual = n.pers === "aggressive" ? 20 : n.cul === "martial" ? 30 : 15;
@@ -2498,23 +2508,24 @@ function armyBudgetHTML(n) {
 }
 function timeHTML(n) {
   const t = timeOf(n);
-  return `<div class="budget timeal">${Object.entries(TIME).map(([k, x]) => `<div class="bl"><label><span>${x.icon} ${x.name}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="rec" data-trec></p></div>`;
+  return `<div class="budget timeal">${Object.entries(TIME).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="rec" data-trec></p></div>`;
 }
 function timeFill(root) {
   if (!root || !G) return; const n = P(), E = econM(n), sh = k => timeShare(n, k), set = (sel, v) => { const el = root.querySelector(sel); if (el) el.innerHTML = AW(v); };
-  for (const k in TIME) set(`[data-tv="${k}"]`, `${Math.round(sh(k) * 100)}% of the time`);
-  const pc = v => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}%`;
-  set('[data-tx="hunt"]', `${pc(.5 * sh("hunt") - .15)} food. ${TIME.hunt.d}`);
-  set('[data-tx="train"]', `<span class="good">+${Math.round((qualMult(1.5 * sh("train")) - 1) * 100)}% warrior strength</span>. ${TIME.train.d}`);
-  set('[data-tx="craft"]', `${pc(sh("craft") - .15)} materials. ${TIME.craft.d}`);
-  set('[data-tx="lore"]', `${pc(1.5 * sh("lore") - .15)} research. ${TIME.lore.d}`);
-  set('[data-tx="scout"]', `${pc(1.5 * sh("scout") - .15)} how far you see. ${TIME.scout.d}`);
+  const pop = popOf(n);
+  for (const k in TIME) set(`[data-tv="${k}"]`, `${Math.round(sh(k) * 100)}% · ${fmtP(pop * sh(k))} people`);
+  const pc = v => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}%`, wb = Math.round(maxArmy(n) * sh("warrior") / .2);
+  set('[data-tx="warrior"]', `Fields <b>${wb}</b> war band${wb === 1 ? "" : "s"}. ${TIME.warrior.d}`);
+  set('[data-tx="food"]', `${pc(.9 * sh("food") - .3)} food. ${TIME.food.d}`);
+  set('[data-tx="build"]', `${pc(sh("build") - .2)} materials. ${TIME.build.d}`);
+  set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
+  set('[data-tx="scout"]', `${pc(2 * sh("scout") - .1)} how far you see. ${TIME.scout.d}`);
   const war = G.nations.some(o => atWar(n.id, o.id)), hungry = E.surplus < 0;
-  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? "More hunting and gathering (50%+)." : war ? "More warrior training (30–40%)." : "Hunting ~35%, training ~20%, toolmaking ~20%, lore ~10–15%, scouting ~10%."}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war: trained warriors win fights and lose fewer men." : "Enough food to grow, warriors ready if a neighbor turns hostile, tools for building, and scouts to find who's out there."}</small>`);
+  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, "food").toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 20% warriors, 45% ${roleName(n, "food").toLowerCase()}, 20% builders, 10% elders, 5% scouts.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
 }
 function openTime(yearly) {
   const n = P();
-  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Time allocation"}</h2><p class="small">How should your people spend their days?</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
+  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
   timeFill(modal.querySelector(".timeal"));
 }
 function openBudget(yearly) {
@@ -2546,7 +2557,7 @@ function panelNation() {
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
-  if (tribal(n)) h += `<div class="card"><h4>⏳ Time allocation <span class="muted">how your people spend their days</span></h4>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label></div>`;
+  if (tribal(n)) h += `<div class="card"><h4>👥 Who does what <span class="muted">your people's roles</span></h4>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label></div>`;
   if (!tribal(n)) h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per quarter</span></h4>
     ${line(`Taxes${E.spendM !== 1 ? ` <small class="muted">(spending ${E.spendM >= 1 ? "+" : "−"}${Math.round(Math.abs(E.spendM - 1) * 100)}%)</small>` : ""}`, sgn(E.tax))}${line("Trade (automatic)", sgn(E.routeGold))}${line("Luxury exports", sgn(E.luxGold))}${E.foodGold ? line("Surplus food sold", sgn(E.foodGold)) : ""}
@@ -2632,7 +2643,7 @@ function panelMilitary() {
       ${(n.mercs || []).map(m => line(`${esc(m.name)} troops`, `${m.k} regiment${m.k === 1 ? "" : "s"} · ${durTxt(m.left * TD)} left`)).join("")}
       ${sups.length ? sups.slice(0, 6).map(o => { const sp = mercSpare(o), rel = (unitPower(o) / Math.max(1e-9, unitPower(n)));
         return `<div class="ln"><span>${o.color ? `<span class="sw" style="background:${o.color}"></span> ` : ""}${esc(o.name)} <small class="muted">${sp} to spare · ${rel >= 1.05 ? `<span class="good">${Math.round(rel * 100)}% of your strength each</span>` : rel <= .95 ? `<span class="bad">${Math.round(rel * 100)}% of your strength each</span>` : "as strong as yours"}</small></span></div><div class="row wrap">${MERC_DEALS.flatMap(dl => [1, 3].filter(k => k <= sp).map(k => { const f = mercFee(o, k, dl); return `<button class="btn small" data-act="merc" data-id="${o.id}" data-k="${k}" data-d="${dl.id}" ${n.gold >= f ? "" : "disabled"}>${k} for ${dl.years} yrs · 🪙${fmt(f)}</button>`; })).join("")}</div>`; }).join("") : `<p class="small muted">No people you're on good enough terms with has troops to spare right now.</p>`}</div>`; }
-  if (tribal(n)) h += `<div class="card"><h4>⚔️ Warrior training</h4>${line("Share of the tribe's time", `${Math.round(timeShare(n, "train") * 100)}%`)}${line("Training", `<span class="good">+${Math.round((qualMult(1.5 * timeShare(n, "train")) - 1) * 100)}% strength</span>`)}<div class="row wrap"><button class="btn small ghost" data-act="timeal">⏳ Change time allocation</button></div></div>`;
+  if (tribal(n)) h += `<div class="card"><h4>⚔️ Your warriors</h4>${line("Share of your people", `${Math.round(timeShare(n, "warrior") * 100)}% · ${fmtP(popOf(n) * timeShare(n, "warrior"))} people`)}<p class="small muted">Warriors are your own people: they gather no food, and every one killed in battle is lost to the tribe.</p><div class="row wrap"><button class="btn small ghost" data-act="timeal">👥 Change who does what</button></div></div>`;
   else h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a quarter). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   if (has(n, "bronze")) {
   // generals
@@ -3230,7 +3241,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK };
+window.__c2c = { get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
