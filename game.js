@@ -594,10 +594,10 @@ function nearSets(x, y, r) {
 }
 function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false) {
   const nn = G.nations[nid];
-  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || (nn.prod && nn.prod.built.canoe > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
+  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
-  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
+  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, b: { hut: Math.ceil(pop) }, pq: [], qp: 0, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
   if (from && nid === G.player && G.fog) { // the settlers know the way they walked
     const d = Math.hypot(x - from.x, y - from.y), steps = Math.ceil(d / .8);
     for (let i = 1; i < steps; i++) addDisc(from.x + (x - from.x) * i / steps, from.y + (y - from.y) * i / steps, .9);
@@ -618,7 +618,7 @@ function growBorders() {
     if (s.hp < HP[s.t] && G.tt - (s.hit || 0) > 3) s.hp++;
     if (s.h == null) s.h = hOf(s) * .6; }
   for (const s of G.sets) {
-    let target = hOf(s) * 1.9; // worked land plus the free hunting and grazing land around it
+    let target = hOf(s) * 1.9 * (1 + .25 * (s.exp || 0)); // worked land plus the free hunting and grazing land around it, and any land you've chosen to claim
     const near = nearSets(s.x, s.y, 9);
     let gapMin = 1e9; for (const o of near) if (o.o !== s.o) gapMin = Math.min(gapMin, chebGap(s, o));
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
@@ -787,6 +787,7 @@ function upgrade(n, s) {
     const mates = mergeMates(n, s);
     for (const m of mates) { s.pop += m.pop; if (n.cap === m.id) n.cap = s.id; G.sets.splice(G.sets.indexOf(m), 1); }
     s.u = Math.min(s.u, ...mates.map(m => m.u)); s.ov = 0; s.crowd = false;
+    sb(s); for (const m of mates) if (m.b) for (const k in m.b) s.b[k] = (s.b[k] || 0) + m.b[k];
     if (!n.ai) log(`${[s, ...mates].map(x => x.name).join(", ").replace(/, ([^,]*)$/, " and $1")} merged into the town of ${s.name}!`, "🏘️");
   } else if (!n.ai) log(`${s.name} grew into a city!`, "🏙️");
   s.t++; G.sv++;
@@ -1081,6 +1082,11 @@ const STRUCTS = {
   shop:     { tab: "crafts", tech: "pottery", name: "Workshops", one: "workshop", icon: "🪓", hours: 5000, d: "One for every 4 builder families. Toolmakers work faster: more materials." },
   shrine:   { tab: "spirit", tech: "mysticism", name: "Shrines", one: "shrine", icon: "🔥", hours: 12000, d: "One in every settlement. The elders are pleased, and the tribe's lore grows." },
   palisade: { tab: "defense", name: "Palisades", one: "palisade", icon: "🪵", hours: 26000, d: "One around every settlement. Much harder to raid or conquer." },
+  hall:     { tab: "housing", tier: 1, name: "Meeting hall", one: "meeting hall", icon: "🏛️", hours: 9000, d: "Towns only. Where the town gathers to settle matters: much less unrest here." },
+  granary:  { tab: "food", tier: 1, tech: "pottery", name: "Granary", one: "granary", icon: "🌾", hours: 8000, d: "Towns only. A great store for the whole town: famine barely touches it." },
+  market:   { tab: "crafts", tier: 1, name: "Market square", one: "market square", icon: "🧺", hours: 8000, d: "Towns only. Traders from far and near gather here: +15% gold from this town." },
+  rampart:  { tab: "defense", tier: 1, name: "Earthen rampart", one: "earthen rampart", icon: "⛰️", hours: 18000, d: "Towns only. A great bank and ditch: this town is far harder to take." },
+  temple:   { tab: "spirit", tier: 2, name: "Temple", one: "temple", icon: "🛕", hours: 30000, d: "Cities only. A house for the gods: stability across your lands and elders' favor." },
   canoe:    { tab: "food", name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
 };
 const GREAT = [
@@ -1096,31 +1102,44 @@ function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, as
   return P0; }
 const projDone = (n, k) => !!(n && n.prod && n.prod.done && n.prod.done[k]);
 const coastal = n => setsOf(n).some(x => W.regions[x.r].c);
-function structDemand(n, k) {
-  const fam = popOf(n), sh = x => tribal(n) ? timeShare(n, x) : 0;
+// every village, town and city has its own needs and its own builders
+function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop) }; if (!x.pq) { x.pq = []; x.qp = 0; } return x.b; }
+const onCoast = x => !!W.regions[x.r].c;
+function needAt(n, x, k) {
+  const fam = x.pop, sh = r => tribal(n) ? timeShare(n, r) : 0, it = STRUCTS[k];
+  if (it.tier && x.t < it.tier) return 0;
   switch (k) {
     case "hut": return Math.ceil(fam);
     case "pit": return Math.ceil(fam / 8);
     case "rack": return Math.ceil(fam * sh("food") / 6);
     case "shop": return Math.ceil(fam * sh("build") / 4);
-    case "shrine": case "palisade": return setsOf(n).length;
-    case "canoe": return coastal(n) ? Math.ceil(fam * sh("food") / 5) : 0;
-  } return 0;
-}
-const structCov = (n, k) => { if (!n || !tribal(n)) return 1; const d = structDemand(n, k); return d > 0 ? Math.min(1, ((n.prod && n.prod.built[k]) || 0) / d) : 1; };
-const builderHours = n => popOf(n) * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS;
-function workProjects(n) { // builders work on one thing at a time, in the order you queued them
-  if (!tribal(n)) return; const P0 = prodState(n);
-  let hrs = builderHours(n), guard = 0;
-  while (hrs > 0 && P0.queue.length && guard++ < 12) {
-    const it = itemOf(P0.queue[0]); if (!it || (!it.repeat && P0.done[it.id])) { P0.queue.shift(); P0.qprog = 0; continue; }
-    const need = it.hours - P0.qprog, use = Math.min(need, hrs); P0.qprog += use; hrs -= use;
-    if (P0.qprog >= it.hours - 1e-6) { P0.queue.shift(); P0.qprog = 0;
-      if (it.repeat) P0.built[it.id] = (P0.built[it.id] || 0) + 1;
-      else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`Your builders finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); } }
+    case "shrine": case "palisade": return 1;
+    case "canoe": return onCoast(x) ? Math.ceil(fam * sh("food") / 5) : 0;
+    default: return 1; // town and city buildings: one each
   }
 }
+const builtAt = (x, k) => (x.b && x.b[k]) || 0;
+function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
+function structCov(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
+const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS;
+const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
+const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x));
+function workProjects(n) { // each settlement's builders work through its own queue, one thing at a time
+  if (!tribal(n)) return; const P0 = prodState(n);
+  for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x), guard = 0;
+    while (hrs > 0 && x.pq.length && guard++ < 12) {
+      const it = itemOf(x.pq[0]); if (!it || (!it.repeat && P0.done[it.id])) { x.pq.shift(); x.qp = 0; continue; }
+      const use = Math.min(it.hours - x.qp, hrs); x.qp += use; hrs -= use;
+      if (x.qp >= it.hours - 1e-6) { x.pq.shift(); x.qp = 0;
+        if (it.repeat) x.b[it.id] = (x.b[it.id] || 0) + 1;
+        else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); }
+        if (it.repeat && it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); } } }
+}
 const seasonsTxt = q => q < 1 ? "less than a season" : q <= 8 ? `about ${Math.ceil(q)} season${Math.ceil(q) === 1 ? "" : "s"}` : `about ${Math.round(q / 4)} years`;
+// ---- expanding borders: a settlement can claim a little more land, but it must be guarded ----
+const EXP_MAX = 2;
+const garrisonNeed = n => setsOf(n).reduce((a, x) => a + (x.exp || 0) * (1 + x.t), 0);
+const garrisonMult = n => { const need = garrisonNeed(n); return need > 0 ? clamp(.55 + .45 * forces(n) / need, .55, 1) : 1; };
 const popWord = n => n && tribal(n) ? "families" : "people";
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
 const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
@@ -1206,6 +1225,7 @@ function econ(n) {
     let g = (u * T.gold * .5 * tier.gold + tier.base) * taxM * (1 + b.gold + goldLaw) * stabM * unrestM * anarchy;
     let m = (u * T.prod * .6 * tier.mat + tier.base) * (1 + b.prod + prodLaw) * stabM * unrestM * anarchy;
     let sc = u * .2 * tier.sci * (1 + b.sci + sciLaw) * stabM * anarchy;
+    if (builtAt(s, "market")) g *= 1.15;
     g *= spendM; // consumer spending: better wages mean more taxed spending
     if (s.lead && s.lead.pol) { const np = Object.values(s.lead.pol).filter(v => v !== "none").length; g *= 1 - .04 * np; } // local programs come out of the city's own taxes
     const hb = HB.get(s.id); if (hb) { g *= hb.tax; f *= hb.other; m *= hb.other; sc *= hb.other; } // a dominant industry enriches its city but crowds out everything else there
@@ -1359,6 +1379,7 @@ function facTargets(n, E) {
     add("commoners", Math.round(2 * Math.sqrt(B0.sub)), "Subsidies"); add("merchants", Math.round(1.5 * Math.sqrt(B0.sub)), "Subsidies");
     add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income");
     if (projDone(n, "stones")) add("elders", 6, "Stone circle");
+    { const tp = setsOf(n).filter(x => builtAt(x, "temple")).length; if (tp) { add("elders", Math.min(12, 6 * tp), "Temples"); add("commoners", Math.min(8, 3 * tp), "Temples"); } }
     if (tribal(n)) { add("elders", Math.round(6 * structCov(n, "shrine")), "Shrines"); add("commoners", -Math.round(14 * (1 - structCov(n, "hut"))), "Families without huts"); }
     if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
@@ -1427,7 +1448,7 @@ function updateExplore() {
     const lp = getLandPath();
     while (sets.length && n.scoutAcc >= 1) { n.scoutAcc--;
       const from = pick(sets), a = rnd() * Math.PI * 2, d = (from.h || .1) + rnd() * walk, x = from.x + Math.cos(a) * d, y = from.y + Math.sin(a) * d;
-      if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing") || (n.prod && n.prod.built.canoe > 0)) addDisc(x, y, .7); } }
+      if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing") || setsOf(n).some(x => builtAt(x, "canoe") > 0)) addDisc(x, y, .7); } }
   for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
     const c = capSet(o); if (c) addDisc(c.x, c.y, .5);
     if (dip(n.id, o.id).trade || dip(n.id, o.id).ally) for (const s of setsOf(o)) if (s.t >= 1) addDisc(s.x, s.y, s.h * 2 + .3); }
@@ -1533,7 +1554,7 @@ function processNation(n) {
       const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr)) * (tribal(n) ? .3 + .7 * structCov(n, "hut") : 1) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
       const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
-    } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (1 - .6 * structCov(n, "pit")), TD); s.g = 0; }
+    } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
     if (s.t === 0 && s.pop > cap) s.pop = cap;
     s.pop = Math.max(2, s.pop);
@@ -1645,7 +1666,7 @@ function processNation(n) {
     const foreign = s.c !== n.id && s.c >= 0 ? (n.laws.rel === "tol" ? 15 : 25) : 0;
     const b = B(n.id, s.r); let roads = 0; for (const k in b) roads += BK[k].unrest || 0;
     const hbU = hubsOf(n).bySet.get(s.id), loopU = s.lead && s.lead.loop ? -6 : 0;
-    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q + (hbU ? hbU.unrest : 0) + loopU - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
+    const target = Math.max(0, (50 - n.stab) * 1.1) + foreign + s.q + (hbU ? hbU.unrest : 0) + loopU - (builtAt(s, "hall") ? 12 : 0) - roads - 3 * welfareLv(n) - (s.id === n.cap ? 15 : 0) - (G.regions[s.r].ctrl === n.id ? 5 : 0);
     s.u += (clamp(target, 0, 100) - s.u) * pr(.3);
     if (s.q > 0) s.q = Math.max(0, s.q - 3 * TD);
     if (s.c !== n.id && s.c >= 0 && s.u < 25 && rnd() < pr(.06)) { s.c = n.id; if (!n.ai) log(`${s.name} now considers itself part of your nation.`, "🫶"); }
@@ -1774,8 +1795,8 @@ function upheaval(n) {
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
-  const m = TIERS[s.t].def + fb(d, "def") + (d.prod && tribal(d) ? .35 * structCov(d, "palisade") : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
-  return { units, power: (units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m) * defMult(d) };
+  const m = TIERS[s.t].def + fb(d, "def") + (builtAt(s, "palisade") ? .35 : 0) + (builtAt(s, "rampart") ? .5 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
+  return { units, power: (units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m) * defMult(d) * garrisonMult(d) }; // claimed land left unguarded is easier to break into
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
 function winChance(n, s, units) {
@@ -1875,9 +1896,11 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const P0 = prodState(n);
-    if (P0.queue.length < 2) { let best = null, bs = 0; for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpen(n, it)) continue; const d = structDemand(n, k), sh = d ? 1 - (P0.built[k] || 0) / d - P0.queue.filter(x => x === k).length / Math.max(1, d) : 0; if (sh > bs) { bs = sh; best = k; } }
-      if (best) P0.queue.push(best); else { const g = GREAT.find(x => !P0.done[x.id] && itemOpen(n, x) && n.mat >= x.mat && !P0.queue.includes(x.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; P0.queue.push(g.id); } } } }
-  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
+    for (const x of setsOf(n)) { sb(x); if (x.pq.length >= 2) continue; let best = null, bs = 0;
+      for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = 1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d; if (sh > bs) { bs = sh; best = k; } }
+      if (best) x.pq.push(best);
+      else if (x.id === n.cap) { const g = GREAT.find(q => !P0.done[q.id] && itemOpen(n, q) && n.mat >= q.mat && !x.pq.includes(q.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; x.pq.push(g.id); } } }
+    if (rnd() < pr(.2) && forces(n) >= garrisonNeed(n) + 2) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const want = { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
@@ -2626,6 +2649,7 @@ function setRow(s, n) {
   let acts = "";
   if (mine) {
     acts += `<button class="btn small ghost" data-act="renameCity" data-s="${s.id}">✍️ Rename</button>`;
+    if (tribal(n)) acts += `<button class="btn small ghost" data-act="prodAt" data-s="${s.id}">🛠️ Build & borders</button>`;
     const biggest = setsOf(n).filter(x => x.r === s.r && x.t === 0).sort((a, b) => b.pop - a.pop)[0];
     if (s.t === 0 && biggest === s) { const c = townCheck(n, s);
       acts += `<button class="btn small" data-act="town" data-s="${s.id}" ${c.ok ? "" : "disabled"}>🏘️ Merge ${VILLAGES_FOR_TOWN} villages into a town · ${costTxt(townCost(n))}</button><span class="why">${c.ok ? `Merges ${esc(s.name)} with ${c.mates.map(m => esc(m.name)).join(", ")} (${fmtP(s.pop + c.mates.reduce((a, m) => a + m.pop, 0))} people)` : esc(c.why || "")}</span>`; }
@@ -2819,6 +2843,7 @@ function openBudget(yearly) {
 }
 function secInput(e) { const t = e.target; if (!t.dataset || t.dataset.sinv == null || !G) return; const n = P(), k = t.dataset.sinv; secOf(n, k).inv = +t.value; const lab = panel.querySelector(`[data-sv="${k}"]`); if (lab) lab.textContent = `${t.value}% · ${fmt(econM(n).raw.sectors[k].ig * TD)} 🪙`; hud(); }
 panel.addEventListener("input", secInput);
+panel.addEventListener("change", e => { if (e.target.id === "prodSet") { prodSet = +e.target.value; refresh(); } });
 [panel, modal].forEach(el => el.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.time && G) { const t = timeOf(P()), k = e.target.dataset.time; let others = 0; for (const x in TIME) if (x !== k) others += t[x] || 0;
     const v = Math.min(+e.target.value, 100 - others); if (+e.target.value !== v) e.target.value = v; t[k] = v; /* only what's left unassigned can be given */ timeFill(e.target.closest(".timeal")); hud(); } }));
 [panel, modal].forEach(el => el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.time) save(); }));
@@ -2870,32 +2895,40 @@ function panelNation() {
   h += `<div class="card"><h4>Game</h4><div class="row wrap"><button class="btn small ghost" data-act="help">How to play</button><button class="btn small ghost" data-act="newgame">New game</button></div></div>`;
   return h;
 }
-let prodTab = "housing";
+let prodTab = "housing", prodSet = null;
 function panelProduction(n) {
-  const P0 = prodState(n), H = Math.max(1e-9, builderHours(n));
-  const tabs = Object.entries(PROD_TABS).filter(([t]) => [...Object.keys(STRUCTS).map(itemOf), ...GREAT].some(it => it.tab === t && itemOpen(n, it)));
-  if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
-  const cur = P0.queue.length ? itemOf(P0.queue[0]) : null;
-  let h = ph("Production", cur ? `Building: ${cur.icon} ${esc(cur.repeat ? cur.one : cur.name)} · ${seasonsTxt((cur.hours - P0.qprog) / H)}` : "Your builders are idle");
-  // the queue
-  h += `<div class="card"><h4>🔨 Being built</h4>`;
-  if (!P0.queue.length) h += `<p class="small muted">Nothing. Pick something to build below. More builders (Who does what, on the Nation tab) build faster.</p>`;
-  else { let t = 0; h += P0.queue.map((id, i) => { const it = itemOf(id); t += (it.hours - (i ? 0 : P0.qprog)) / H;
-    return `<div class="ln"><span>${it.icon} ${esc(it.repeat ? capW(it.one) : it.name)}${i === 0 ? ` <small class="muted">${Math.floor(P0.qprog / it.hours * 100)}%</small>` : ""}</span><b>${seasonsTxt(t)} <button class="btn small ghost" data-act="pdel" data-k="${i}" aria-label="Remove">✕</button></b></div>${i === 0 ? `<div class="bar"><i style="width:${Math.min(100, P0.qprog / it.hours * 100)}%;background:var(--accent)"></i></div>` : ""}`; }).join(""); }
+  const P0 = prodState(n), sets = setsOf(n).slice().sort((a, b) => b.t - a.t || b.pop - a.pop);
+  let x = setById(prodSet); if (!x || x.o !== n.id) { x = setById(n.cap) || sets[0]; prodSet = x ? x.id : null; }
+  if (!x) return ph("Production", "") + `<p class="note">You have no settlements.</p>`;
+  sb(x); const H = Math.max(1e-9, builderHoursAt(n, x));
+  const lacking = y => Object.keys(STRUCTS).some(k => itemOpenAt(n, y, itemOf(k)) && builtAt(y, k) < needAt(n, y, k) && (k === "hut" || k === "palisade"));
+  let h = ph("Production", `${TIERS[x.t].name} of ${esc(x.name)} · ${fmtP(x.pop)} families`);
+  h += `<label class="fld">Settlement<select id="prodSet">${sets.map(y => `<option value="${y.id}" ${y.id === x.id ? "selected" : ""}>${y.t === 2 ? "🏙️" : y.t === 1 ? "🏘️" : "🛖"} ${esc(y.name)} · ${fmtP(y.pop)} families${(y.pq && y.pq.length) ? ` · building` : ""}${lacking(y) ? " ⚠️" : ""}</option>`).join("")}</select></label>`;
+  const cur = x.pq.length ? itemOf(x.pq[0]) : null;
+  h += `<div class="card"><h4>🔨 Being built in ${esc(x.name)}</h4>`;
+  if (!x.pq.length) h += `<p class="small muted">Nothing. Pick something below. Each settlement's own builder families do the work; more builders (Who does what) build faster.</p>`;
+  else { let t = 0; h += x.pq.map((id, i) => { const it = itemOf(id); t += (it.hours - (i ? 0 : x.qp)) / H;
+    return `<div class="ln"><span>${it.icon} ${esc(it.repeat ? capW(it.one) : it.name)}${i === 0 ? ` <small class="muted">${Math.floor(x.qp / it.hours * 100)}%</small>` : ""}</span><b>${seasonsTxt(t)} <button class="btn small ghost" data-act="pdel" data-k="${i}" aria-label="Remove">✕</button></b></div>${i === 0 ? `<div class="bar"><i style="width:${Math.min(100, x.qp / it.hours * 100)}%;background:var(--accent)"></i></div>` : ""}`; }).join(""); }
   h += `</div>`;
-  // category tabs
-  h += `<div class="seg ptabs">${tabs.map(([t, x]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${x.icon} ${x.name}</button>`).join("")}</div>`;
-  const items = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => it.tab === prodTab && itemOpen(n, it));
-  h += `<div class="card">`;
-  for (const it of items) {
-    const queued = P0.queue.filter(x => x === it.id).length, time = seasonsTxt(it.hours / H);
-    if (it.repeat) { const dem = structDemand(n, it.id), have = P0.built[it.id] || 0, short = Math.max(0, dem - have);
-      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${it.name}</b></span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}</b></div><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
-        <p class="small muted">${esc(it.d)} ${short ? `<b class="bad">${fmtP(short)} short.</b>` : "Enough for now."} One takes ${time}.${queued ? ` ${queued} in the queue.` : ""}</p>
-        <button class="btn small" data-act="pbuild" data-k="${it.id}" ${P0.queue.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button></div>`; }
-    else { const done = P0.done[it.id];
-      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queued ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></div><p class="small muted">${esc(it.d)}${done || queued ? "" : ` Takes ${time}.`}</p>
-        ${done || queued ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && P0.queue.length < 8 ? "" : "disabled"}>Build it</button>`}</div>`; }
+  // borders
+  { const e = x.exp || 0, need = garrisonNeed(n), have = forces(n);
+    h += `<div class="card"><h4>🚩 Borders of ${esc(x.name)}</h4>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
+      ${need > have ? `<p class="small bad">Too few warriors to guard what you claim: defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker everywhere.</p>` : ""}
+      <p class="small muted">Expanding claims a little more land around ${esc(x.name)} for hunting, fields and new villages. Each step raises the warriors you need on guard by ${1 + x.t}. You don't have to field them, but your defense suffers if you don't.</p>
+      <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></div>`; }
+  const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT];
+  const tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && itemOpenAt(n, x, it)));
+  if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
+  h += `<div class="seg ptabs">${tabs.map(([t, q]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${q.icon} ${q.name}</button>`).join("")}</div><div class="card">`;
+  for (const it of all.filter(q => q.tab === prodTab && itemOpenAt(n, x, q))) {
+    const queued = x.pq.filter(q => q === it.id).length, time = seasonsTxt(it.hours / H);
+    if (it.repeat) { const dem = needAt(n, x, it.id), have = builtAt(x, it.id), short = Math.max(0, dem - have);
+      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${it.name}</b>${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}</b></div><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
+        <p class="small muted">${esc(it.d)} ${short ? `<b class="bad">${fmtP(short)} short here.</b>` : "Enough here for now."} One takes ${time}.${queued ? ` ${queued} queued.` : ""}</p>
+        ${short > queued ? `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button>` : ""}</div>`; }
+    else { const done = P0.done[it.id], queuedAny = setsOf(n).some(y => y.pq && y.pq.includes(it.id));
+      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queuedAny ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></div><p class="small muted">${esc(it.d)}${done || queuedAny ? "" : ` Takes ${time} here.`}</p>
+        ${done || queuedAny ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && x.pq.length < 8 ? "" : "disabled"}>Build it in ${esc(x.name)}</button>`}</div>`; }
   }
   return h + `</div>`;
 }
@@ -2960,6 +2993,7 @@ function panelMilitary() {
       ${(n.mercs || []).map(m => line(`${esc(m.name)} troops`, `${m.k} regiment${m.k === 1 ? "" : "s"} · ${durTxt(m.left * TD)} left`)).join("")}
       ${sups.length ? sups.slice(0, 6).map(o => { const sp = mercSpare(o), rel = (unitPower(o) / Math.max(1e-9, unitPower(n)));
         return `<div class="ln"><span>${o.color ? `<span class="sw" style="background:${o.color}"></span> ` : ""}${esc(o.name)} <small class="muted">${sp} to spare · ${rel >= 1.05 ? `<span class="good">${Math.round(rel * 100)}% of your strength each</span>` : rel <= .95 ? `<span class="bad">${Math.round(rel * 100)}% of your strength each</span>` : "as strong as yours"}</small></span></div><div class="row wrap">${MERC_DEALS.flatMap(dl => [1, 3].filter(k => k <= sp).map(k => { const f = mercFee(o, k, dl); return `<button class="btn small" data-act="merc" data-id="${o.id}" data-k="${k}" data-d="${dl.id}" ${n.gold >= f ? "" : "disabled"}>${k} for ${dl.years} yrs · 🪙${fmt(f)}</button>`; })).join("")}</div>`; }).join("") : `<p class="small muted">No people you're on good enough terms with has troops to spare right now.</p>`}</div>`; }
+  if (garrisonNeed(n)) h += `<div class="card"><h4>🚩 Guarding your borders</h4>${line("Warriors needed", garrisonNeed(n))}${line("You have", forces(n), forces(n) < garrisonNeed(n) ? "bad" : "good")}${forces(n) < garrisonNeed(n) ? `<p class="small bad">Your defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker because your claimed land isn't fully guarded.</p>` : ""}</div>`;
   if (tribal(n)) h += `<div class="card"><h4>⚔️ Your warriors</h4>${line("Share of your people", `${Math.round(timeShare(n, "warrior") * 100)}% · ${fmtP(popOf(n) * timeShare(n, "warrior"))} people`)}<p class="small muted">Warriors are your own people: they gather no food, and every one killed in battle is lost to the tribe.</p><div class="row wrap"><button class="btn small ghost" data-act="timeal">👥 Change who does what</button></div></div>`;
   else h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a quarter). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
   if (has(n, "bronze")) {
@@ -3254,8 +3288,10 @@ panel.addEventListener("click", e => {
     case "budget": openBudget(false); break;
     case "naming": openNaming(); break;
     case "ptab": prodTab = b.dataset.k; refresh(); break;
-    case "pbuild": { const P0 = prodState(n), it = itemOf(b.dataset.k); if (!it || P0.queue.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || P0.queue.includes(it.id) || n.mat < it.mat) break; n.mat -= it.mat; } P0.queue.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} added to the build queue`); hud(); refresh(); break; }
-    case "pdel": { const P0 = prodState(n), i = +b.dataset.k, id = P0.queue[i], it = itemOf(id); P0.queue.splice(i, 1); if (i === 0) P0.qprog = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
+    case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } x.pq.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
+    case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, id = x.pq[i], it = itemOf(id); x.pq.splice(i, 1); if (i === 0) x.qp = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
+    case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
+    case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
     case "timeal": openTime(false); break;
     case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
