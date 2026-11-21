@@ -622,10 +622,11 @@ function growBorders() {
     const near = nearSets(s.x, s.y, 9);
     let gapMin = 1e9; for (const o of near) if (o.o !== s.o) gapMin = Math.min(gapMin, chebGap(s, o));
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
-    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD);
+    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD), wall = 1e9;
     for (const o of near) { if (o.o === s.o) continue;
-      lim = Math.min(lim, (Math.hypot(o.x - s.x, o.y - s.y) - radTo(o, s.x, s.y) - .01) / lobe(s, Math.atan2(o.y - s.y, o.x - s.x))); }
-    s.h = Math.max(.04, lim);
+      wall = Math.min(wall, (Math.hypot(o.x - s.x, o.y - s.y) - radTo(o, s.x, s.y) - .01) / lobe(s, Math.atan2(o.y - s.y, o.x - s.x))); }
+    s.wall = wall < target ? Math.max(.04, wall) : null; // hemmed in by a neighbor: the land can't grow past here
+    s.h = Math.max(.04, Math.min(lim, wall));
   }
   G.sv++;
 }
@@ -1034,19 +1035,28 @@ const tribal = n => !n.stateUp;
 // a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
 const TIME = {
   warrior: { name: "Warriors", icon: "⚔️", def: 20, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
-  food:    { name: "Hunters & gatherers", farm: "Farmers & herders", icon: "🏹", farmIcon: "🌾", def: 45, d: "Feed the tribe." },
+  food:    { name: "Hunters & gatherers", icon: "🏹", def: 45, d: "Bring in plenty of food each, but only as much as your land's game allows, and little in winter." },
+  farm:    { name: "Farmers & herders", icon: "🌾", def: 0, tech: "agriculture", d: "Less food each than hunters, but steady all year and not limited by game. Each farming family needs a farm plot." },
   build:   { name: "Builders", icon: "🪓", def: 20, d: "Huts, tools and stores: materials." },
   elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
   scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
-const roleName = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farm : TIME[k].name;
-const roleIcon = (n, k) => k === "food" && has(n, "agriculture") ? TIME.food.farmIcon : TIME[k].icon;
+const roleName = (n, k) => TIME[k].name;
+const roleIcon = (n, k) => TIME[k].icon;
+const roleOpen = (n, k) => !TIME[k].tech || has(n, TIME[k].tech);
 function timeOf(n) {
   if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
   if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; }
+  if (n.time.farm == null) n.time.farm = 0;
   let sum = 0; for (const k in TIME) sum += n.time[k] || 0;
   if (sum > 100) for (const k in TIME) n.time[k] = Math.floor((n.time[k] || 0) * 100 / sum / 5) * 5; // shares never add up to more than everyone
   return n.time; }
+// room: land claimed per family. Crowding lowers fertility and slows builders; plenty of land lifts spirits
+function roomAt(x) { // only land that's hemmed in by neighbors gets crowded; growing borders just haven't reached their reach yet
+  const want = hOf(x) * 1.2, l = x.exp && x.expDir != null ? 1 + .18 * x.exp : 1, reach = x.wall != null ? x.wall : hOf(x) * 1.9 * (1 + (x.expDir == null ? .25 * (x.exp || 0) : 0));
+  return clamp(Math.pow(reach * l / Math.max(.01, want), 2), .2, 3); }
+function roomOf(n) { let a = 0, p = 0; for (const x of setsOf(n)) { a += roomAt(x) * x.pop; p += x.pop; } return p > 0 ? a / p : 1; }
+const crowdF = r => r < 1 ? .45 + .55 * r : 1 + .08 * Math.min(1.5, r - 1); // below 1 = crowded
 const timeShare = (n, k) => (timeOf(n)[k] || 0) / 100; // each role is a straight share of all your people
 const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) sum += t[k] || 0; return Math.max(0, 100 - sum); };
 // ---- elder discussions: before there is research, the elders talk things through, one subject after another.
@@ -1090,6 +1100,7 @@ const STRUCTS = {
   market:   { tab: "crafts", tier: 1, name: "Market square", one: "market square", icon: "🧺", hours: 8000, d: "Towns only. Traders from far and near gather here: +15% gold from this town." },
   rampart:  { tab: "defense", tier: 1, name: "Earthen rampart", one: "earthen rampart", icon: "⛰️", hours: 18000, d: "Towns only. A great bank and ditch: this town is far harder to take." },
   temple:   { tab: "spirit", tier: 2, name: "Temple", one: "temple", icon: "🛕", hours: 30000, d: "Cities only. A house for the gods: stability across your lands and elders' favor." },
+  field:    { tab: "food", tech: "agriculture", name: "Farm plots", one: "farm plot", icon: "🌱", hours: 1200, d: "One for each farming family. Farmers without a plot can barely grow anything." },
   canoe:    { tab: "food", name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
 };
 const GREAT = [
@@ -1115,6 +1126,7 @@ function needAt(n, x, k) {
     case "hut": return Math.ceil(fam);
     case "pit": return Math.ceil(fam / 8);
     case "rack": return Math.ceil(fam * sh("food") / 6);
+    case "field": return Math.ceil(fam * sh("farm"));
     case "shop": return Math.ceil(fam * sh("build") / 4);
     case "shrine": case "palisade": return 1;
     case "canoe": return onCoast(x) ? Math.ceil(fam * sh("food") / 5) : 0;
@@ -1255,7 +1267,11 @@ function econ(n) {
   const luxGold = (luxKinds * .6 + luxExtra * 1.5) * (1 + .3 * n.era) * (L.trade === "prot" ? .6 : 1);
   const strat = stratStatus(n);
   const imports = strat.reduce((a, s) => a + s.cost, 0);
-  if (tribal(n)) { food *= .7 + .9 * timeShare(n, "food"); mat *= .8 + timeShare(n, "build"); sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
+  if (tribal(n)) {
+    const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [.65, 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
+    const game = Math.min(1, room / Math.max(.2, hunt * 2.2)); // too many hunters for the land and the game runs out
+    food *= .6 + 1.1 * hunt * game * season + .75 * farm * structCov(n, "field");
+    mat *= (.8 + timeShare(n, "build")) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= 1 + .2 * structCov(n, "shop"); sci *= 1 + .1 * structCov(n, "shrine"); }
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
@@ -1383,7 +1399,9 @@ function facTargets(n, E) {
     add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income");
     if (projDone(n, "stones")) add("elders", 6, "Stone circle");
     { const tp = setsOf(n).filter(x => builtAt(x, "temple")).length; if (tp) { add("elders", Math.min(12, 6 * tp), "Temples"); add("commoners", Math.min(8, 3 * tp), "Temples"); } }
-    if (tribal(n)) { add("elders", Math.round(6 * structCov(n, "shrine")), "Shrines"); add("commoners", -Math.round(14 * (1 - structCov(n, "hut"))), "Families without huts"); }
+    if (tribal(n)) { const room = roomOf(n), steps = setsOf(n).reduce((a, x) => a + (x.exp || 0), 0);
+      add("commoners", room < 1 ? -Math.round(12 * (1 - room)) : Math.min(8, 2 * steps + Math.round(3 * Math.min(1, room - 1))), room < 1 ? "Crowded land" : "Room to roam");
+      add("elders", Math.round(6 * structCov(n, "shrine")), "Shrines"); add("commoners", -Math.round(14 * (1 - structCov(n, "hut"))), "Families without huts"); }
     if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
     { let nat = 0, tar = 0, sub = 0; for (const k in n.sec || {}) { if (!secUnlocked(n, k)) continue; const st = n.sec[k]; if (st.nat) nat++; if (st.tar && tradeOpen(n)) tar += st.tar; if (st.sub && !st.nat) sub += st.sub; }
@@ -1485,6 +1503,22 @@ const canBuildHere = (n, ri) => pres(n).has(ri) && !consOf(n.id, ri) && bldUsed(
 function startBuild(n, ri, b) { const c = buildCost(n, b); n.gold -= c.g; n.mat -= c.m; setCons(n.id, ri, b.k); }
 function recruit(n, k) { const c = unitCost(n); n.gold -= c.g * k; n.mat -= c.m * k; n.army += k; }
 
+// fertility: how many children families raise. Food, homes, room and the people's mood all count
+function fertility(n, E) {
+  const f = [];
+  if (!tribal(n)) return { mult: 1, f };
+  const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3);
+  f.push(["Food", sr < 0 ? .5 : clamp(.85 + .15 * sr, .85, 1.3)]);
+  f.push(["Homes", .4 + .6 * structCov(n, "hut")]);
+  const room = roomOf(n); f.push([room < 1 ? "Crowded land" : "Room to roam", crowdF(room)]);
+  const mood = n.fac && n.fac.commoners != null ? clamp(.85 + n.fac.commoners / 330, .85, 1.12) : 1; f.push(["Mood", mood]);
+  return { mult: f.reduce((a, x) => a * x[1], 1), f };
+}
+// losses get a popup when they matter to a people of your size; small ones go in the report
+function alertLoss(n, lost, icon, title, text) {
+  if (lost / Math.max(1, popOf(n)) >= .01) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text });
+  else log(text, icon);
+}
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
@@ -1549,12 +1583,24 @@ function processNation(n) {
   if (n.trust <= 0) civilWar(n);
   // growth: each settlement grows toward its limit. Full villages stop growing.
   const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3); // plenty of food means more children survive
-  const sets = setsOf(n);
+  const sets = setsOf(n), FERT = fertility(n, E); n.fert = FERT.mult;
+  // families without a home: after a year without one they start to leave, and winter kills some of them
+  if (tribal(n)) { let left = 0, died = 0; const winter = Math.floor((G.month || 0) / 3) === 0;
+    for (const x of sets) { const homeless = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
+      if (homeless < .5) { x.homelessT = 0; continue; }
+      x.homelessT = (x.homelessT || 0) + 1;
+      if (x.homelessT <= TPY) continue; // a grace year to put up huts
+      const d = winter ? homeless * .12 : 0, l = homeless * .05;
+      x.pop = Math.max(2, x.pop - d - l); died += d; left += l; }
+    n.lostD = (n.lostD || 0) + died; n.lostL = (n.lostL || 0) + left; // count whole families before telling you
+    if (!n.ai && n.lostD + n.lostL >= 1) { const D = Math.floor(n.lostD), Lf = Math.floor(n.lostL + (n.lostD - D)); n.lostD = 0; n.lostL = 0;
+      alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
+        `${D ? `${D} famil${D === 1 ? "y" : "ies"} without huts died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} with no home left to find one elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
-      const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr)) * (tribal(n) ? .3 + .7 * structCov(n, "hut") : 1) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
+      const r = (T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr))) * FERT.mult + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
       const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); s.g = 0; }
@@ -1903,8 +1949,10 @@ function aiTurn(n) {
       for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = 1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d; if (sh > bs) { bs = sh; best = k; } }
       if (best) x.pq.push(best);
       else if (x.id === n.cap) { const g = GREAT.find(q => !P0.done[q.id] && itemOpen(n, q) && n.mat >= q.mat && !x.pq.includes(q.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; x.pq.push(g.id); } } }
-    if (rnd() < pr(.2) && forces(n) >= garrisonNeed(n) + 2) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
-    const want = { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
+    const nearRival = setsOf(n).some(x => nearSets(x.x, x.y, 5).some(o => o.o !== n.id));
+    if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
+    const ag = has(n, "agriculture");
+    const want = { warrior: war ? 30 : 18, food: (E.surplus < 0 ? 55 : 42) * (ag ? .5 : 1), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
@@ -2792,7 +2840,7 @@ function armyBudgetHTML(n) {
 }
 function timeHTML(n) {
   const t = timeOf(n);
-  return `<div class="budget timeal">${Object.entries(TIME).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="small" data-tidle></p><p class="rec" data-trec></p></div>`;
+  return `<div class="budget timeal">${Object.entries(TIME).filter(([k]) => roleOpen(n, k)).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="small" data-tidle></p><p class="rec" data-trec></p></div>`;
 }
 function timeFill(root) {
   if (!root || !G) return; const n = P(), E = econM(n), sh = k => timeShare(n, k), set = (sel, v) => { const el = root.querySelector(sel); if (el) el.innerHTML = AW(v); };
@@ -2801,7 +2849,8 @@ function timeFill(root) {
   { const idle = timeIdle(n); set("[data-tidle]", idle ? `<b class="bad">${idle}% of your people (${fmtP(pop * idle / 100)}) have no role and do nothing.</b> Give them one.` : `<span class="muted">Everyone has a role: 100% assigned.</span>`); }
   const pc = v => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}%`, wb = Math.round(maxArmy(n) * sh("warrior") / .2);
   set('[data-tx="warrior"]', `Fields <b>${wb}</b> war band${wb === 1 ? "" : "s"}. ${TIME.warrior.d}`);
-  set('[data-tx="food"]', `${pc(.9 * sh("food") - .3)} food. ${TIME.food.d}`);
+  set('[data-tx="food"]', `${TIME.food.d}${roomOf(n) < sh("food") * 2.2 ? ' <b class="bad">Too many hunters for your land: the game is running out.</b>' : ""}`);
+  set('[data-tx="farm"]', `${TIME.farm.d}${structCov(n, "field") < 1 && sh("farm") > 0 ? ` <b class="bad">Only ${Math.round(structCov(n, "field") * 100)}% have a plot.</b>` : ""}`);
   set('[data-tx="build"]', `${pc(sh("build") - .2)} materials. ${TIME.build.d}`);
   set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
   set('[data-tx="scout"]', `${Math.round(Math.min(6, popOf(n) * sh("scout") * .5) * 10) / 10} scouting trips a season. ${TIME.scout.d}`);
@@ -2872,6 +2921,10 @@ function panelNation() {
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
+  if (tribal(n)) { const F = fertility(n, E.raw), room = roomOf(n);
+    h += `<div class="card"><h4>👶 Fertility <span class="pill ${F.mult < .9 ? "bad" : F.mult > 1.05 ? "good" : ""}">${Math.round(F.mult * 100)}%</span></h4>${F.f.map(([k, v]) => line(k, `${v >= 1 ? "+" : "−"}${Math.round(Math.abs(v - 1) * 100)}%`, v < .97 ? "bad" : v > 1.02 ? "good" : "")).join("")}
+      ${line("Land per family", room < 1 ? `<span class="bad">Crowded (${Math.round(room * 100)}%)</span>` : `${Math.round(room * 100)}%`)}
+      <p class="small muted">How many children your families raise. Food, a hut for every family, room to live and the people's mood all count. When your land gets crowded, fewer children are born and builders wait longer for trees to regrow; expanding your borders (Production) gives room and lifts spirits.</p></div>`; }
   if (tribal(n)) h += `<div class="card"><h4>👥 Who does what <span class="muted">your people's roles</span></h4>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label></div>`;
   if (!tribal(n)) h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per quarter</span></h4>
