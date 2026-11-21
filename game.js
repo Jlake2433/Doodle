@@ -532,8 +532,9 @@ const CUSTOMS = {
     written: { name: "Written law", tech: "writing", d: "Laws are carved where all can see them, the same for everyone." },
     rights: { name: "Courts and rights", tech: "enlightenment", d: "Judges weigh the evidence, and the accused has rights.", lean: "open" } } },
   guests:  { name: "Strangers", icon: "🏕️", opts: {
+    wary:   { name: "Wary of strangers", d: "Outsiders may be raiders or rivals for the hunt. They're watched until they prove themselves.", lean: "insular" },
     guest:  { name: "Sacred hospitality", d: "A guest at your fire is protected, whoever they are.", lean: "open" },
-    wary:   { name: "Wary of strangers", d: "Outsiders are watched until they prove themselves.", lean: "insular" } } },
+    all:    { name: "One humanity", tech: "philosophy", d: "All peoples share the same nature; a stranger is owed what any person is owed.", lean: "open content" } } },
   work:    { name: "Men's and women's work", icon: "🧺", opts: {
     split:  { name: "Separate roles", d: "Men hunt and fight; women gather, raise the children and keep the camp." },
     shared: { name: "Side by side", tech: "agriculture", d: "Everyone works the fields and herds together.", lean: "industrious" },
@@ -541,18 +542,42 @@ const CUSTOMS = {
   arts:    { name: "Arts and stories", icon: "🎨", opts: {
     oral:   { name: "Songs and stories", d: "The past lives on in songs, stories and dances passed down by mouth." },
     monument: { name: "Great monuments", tech: "masonry", d: "Carved stone and great buildings speak for the people.", lean: "devout" },
+    drama:  { name: "Theater and poetry", tech: "philosophy", d: "Plays and poems that question gods, rulers and the human heart.", lean: "open" },
     patron: { name: "Patronage", tech: "guilds", d: "The rich and powerful pay artists to glorify them." },
     free:   { name: "Free expression", tech: "massmedia", d: "Anyone may make and say what they like.", lean: "open restless" } } },
   feasts:  { name: "Festivals", icon: "🎉", opts: {
     season: { name: "Seasonal feasts", d: "The people gather to feast at the turn of the seasons.", lean: "content" },
     holy:   { name: "Holy days", tech: "mysticism", d: "Days set apart for the gods and the ancestors.", lean: "devout" },
     games:  { name: "Public games", tech: "construction", d: "Races, contests and spectacles for the crowds.", lean: "content warlike" } } },
+  care:    { name: "The sick and the old", icon: "🩹", opts: {
+    behind: { name: "Left behind", d: "When the tribe must move, those who can't keep up stay behind. Only the strong survive.", lean: "hardy" },
+    kin:    { name: "Kept by their kin", d: "Families carry their own sick and old, as far as they can.", lean: "content" },
+    healers: { name: "Healers and herbs", tech: "mysticism", d: "Healers who know the plants and the spirits tend the sick.", lean: "devout" },
+    duty:   { name: "Duty to the weak", tech: "philosophy", d: "Caring for those who cannot care for themselves is what makes a people good.", lean: "content" },
+    houses: { name: "Houses of healing", tech: "theology", d: "Temples and orders run places where the sick are nursed.", lean: "devout content" },
+    public: { name: "Care for all", tech: "medicine", d: "Doctors and hospitals for everyone, rich or poor.", lean: "content open" } } },
+  food:    { name: "Sharing food", icon: "🍖", opts: {
+    hunters: { name: "Hunters eat first", d: "Those who bring the meat take the best of it. The rest get what's left.", lean: "warlike" },
+    shared: { name: "Shared by all", d: "Every kill and every basket is shared out among all the families.", lean: "content" },
+    giving: { name: "Feasts of giving", tech: "pottery", d: "The rich win honor by giving food away at great feasts.", lean: "open content" },
+    trade:  { name: "Bought and sold", tech: "currency", d: "Food is a good like any other, bought and sold in the market.", lean: "industrious" } } },
+  know:    { name: "Knowledge", icon: "📚", opts: {
+    secret: { name: "Secrets of the elders", d: "What the elders know is guarded, and shared only with the chosen.", lean: "devout insular" },
+    craft:  { name: "Master and apprentice", tech: "bronze", d: "Skills are passed from master to apprentice in the workshop.", lean: "industrious" },
+    scribes: { name: "Scribes and schools", tech: "writing", d: "Scribes record what is known, and schools teach the few who can read." },
+    debate: { name: "Debate and reason", tech: "philosophy", d: "Ideas are argued in the open, and the best argument wins.", lean: "open worldly" },
+    inquiry: { name: "Inquiry and experiment", tech: "enlightenment", d: "Nothing is true until it is tested.", lean: "open worldly" } } },
   youth:   { name: "Coming of age", icon: "🏹", opts: {
     trial:  { name: "Trials of courage", d: "The young prove themselves through pain and danger.", lean: "hardy warlike" },
     rite:   { name: "Initiation rites", d: "The young are taught the sacred secrets of the people.", lean: "devout" },
+    virtue: { name: "Training in virtue", tech: "philosophy", d: "The young are raised to be wise, brave and just, not only strong.", lean: "content" },
     school: { name: "Schooling", tech: "printing", d: "The young learn letters and numbers.", lean: "industrious" } } } };
 const LEAN = { hardy: { res: 5 }, warlike: { mar: 6 }, peaceable: { mar: -6 }, devout: { pie: 5 }, worldly: { pie: -5 }, open: { open: 6 }, insular: { open: -6 }, content: { con: 4 }, restless: { con: -4 }, industrious: { ind: 6 } };
 const cusOpen = (n, o) => !o.tech || has(n, o.tech);
+const cusEra = o => o.tech ? TECH[o.tech].era : -1; /* -1: the primal, survival-born ways */
+const cusAge = o => o.tech ? ERAS[TECH[o.tech].era] : "Primal";
+function oldFashioned(n, k) { const O = CUSTOMS[k].opts, cur = O[(n.cus || {})[k]]; if (!cur) return false; const e = cusEra(cur);
+  return n.era - Math.max(0, e) >= 2 && Object.values(O).some(o => cusOpen(n, o) && cusEra(o) > e); }
 function ensureCustoms(n) { const c = n.cus || (n.cus = {});
   for (const k in CUSTOMS) { const O = CUSTOMS[k].opts; if (c[k] && O[c[k]] && cusOpen(n, O[c[k]])) continue;
     const open = Object.keys(O).filter(o => cusOpen(n, O[o])); c[k] = n.ai ? pick(open) : open[0]; }
@@ -1086,8 +1111,12 @@ function checkFaiths(n) {
   ensureCustoms(n);
   if (n.ai) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
   else { const seen = n.cusSeen || (n.cusSeen = {}), fresh = !n.cusSeen._init; seen._init = 1;
+    const by = {};
     for (const k in CUSTOMS) for (const o in CUSTOMS[k].opts) { const O = CUSTOMS[k].opts[o], id = k + "." + o; if (seen[id] || !cusOpen(n, O)) continue; seen[id] = 1;
-      if (!fresh && O.tech) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: CUSTOMS[k].icon, title: `A new custom: ${O.name}`, text: `${O.d} Your people could take it up (Laws › Customs › ${CUSTOMS[k].name}).` }); } }
+      if (!fresh && O.tech) (by[O.tech] || (by[O.tech] = [])).push([k, O]); }
+    for (const t in by) { const L = by[t];
+      (G.pendingUnlocks || (G.pendingUnlocks = [])).push(L.length === 1 ? { icon: CUSTOMS[L[0][0]].icon, title: `A new custom: ${L[0][1].name}`, text: `${L[0][1].d} Your people could take it up (Laws › Customs › ${CUSTOMS[L[0][0]].name}).` }
+        : { icon: "🎎", title: `${TECH[t].name} opens new ways of living`, text: `${L.map(([k, O]) => `${CUSTOMS[k].name}: ${O.name}`).join(". ")}. Your people could take them up (Laws › Customs).` }); } }
   if (!n.relig) n.relig = n.laws && n.laws.rel === "sec" && relOpen("secular") ? "secular" : "animism";
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
   if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dip(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
@@ -3604,11 +3633,11 @@ function panelPolicy() {
         <p class="small muted">${n.laws.rel === "tol" ? "Other faiths may worship freely. Balanced; conquered places settle down faster." : "The national faith is the only one allowed. The clergy are pleased, thinkers less so."}</p>`; }
     h += `</div>`; }
   { const c = ensureCustoms(n);
-    h += `<div class="card"><h4>🎎 Customs</h4><p class="small muted">How your people live. Customs slowly shape your people's character, and peoples whose customs are like yours feel closer to you. Old customs change slowly: each can change once every 10 years.</p>`;
+    h += `<div class="card"><h4>🎎 Customs</h4><p class="small muted">How your people live. The first customs are born of survival; knowledge opens new ways of living. Customs slowly shape your people's character, and peoples whose customs are like yours feel closer to you. Old customs change slowly: each can change once every 10 years.</p>`;
     for (const k in CUSTOMS) { const C = CUSTOMS[k], cur = C.opts[c[k]], cool = Math.max(0, Math.ceil(((n.cusAt && n.cusAt[k]) != null ? n.cusAt[k] + 10 : -1e9) - G.year));
-      h += `<details class="pcol"><summary><span>${C.icon} ${C.name}</span><span class="muted small">${esc(cur.name)}</span></summary><div class="seg">`;
+      h += `<details class="pcol"><summary><span>${C.icon} ${C.name}</span><span class="muted small">${oldFashioned(n, k) ? `<b class="warn">Old-fashioned</b> · ` : ""}${esc(cur.name)}</span></summary><div class="seg">`;
       for (const o in C.opts) { const O = C.opts[o]; if (!cusOpen(n, O)) continue; h += `<button class="${c[k] === o ? "on" : ""}" data-act="cus" data-k="${k}" data-o="${o}" ${c[k] === o || cool || locked ? "disabled" : ""}>${esc(O.name)}</button>`; }
-      h += `</div><p class="small muted">${esc(cur.d)}</p>${cur.lean ? `<div class="rtags">${cur.lean.split(" ").map(w => `<span class="rtag">Leans ${w}</span>`).join("")}</div>` : ""}${cool ? `<p class="small warn">Can change again in ${cool} year${cool === 1 ? "" : "s"}.</p>` : ""}</details>`; }
+      h += `</div><p class="small muted">${esc(cur.d)}</p><div class="rtags"><span class="rtag ${cusEra(cur) < 0 ? "" : "on"}">${cusAge(cur)}</span></div>${oldFashioned(n, k) ? `<p class="small warn">Your people have moved on from the age this custom was born in. Newer ways are open to you.</p>` : ""}${cur.lean ? `<div class="rtags">${cur.lean.split(" ").map(w => `<span class="rtag">Leans ${w}</span>`).join("")}</div>` : ""}${cool ? `<p class="small warn">Can change again in ${cool} year${cool === 1 ? "" : "s"}.</p>` : ""}</details>`; }
     h += `</div>`; }
   for (const lk in LAWS) {
     if (lk === "rel") continue; /* shown with the national religion */
