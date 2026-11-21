@@ -2780,7 +2780,7 @@ function timeFill(root) {
 }
 function openTime(yearly) {
   const n = P();
-  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
+  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
   timeFill(modal.querySelector(".timeal"));
 }
 function applyNames(root) {
@@ -2811,7 +2811,7 @@ function openNaming() {
 }
 function openBudget(yearly) {
   const n = P();
-  showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); });
+  showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
   budgetFill(modal.querySelector(".budget"));
 }
 function secInput(e) { const t = e.target; if (!t.dataset || t.dataset.sinv == null || !G) return; const n = P(), k = t.dataset.sinv; secOf(n, k).inv = +t.value; const lab = panel.querySelector(`[data-sv="${k}"]`); if (lab) lab.textContent = `${t.value}% · ${fmt(econM(n).raw.sectors[k].ig * TD)} 🪙`; hud(); }
@@ -3316,7 +3316,10 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => { if (curPanel 
 
 // ---------- modals ----------
 let modalCb = null;
-function showModal(html, cb) { modal.querySelector(".mbox").innerHTML = AW(html); modal.hidden = false; modalCb = cb || null; }
+function showModal(html, cb) {
+  if (G && G.simResume && !simState) { const left = Math.max(1, Math.round((SIM_TURNS - G.simResume.turns) / TPY)); html += `<label class="askrow simgo"><input type="checkbox" id="simGo" ${G.simResume.go ? "checked" : ""}> ⏩ Keep simulating afterwards (${left} year${left === 1 ? "" : "s"} left)</label>`; }
+  modal.querySelector(".mbox").innerHTML = AW(html); modal.hidden = false; modalCb = cb || null; }
+modal.addEventListener("change", e => { if (e.target.id === "simGo" && G && G.simResume) G.simResume.go = e.target.checked; });
 modal.addEventListener("click", e => { const sg = e.target.closest("[data-sug]"); if (sg) { const i = modal.querySelector("#nmNation"); if (i) i.value = sg.dataset.sug; return; } }, true);
 modal.addEventListener("click", e => { const b = e.target.closest("[data-m]"); if (!b || b.disabled) return; const a = b.dataset.m; const cb = modalCb; modal.hidden = true; modalCb = null; if (cb) cb(a); });
 function confirmModal(title, text, yes) { showModal(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="yes">Confirm</button></div>`, a => { if (a === "yes") yes(); }); }
@@ -3358,15 +3361,21 @@ function openSim() {
       G.simOpts = nw; runSim(nw);
     });
 }
-function runSim(o) {
-  const n0 = P(), start = { pop: popOf(n0), terr: terrCount(n0), era: n0.era, techs: n0.techs.length, gold: n0.gold, sets: setsOf(n0).length, army: n0.army, trust: n0.trust == null ? 100 : n0.trust, date: dateTxt() };
-  const news = []; let turns = 0, stopped = null;
-  const prevAuto = n0.autoResearch; n0.autoResearch = true;
+// after a pause, the popups are answered; then the simulation either picks up again or ends with its summary
+function finishFlow() { const r = G && G.simResume; if (!r) return false; G.simResume = null; if (r.go && !G.over && P().alive) runSim(r.o, r); else runSim(r.o, Object.assign(r, { summaryOnly: true })); return true; }
+function runSim(o, resume) {
+  const n0 = P(), start = resume ? resume.start : { pop: popOf(n0), terr: terrCount(n0), era: n0.era, techs: n0.techs.length, gold: n0.gold, sets: setsOf(n0).length, army: n0.army, trust: n0.trust == null ? 100 : n0.trust, date: dateTxt() };
+  const news = resume ? resume.news : []; let turns = resume ? resume.turns : 0, stopped = null, paused = false;
+  const prevAuto = resume ? resume.prevAuto : n0.autoResearch; n0.autoResearch = true;
   simState = { stop: false };
   closePanel(); closeSheet();
-  showModal(`<div class="mi">⏩</div><h2>Simulating…</h2><p class="center" id="simDate">${dateTxt()}</p><div class="bar simbar"><i id="simBar" style="width:0%"></i></div><p class="small muted center">Focus: ${GOV_FOCUS[o.focus].icon} ${GOV_FOCUS[o.focus].name}</p><div class="row"><button class="btn ghost" data-m="stop">Stop</button></div>`, () => { if (simState) { simState.stop = true; stopped = stopped || "You stopped the simulation."; } });
+  if (!(resume && resume.summaryOnly)) showModal(`<div class="mi">⏩</div><h2>Simulating…</h2><p class="center" id="simDate">${dateTxt()}</p><div class="bar simbar"><i id="simBar" style="width:0%"></i></div><p class="small muted center">Focus: ${GOV_FOCUS[o.focus].icon} ${GOV_FOCUS[o.focus].name}</p><div class="row"><button class="btn ghost" data-m="stop">Stop</button></div>`, () => { if (simState) { simState.stop = true; stopped = stopped || "You stopped the simulation."; } });
   const finish = () => {
     if (!simState) return; simState = null;
+    if (paused && !G.over && P().alive) { // pause: let the player answer, then carry on or stop
+      G.simResume = { o, start, news, turns, prevAuto, go: true };
+      G.lastReport = [{ i: "⏸️", t: `Simulation paused: ${stopped}`, p: true }];
+      save(); hud(); dirty = true; return afterTurnFlow(); }
     const n = P(); if (!prevAuto && n.id === n0.id) n.autoResearch = prevAuto || false;
     save(); hud(); dirty = true;
     const d = (a, b, f = fmt) => { const x = b - a; return `${f(b)} <small class="${x >= 0 ? "good" : "bad"}">(${x >= 0 ? "+" : "−"}${f(Math.abs(x))})</small>`; };
@@ -3400,7 +3409,7 @@ function runSim(o) {
         const touch = G.nations.find(x => x.alive && x.id !== m2.id && !touchB.has(x.id) && bordersTouch(m2, x));
         const lost = [...mineB].map(id => setById(id)).find(x => x && x.o !== m2.id);
         const hit = setsOf(m2).find(x => x.hit != null && G.tt - x.hit <= TD * 1.01);
-        const halt = msg => { stopped = msg; for (const x of G.lastReport) if (x.p !== false) news.push(x); G.lastReport = []; };
+        const halt = msg => { stopped = msg; paused = true; for (const x of G.lastReport) if (x.p !== false) news.push(x); G.lastReport = []; };
         if (o.stopMeet && met) { halt(`You've met the ${nm(met)}.`); return finish(); }
         if (o.stopMeet && touch) { halt(`Your borders now touch the ${nm(touch)}'s.`); return finish(); }
         if (o.pauseWar && (lost || hit)) { halt(lost ? `${lost.name} has been taken by the ${nm(G.nations[lost.o])}!` : `${hit.name} was attacked!`); return finish(); }
@@ -3415,20 +3424,21 @@ function runSim(o) {
       G.lastReport = [];
       if (G.event) { const e = EVENTS.find(x => x.id === G.event.id), i = Math.floor(rnd() * e.ch.length), c = e.ch[i]; G.news = []; c.f(P()); news.push({ i: e.icon, t: `${e.title}: your governor chose "${c.t}".`, p: true }); news.push(...G.news); G.news = []; G.event = null; P().stab = stabilityOf(P(), P().fac); }
       if (G.pendingPeace) { const pp = G.pendingPeace, f = G.nations[pp.from]; G.pendingPeace = null; if (f && f.alive && atWar(P().id, f.id)) { makePeace(P(), f, pp.tribute, G.nations[pp.payer] || null); news.push({ i: "🕊️", t: `Your governor accepted peace with the ${nm(f)}.`, p: true }); } }
-      if (G.pendingCivil) { stopped = "Civil war broke out. You must choose a side."; return finish(); }
+      if (G.pendingCivil) { stopped = "Civil war broke out. You must choose a side."; paused = true; return finish(); }
       const nw = G.nations.find(x => x.alive && atWar(P().id, x.id) && !before.has(x.id));
-      if (nw && o.pauseWar) { stopped = `The ${nm(nw)} declared war on you.`; return finish(); }
+      if (nw && o.pauseWar) { stopped = `The ${nm(nw)} declared war on you.`; paused = true; return finish(); }
     } catch (err) { stopped = "The simulation hit a problem and stopped."; console.error(err); return finish(); }
     const bar = document.getElementById("simBar"), dt = document.getElementById("simDate");
     if (bar) bar.style.width = (turns / SIM_TURNS * 100) + "%"; if (dt) dt.textContent = dateTxt();
     hud(); dirty = true;
     setTimeout(step, 0);
   };
+  if (resume && resume.summaryOnly) { simState = { stop: false }; stopped = "You stopped the simulation."; return finish(); }
   setTimeout(step, 30);
 }
 function afterTurnFlow() {
   hud(); dirty = true;
-  if (G.over) return showEnd();
+  if (G.over) { G.simResume = null; return showEnd(); }
   const items = G.lastReport.filter(x => x.p !== false); G.lastReport = [];
   const askCivil = () => {
     const pc = G.pendingCivil; if (!pc) return false;
@@ -3458,7 +3468,7 @@ function afterTurnFlow() {
       ${opts.length ? `<h4>Mastery</h4><div class="choices">${opts.map(f => { const c = masteryCost(n, f); return `<button class="choice" data-m="m:${f.k}"><b>${f.chain.icon} Master ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX} · ${fmt(c)} 🔬 (${turns(c)})</small></button>`; }).join("")}</div>` : ""}
       <p class="small muted">Developing fields with research moves you toward the next age. Mastery deepens a field you've already fully expanded. When the next age arrives, research switches back to technology.</p>`, a => {
         if (a && /^[md]:/.test(a)) { n.research = a; n.resManual = true; save(); hud(); toast(a[0] === "d" ? `Scholars are developing ${FIELDS[a.slice(2)].name}` : `Scholars are mastering ${FIELDS[a.slice(2)].name}`); if (curPanel) refresh(); }
-        askBudget(); });
+        askBudget() || finishFlow(); });
     return true;
   };
   const showEventAfterCivil = () => showEvent(true);
@@ -3473,10 +3483,10 @@ function afterTurnFlow() {
   };
   const showEvent = (skipCivil) => {
     if (skipCivil !== true && (askCivil() || askNaming())) return;
-    if (!G.event) return askMastery() || askBudget();
+    if (!G.event) return askMastery() || askBudget() || finishFlow();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
-      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); askMastery() || askBudget(); });
+      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); askMastery() || askBudget() || finishFlow(); });
   };
   if (items.length) showModal(`<h2>${dateTxt()}</h2><div class="news">${items.map(x => `<div class="nw ${x.p === true || x.p === null ? "" : "far"}"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div><div class="row"><button class="btn" data-m="ok">Continue</button></div>`, () => showUnlocks(showEvent));
   else showUnlocks(showEvent);
