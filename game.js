@@ -397,6 +397,24 @@ const LANGS = {
   northam:  { s: ["wa","sha","ko","ta","che","mi","na","po","ka","dah","ho","ki","we","nas","ono"], p: ["kee","ota","ewa","haw","ago","tuck","ka"], h: ["ka","we","to","sha","ni","hi","wa"] },
   inuit:    { s: ["ana","ki","tu","nu","ka","ik","aq","si","pa","uk","nig","kaq"], p: ["vik","miut","juaq","liaq"], h: ["uk","aq","i","nik","tuq"] },
 };
+// familiar languages you can choose for your own city and people names
+Object.assign(LANGS, {
+  english:   { s: ["ash","brad","ches","dun","ham","ley","mar","nor","ox","read","shef","wick","wor","bright","stan","wel","whit","black"], p: ["ton","ford","bury","ham","field","wick","ley","worth","chester","by","mouth","bridge"], given: ["John","William","Thomas","Edward","Henry","Richard","Mary","Elizabeth","Anne","Margaret","Catherine","George","Arthur","Alice","Eleanor","James","Robert"], fam: ["Smith","Fletcher","Ashford","Hale","Turner","Cooper","Wright","Baker","Hayward","Thornton","Clarke","Whitmore"] },
+  french:    { s: ["beau","mont","char","bel","roche","val","mar","fon","cham","bour","ver","lan","sain"], p: ["ville","court","mont","bourg","lieu","ac","ais","ieres","ay","eux"], given: ["Louis","Jean","Pierre","Henri","Philippe","Marie","Jeanne","Isabelle","Charles","Antoine","Catherine","Claude","Marguerite"], fam: ["Dubois","Martin","Lefevre","Moreau","Girard","Laurent","Bonnet","Rousseau","Fontaine","Chevalier"] },
+  spanish:   { s: ["san","val","mon","al","cas","vil","tor","mar","cor","sal","bel","gua","ter"], p: ["ejo","illa","era","ada","ona","eda","ares","ena","ales","ido"], given: ["Juan","Diego","Carlos","Pedro","Fernando","Isabel","Maria","Juana","Alonso","Teresa","Rodrigo","Lucia","Miguel"], fam: ["Garcia","Fernandez","Lopez","Martinez","Navarro","Ortega","Vargas","Castillo","Mendoza","Herrera"] },
+  italian:   { s: ["mon","val","cas","san","ro","fio","bor","pon","ve","mar","pie","ter","lu"], p: ["ano","ino","etto","ona","ello","ia","ola","aro","enza"], given: ["Giovanni","Marco","Lorenzo","Francesco","Luca","Giulia","Caterina","Lucia","Pietro","Matteo","Beatrice","Alessandro"], fam: ["Rossi","Bianchi","Romano","Colombo","Ricci","Marino","Greco","Conti","De Luca","Esposito"] },
+  german:    { s: ["ober","neu","alt","wald","berg","hei","rosen","stein","lin","eich","schwarz","hoch","lauen"], p: ["dorf","burg","berg","heim","hausen","stadt","feld","bach","au"], given: ["Friedrich","Heinrich","Wilhelm","Karl","Otto","Johann","Anna","Margarete","Elisabeth","Klara","Ludwig","Hans","Greta"], fam: ["Muller","Schmidt","Schneider","Fischer","Weber","Wagner","Becker","Hoffmann","Richter","Krause"] },
+  russian:   { s: ["nov","vla","kras","bel","yar","sol","tver","kost","ros","ust","zel","pere","mir"], p: ["grad","sk","ovo","ino","ets","evo","ka"], given: ["Ivan","Dmitri","Alexei","Mikhail","Nikolai","Sergei","Anna","Olga","Natalia","Yelena","Pyotr","Tatiana","Boris"], fam: ["Ivanov","Petrov","Volkov","Sokolov","Morozov","Lebedev","Kozlov","Novikov","Orlov","Pavlov"] },
+  arabic:    { s: ["bab","dar","ras","qasr","bir","wadi","jab","mad","ain","tel","khan","sul","naj"], p: ["ah","iya","an","ur","at","ib","ein"], given: ["Ahmad","Yusuf","Omar","Ali","Khalid","Hassan","Fatima","Aisha","Layla","Zaynab","Ibrahim","Salim","Nour"], fam: ["al-Rashid","ibn Hamid","al-Masri","al-Hakim","ibn Saad","al-Farsi","al-Amin","ibn Tariq"] },
+  hindi:     { s: ["ra","jai","ud","kan","nag","har","pra","mir","sur","bal","chand","del","ajm"], p: ["pur","abad","garh","nagar","ganj","pat","er"], given: ["Arjun","Vikram","Rahul","Rohan","Ashok","Priya","Ananya","Lakshmi","Meera","Sanjay","Kavya","Dev"], fam: ["Sharma","Verma","Gupta","Singh","Patel","Rao","Mehta","Iyer","Chandra","Kapoor"] },
+  turkish:   { s: ["ak","kara","yen","es","bur","er","kay","ant","tok","sar","bol","iz","sam"], p: ["kent","hisar","ova","dere","li","koy","sun"], given: ["Mehmet","Ahmet","Mustafa","Osman","Selim","Ayse","Fatma","Elif","Zeynep","Murat","Kemal","Emine"], fam: ["Yilmaz","Kaya","Demir","Sahin","Celik","Aydin","Ozturk","Arslan","Dogan","Kilic"] },
+  portuguese:{ s: ["san","vila","cas","por","bra","alm","mon","fig","cor","bel","esp","val"], p: ["eira","ao","inho","osa","al","ela","ares"], given: ["Joao","Pedro","Afonso","Manuel","Duarte","Ines","Beatriz","Leonor","Teresa","Vasco","Rui","Catarina"], fam: ["Silva","Santos","Pereira","Costa","Almeida","Carvalho","Sousa","Ribeiro","Gomes","Lopes"] },
+  dutch:     { s: ["ams","rot","del","haar","zand","lei","gron","ut","mid","zwol","ber","dor","hil"], p: ["dam","erdam","ft","lem","voort","dijk","horst","burg"], given: ["Jan","Pieter","Willem","Hendrik","Cornelis","Maria","Anna","Geertruida","Johanna","Dirk","Floris","Sanne"], fam: ["de Vries","Jansen","van Dijk","Bakker","Visser","Smit","de Boer","Mulder","van den Berg","Dekker"] },
+  swahili:   { s: ["ki","mo","nai","dar","ma","lin","tan","zan","mba","nyu","ru","pem"], p: ["ni","bo","sa","nga","we","ji","ra"], given: ["Juma","Baraka","Amani","Jabari","Faraji","Zawadi","Neema","Rehema","Imani","Kito","Saidi","Asha"], fam: ["Mwangi","Odhiambo","Kamau","Mutua","Ndege","Otieno","Wanjiru","Chege","Kariuki","Njoroge"] },
+});
+Object.assign(LANGS.chinese, { given: ["Wei","Jian","Ming","Hua","Li","Fang","Lan","Mei","Jun","Qiang","Xiu","Yong"], fam: ["Li","Wang","Zhang","Liu","Chen","Yang","Zhao","Huang","Zhou","Wu"], famFirst: true });
+Object.assign(LANGS.japanese, { given: ["Hiroshi","Takeshi","Kenji","Haruto","Yuki","Aiko","Sakura","Hana","Ren","Sora","Akira","Emi"], fam: ["Sato","Suzuki","Takahashi","Tanaka","Watanabe","Ito","Yamamoto","Nakamura","Kobayashi","Kato"], famFirst: true });
+Object.assign(LANGS.korean, { given: ["Min-jun","Seo-yeon","Ji-ho","Ha-eun","Do-yoon","Ji-woo","Seung","Hye-jin","Joon","Yuna"], fam: ["Kim","Lee","Park","Choi","Jung","Kang","Cho","Yoon","Jang","Lim"], famFirst: true });
 const LANG_OF = {};
 for (const [lg, list] of Object.entries({
   greek: ["Greece", "Thrace"], latin: ["Northern Italy", "Southern Italy"], celtic: ["Aquitaine", "Northern Gaul", "Provence", "England", "Scotland", "Ireland", "Alps"], iberian: ["Portugal", "Castile", "Aragon"],
@@ -420,12 +438,13 @@ const capW = w => w ? w[0].toUpperCase() + w.slice(1) : w;
 const tidy = w => w.replace(/(.)\1\1+/g, "$1$1").replace(/([aeiou])\1([aeiou])/g, "$1$2");
 function placeName(lg) { const L = LANGS[lg] || LANGS.northam;
   if (L.han) return capW(pick(L.s) + (rnd() < .45 ? pick(L.s) : ""));
-  let w = pick(L.s) + (rnd() < .45 ? pick(L.s) : "") + pick(L.p); w = tidy(w); return capW(w.length > 12 ? w.slice(0, 12) : w); }
+  let w = ""; for (let t = 0; t < 6; t++) { w = tidy(pick(L.s) + (rnd() < .45 && t < 3 ? pick(L.s) : "") + pick(L.p)); if (w.length <= 12) break; } return capW(w); }
 function personName(lg) { const L = LANGS[lg] || LANGS.northam;
+  if (L.given) return L.famFirst ? `${pick(L.fam)} ${pick(L.given)}` : `${pick(L.given)} ${pick(L.fam)}`;
   if (L.han) return capW(pick(L.s)) + " " + capW(pick(L.s) + (rnd() < .5 ? pick(L.s) : ""));
   let w = pick(L.s) + (rnd() < .35 ? pick(L.s) : "") + pick(L.h); w = tidy(w); return capW(w.length > 12 ? w.slice(0, 12) : w); }
 // your own naming: a people's name, a naming style, and lists of city and personal names you choose
-const LANG_LABEL = { greek: "Greek", latin: "Latin", celtic: "Celtic", iberian: "Iberian", germanic: "Germanic", norse: "Norse", finnic: "Finnic", slavic: "Slavic", egyptian: "Egyptian", semitic: "Semitic", berber: "Berber", sumer: "Sumerian", anatol: "Anatolian", persian: "Persian", indic: "Indic", dravid: "Dravidian", tibetan: "Tibetan", seasia: "Southeast Asian", chinese: "Chinese", korean: "Korean", japanese: "Japanese", steppe: "Steppe (Turkic/Mongolic)", austro: "Austronesian", abor: "Aboriginal", bantu: "Bantu", wafrica: "West African", ethiop: "Ethiopian", nahuatl: "Nahuatl", maya: "Maya", andean: "Andean", amazon: "Amazonian", northam: "North American", inuit: "Inuit" };
+const LANG_LABEL = { english: "English", french: "French", spanish: "Spanish", portuguese: "Portuguese", italian: "Italian", german: "German", dutch: "Dutch", russian: "Russian", arabic: "Arabic", turkish: "Turkish", hindi: "Hindi", swahili: "Swahili", greek: "Greek", latin: "Latin", celtic: "Celtic", iberian: "Iberian", germanic: "Germanic", norse: "Norse", finnic: "Finnic", slavic: "Slavic", egyptian: "Egyptian", semitic: "Semitic", berber: "Berber", sumer: "Sumerian", anatol: "Anatolian", persian: "Persian", indic: "Indic", dravid: "Dravidian", tibetan: "Tibetan", seasia: "Southeast Asian", chinese: "Chinese", korean: "Korean", japanese: "Japanese", steppe: "Steppe (Turkic/Mongolic)", austro: "Austronesian", abor: "Aboriginal", bantu: "Bantu", wafrica: "West African", ethiop: "Ethiopian", nahuatl: "Nahuatl", maya: "Maya", andean: "Andean", amazon: "Amazonian", northam: "North American", inuit: "Inuit" };
 function demonym(n) { if (n.people) return n.people; const b = n.name.trim(); return b.endsWith("ia") ? b + "ns" : b.endsWith("a") ? b + "ns" : /[eiou]$/.test(b) ? b + "ans" : b.endsWith("os") ? b.slice(0, -2) + "ians" : b + "ians"; }
 function nameFor(n, kind) {
   const list = n && (kind === "person" ? n.personNames : n.cityNames);
@@ -434,7 +453,7 @@ function nameFor(n, kind) {
     const used = new Set(G.sets.filter(x => x.o === n.id).map(x => x.name)), free = list.filter(x => !used.has(x));
     if (free.length) return free[0]; // your own city names are used first, in order
   }
-  return kind === "person" ? personName(langOf(n)) : placeName(langOf(n));
+  return kind === "person" ? personName(n && n.plang || langOf(n)) : placeName(langOf(n));
 }
 function genName(max = 9) { let s = pick(SYL) + pick(SYL); if (rnd() < .4) s += pick(SYL); s = s.replace(/(.)\1\1/, "$1$1"); return s[0].toUpperCase() + s.slice(1, max); }
 // ---- culture: what a people values most. A major factor in research, armies and the economy ----
@@ -2611,6 +2630,10 @@ function applyNames(root) {
   const nn = v("nmNation"); if (nn) n.name = nn.slice(0, 18);
   const pp = v("nmPeople"); if (pp != null) n.people = pp ? pp.slice(0, 22) : null;
   const lg = v("nmLang"); if (lg && LANGS[lg]) n.lang = lg;
+  const plg = v("nmPLang"); if (plg && LANGS[plg]) n.plang = plg;
+  const chk = id => { const el = root.querySelector("#" + id); return el && el.checked; };
+  if (chk("nmRenameAll")) { const used = new Set(); for (const x of setsOf(n)) { let nmx; for (let t = 0; t < 8; t++) { nmx = placeName(n.lang); if (!used.has(nmx)) break; } used.add(nmx); x.name = nmx; } G.sv++; }
+  if (chk("nmRenamePeople")) { for (const g of n.generals || []) g.name = personName(n.plang || n.lang); if (n.commander) n.commander.name = personName(n.plang || n.lang); for (const x of setsOf(n)) if (x.lead) x.lead.name = personName(n.plang || n.lang); }
   const cl = v("nmCities"); if (cl != null) n.cityNames = cl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
   const pl = v("nmPersons"); if (pl != null) n.personNames = pl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
   save(); hud(); dirty = true; if (curPanel) refresh();
@@ -2620,7 +2643,10 @@ function openNaming() {
   showModal(`<div class="mi">✍️</div><h2>Names</h2>
     <label class="fld">${tribal(n) || rankOf(n) === 0 ? "Tribe" : "Nation"} name<input id="nmNation" maxlength="18" value="${esc(n.name)}"></label>
     <label class="fld">Your people <small class="muted">what they call themselves</small><input id="nmPeople" maxlength="22" value="${esc(demonym(n))}"></label>
-    <label class="fld">Naming style <small class="muted">for new towns and people</small><select id="nmLang">${Object.entries(LANG_LABEL).map(([k, l]) => `<option value="${k}" ${langOf(n) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="fld">City names in<select id="nmLang">${Object.entries(LANG_LABEL).map(([k, l]) => `<option value="${k}" ${langOf(n) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="askrow"><input type="checkbox" id="nmRenameAll"> Rename all my existing towns and villages in this style</label>
+    <label class="fld">People's names in<select id="nmPLang">${Object.entries(LANG_LABEL).map(([k, l]) => `<option value="${k}" ${(n.plang || langOf(n)) === k ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="askrow"><input type="checkbox" id="nmRenamePeople"> Rename my current leaders and generals too</label>
     <label class="fld">Your own city names <small class="muted">used first for new settlements, separated by commas</small><textarea id="nmCities" rows="2">${esc((n.cityNames || []).join(", "))}</textarea></label>
     <label class="fld">Your own personal names <small class="muted">for leaders and generals</small><textarea id="nmPersons" rows="2">${esc((n.personNames || []).join(", "))}</textarea></label>
     <div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Save</button></div>`, a => { if (a === "ok") applyNames(modal); });
