@@ -325,6 +325,30 @@ const LAWS = {
   migr: { name: "Migration", opts: { free: ["Free settling", null, "Full settlements send people out to form new villages on their own."], restrict: ["Restricted", null, "No new villages form. Full settlements just stop growing. Commoners dislike it."] } },
   focus: { name: "National Focus", opts: { bal: ["Balanced", null, "No special focus."], grow: ["Growth", null, "Settlements grow faster."], mil: ["Military", "bronze", "+15% army, cheaper upkeep."], sci: ["Science", "writing", "+15% science."], com: ["Commerce", "currency", "+15% gold."], ind: ["Industry", "guilds", "+15% materials, cheaper buildings."] } },
 };
+// ---- the army's words change with the ages: war bands and warlords first, regiments and divisions much later ----
+const UNIT_WORDS = [["war band", "war bands"], ["war band", "war bands"], ["cohort", "cohorts"], ["company", "companies"], ["regiment", "regiments"], ["regiment", "regiments"], ["division", "divisions"], ["division", "divisions"]];
+function AW(t) {
+  if (typeof t !== "string" || !G || !G.nations || !G.nations.length) return t;
+  const n = G.nations[G.player]; if (!n) return t;
+  const e = n.era, [s1, s2] = UNIT_WORDS[e];
+  t = t.replace(/\b([Rr])egiment(s?)\b/g, (m, r, pl) => { const w = pl ? s2 : s1; return r === "R" ? w[0].toUpperCase() + w.slice(1) : w; });
+  if (e <= 3) { const big = e <= 1 ? "Warlord" : "High General"; t = t.replace(/Supreme Commander/g, big).replace(/supreme commander/g, big.toLowerCase()); }
+  return t;
+}
+// who fights: tribes send hunters and warriors; conscription comes much later
+const CONS_NAMES = [
+  { e: 0, name: "Who fights", vol: ["Hunters only", "Only the best hunters go to war: small war bands, but families like it."], levy: ["Warrior band", "Every family sends a warrior when the tribe calls."], mass: ["Every hand a spear", "Everyone who can hold a spear fights: huge war bands. Warriors love it, families don't."] },
+  { e: 1, name: "Who fights", vol: ["Warrior caste", "A caste of born warriors does the fighting: a small army, but people like it."], levy: ["Clan levy", "Clans send their young men when called."], mass: ["Every able man", "All men of fighting age must serve: a huge army. Warriors love it, people don't."] },
+  { e: 2, name: "Military service", vol: ["Professional soldiers", "Paid soldiers serve for years: a small army, but people like it."], levy: ["Citizen levy", "Citizens serve when called."], mass: ["Universal service", "Every citizen must serve: a huge army. Soldiers love it, people don't."] },
+  { e: 3, name: "Military service", vol: ["Knights & retainers", "Lords and their sworn men fight: a small army, but peasants are left in peace."], levy: ["Feudal levy", "Lords raise their peasants when the crown calls."], mass: ["Peasant hosts", "Every village sends its men: huge hosts. Warriors love it, peasants don't."] },
+  { e: 4, name: "Conscription", vol: ["Professional army", "A standing army of volunteers: small, but popular."], levy: ["Militia levy", "Towns raise militias when needed."], mass: ["Mass conscription", "Every young man is drafted: a huge army. The military loves it, people don't."] },
+  { e: 6, name: "Conscription", vol: ["All-volunteer force", "Only volunteers serve: a small army, but popular."], levy: ["Selective draft", "Some are drafted by lottery."], mass: ["Total mobilization", "The whole nation is put on a war footing: a huge army. The military loves it, people don't."] },
+];
+function lawView(n, lk) {
+  const L = LAWS[lk]; if (lk !== "cons") return L;
+  const c = CONS_NAMES.slice().reverse().find(x => n.era >= x.e);
+  return { ...L, name: c.name, opts: { vol: [c.vol[0], L.opts.vol[1], c.vol[1]], levy: [c.levy[0], L.opts.levy[1], c.levy[1]], mass: [c.mass[0], L.opts.mass[1], c.mass[1]] } };
+}
 const FACTIONS = {
   commoners: { name: () => "Commoners", icon: "🧑‍🌾", from: 0 },
   elders: { name: e => e < 1 ? "Elders" : "Clergy", icon: "🕯️", from: 0 },
@@ -380,7 +404,7 @@ function dip(a, b) { const k = pk(a, b); return G.dip[k] || (G.dip[k] = { rel: 0
 const atWar = (a, b) => a !== b && a >= 0 && b >= 0 && dip(a, b).war;
 const wscore = (a, b) => a < b ? dip(a, b).ws : -dip(a, b).ws;
 function addWs(a, b, v) { const d = dip(a, b); d.ws += a < b ? v : -v; }
-function log(text, icon = "•", who = null) { G.news.push({ t: text, i: icon, p: who === null || who === G.player }); }
+function log(text, icon = "•", who = null) { G.news.push({ t: AW(text), i: icon, p: who === null || who === G.player }); }
 
 // settlements & territories
 const setsOf = n => G.sets.filter(s => s.o === n.id);
@@ -694,7 +718,7 @@ function checkGovMil(n, fresh, pend) {
   const govs = Object.entries(GOVS).filter(([g, G2]) => G2.tech && add("gov:" + g, has(n, G2.tech)));
   if (govs.length) pend.push({ icon: "🏛️", title: govs.length > 1 ? "New forms of government" : `New government: ${govs[0][1].name}`, text: govs.map(([, G2]) => `${G2.name}: ${G2.d}`).join(" ") + " You can switch in the Laws tab." });
   const laws = [];
-  for (const [lk, L] of Object.entries(LAWS)) { if (L.tech && add("law:" + lk, has(n, L.tech))) laws.push(`${L.name} law: ${Object.values(L.opts).map(o => o[0]).join(" or ")}.`);
+  for (const lk of Object.keys(LAWS)) { const L = lawView(n, lk); if (L.tech && add("law:" + lk, has(n, L.tech))) laws.push(`${L.name} law: ${Object.values(L.opts).map(o => o[0]).join(" or ")}.`);
     for (const [ok, o] of Object.entries(L.opts)) if (o[1] && (!L.tech || has(n, L.tech)) && add("lawopt:" + lk + ":" + ok, has(n, o[1]))) laws.push(`${L.name}: ${o[0]}. ${o[2]}`); }
   if (laws.length) pend.push({ icon: "📜", title: laws.length > 1 ? "New laws" : "New law", text: laws.join(" ") + " See the Laws tab." });
   const cmds = Object.entries(CMDS).filter(([k, c]) => c.tech && add("cmd:" + k, has(n, c.tech)));
@@ -2337,7 +2361,7 @@ function openRegion(ri) {
   if (here.length) h += `<h4>Settlements</h4><div class="sets">${here.map(s => setRow(s, n)).join("")}</div>`;
   const others = [...new Set(here.filter(s => s.o !== n.id).map(s => s.o))].concat(ctrl && ctrl.id !== n.id && !here.some(s => s.o === ctrl.id) ? [ctrl.id] : []);
   for (const id of others) { const o = G.nations[id]; if (!atWar(n.id, id)) h += `<div class="opts"><button class="opt" data-act="diplo" data-id="${id}"><span class="oi">🤝</span><span class="ot"><b>Diplomacy with ${esc(o.name)}</b><small>Trade, alliances, gifts or war</small></span></button></div>`; }
-  sheet.innerHTML = h; sheet.hidden = false; sheet.dataset.ri = ri; sheet.scrollTop = 0;
+  sheet.innerHTML = AW(h); sheet.hidden = false; sheet.dataset.ri = ri; sheet.scrollTop = 0;
 }
 function closeSheet() { sheet.hidden = true; sel = -1; dirty = true; }
 sheet.addEventListener("change", e => {
@@ -2383,7 +2407,7 @@ let curPanel = null;
 function openPanel(name) {
   closeSheet(); curPanel = name;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.p === name));
-  panel.innerHTML = { nation: panelNation, develop: panelDevelop, research: panelResearch, army: panelMilitary, policy: panelPolicy, world: panelWorld, trade: panelTrade }[name]();
+  panel.innerHTML = AW({ nation: panelNation, develop: panelDevelop, research: panelResearch, army: panelMilitary, policy: panelPolicy, world: panelWorld, trade: panelTrade }[name]());
   budgetFill(panel.querySelector(".budget"));
   panel.hidden = false; panel.scrollTop = 0;
 }
@@ -2471,7 +2495,7 @@ function panelNation() {
     ${E.strat.map(s => line(`${RES[s.res].icon} ${RES[s.res].name} for the army`, s.st === "have" ? '<span class="good">Own supply</span>' : s.st === "import" ? `<span class="warn">Imported from ${esc(s.from.name)} (−${s.cost}🪙)</span>` : `<span class="bad">Missing${s.pen ? ` (−${s.pen * 100}% army)` : ""}</span>`)).join("")}</div>`;
   h += `<div class="card"><h4>Army</h4>
     ${line("Regiments", `${n.army} / ${ma} max`)}${line("Strength per regiment", fmt(unitPower(n)))}${line("Total strength", fmt(power(n)))}${line("Ready to fight", Math.floor(n.army - (n.used || 0)))}
-    ${line("Budget pays for", `${E.armyTarget} regiments`)}
+    ${line("Budget pays for", `${E.armyTarget} regiment${E.armyTarget === 1 ? "" : "s"}`)}
     <p class="muted small">Your army's size follows your military budget: each regiment costs ${fmt(unitUpkeep(n) * TD)} gold a quarter, and new ones need ${fmt(uc.m)} 🪵 to equip. Bigger populations and the Conscription law raise your manpower limit.</p></div>`;
   h += `<div class="card"><h4>Paths to victory</h4>
     ${line("🚀 Reach Mars (research Mars Colony)", has(n, "rocketry") ? (lv(n, "marsmission") >= 3 ? "Mars Mission ready" : "Develop the Space field") : ERAS[n.era])}
@@ -2517,13 +2541,13 @@ function panelDevelop() {
 }
 function panelMilitary() {
   const n = P(), E = econM(n), uc = unitCost(n), ma = maxArmy(n), C = cmd(n);
-  let h = ph("Army", `${n.army} regiments · strength ${fmt(power(n))}`);
+  let h = ph("Army", `${n.army} regiment${n.army === 1 ? "" : "s"} · strength ${fmt(power(n))}`);
   // command structure
   h += `<div class="card"><h4>${C.icon} Command: ${C.name}</h4><p class="small muted">${C.d}</p>`;
   if (n.cmd === "supreme" && n.commander) { const cm = n.commander, eff = supremeMult(n);
     h += `<div class="ln me"><span>Supreme Commander ${esc(cm.name)}</span><b>${"★".repeat(cm.skill)}${"☆".repeat(5 - cm.skill)} · <span class="${eff < 0 ? "bad" : "good"}">${eff >= 0 ? "+" : ""}${Math.round(eff * 100)}% army</span></b></div>`; }
   h += `<p class="small muted">${n.cmd === "supreme" && n.commander ? `Serves about ${durTxt(n.commander.left)} more; the army, not you, chooses the successor. ` : ""}${cmdLocked(n) ? `Locked in until ${yearTxt(n.cmdUntil)}.` : `Any structure you choose is locked in for ${CMD_YEARS} years.`}</p><div class="govs">`;
-  for (const [k, c] of Object.entries(CMDS)) { const un = !c.tech || has(n, c.tech);
+  for (const [k, c] of Object.entries(CMDS)) { const un = !c.tech || has(n, c.tech); if (!un) continue;
     h += `<button class="gov ${n.cmd === k || (!n.cmd && k === "chiefs") ? "cur" : ""}" data-act="cmd" data-k="${k}" ${(n.cmd || "chiefs") === k || !un || cmdLocked(n) ? "disabled" : ""}><b>${c.icon} ${c.name}</b><small>${c.d}</small><span class="tc">${(n.cmd || "chiefs") === k ? "Current" : !un ? `Needs ${TECH[c.tech].name}` : cmdLocked(n) ? `Locked until ${yearTxt(n.cmdUntil)}` : "Reorganize"}</span></button>`; }
   h += `</div></div>`;
   // regiments
@@ -2532,7 +2556,7 @@ function panelMilitary() {
     ${line("Regiments", `${n.army} / ${ma} max`)}${line("Ready to fight", Math.floor(n.army - (n.used || 0)))}
     ${line("Strength per regiment", fmt(unitPower(n)))}${line("Attack bonus (generals & command)", `+${Math.round((attackMult(n) - 1) * 100)}%`)}${line("Defense bonus", `+${Math.round((defMult(n) - 1) * 100)}%`)}
     ${line("Total strength", fmt(power(n)))}
-    ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiments${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
+    ${line(`Military budget (${bud(n).mil}%)`, `${fmt(E.milGold)} 🪙`)}${line("Budget pays for", `${E.armyTarget} regiment${E.armyTarget === 1 ? "" : "s"}${E.armyTarget !== n.army ? ` <span class="${E.armyTarget > n.army ? "good" : "bad"}">(${E.armyTarget > n.army ? "raising" : "standing down"} ${Math.abs(E.armyTarget - n.army)})</span>` : ""}`)}
     ${line(`Quality (${bud(n).qual}% of the budget)`, `<span class="good">+${Math.round((qualMult(E.milQual) - 1) * 100)}% per regiment</span>`)}${E.milFund < 1 ? line("Underpaid", `<span class="bad">${Math.round((milMult(E.milFund) - 1) * 100)}% strength</span>`) : ""}
     <p class="muted small">New regiments need ${fmt(uc.m)} 🪵 each to equip.</p></div>`;
   h += `<div class="card"><h4>🛡️ Spending the military budget</h4><p class="small muted">Your yearly budget gives the army ${bud(n).mil}% of gross income (${fmt(E.milGold)} 🪙 a quarter). Split it between more regiments and better ones.</p>${armyBudgetHTML(n)}<div class="row wrap"><button class="btn small ghost" data-act="budget">📒 Change the military share</button></div></div>`;
@@ -2728,15 +2752,15 @@ function panelPolicy() {
   h += `<div class="card"><h4>Government</h4><p class="muted small">How you rule. Your rank (Tribe, Nation, Kingdom, Empire) comes from how many territories you control.</p><div class="govs">`;
   for (const g in GOVS) {
     const G2 = GOVS[g], un = !G2.tech || has(n, G2.tech);
-    if (!un && TECH[G2.tech].era > n.era + 1) continue;
+    if (!un) continue; // only forms of government your people know of
     h += `<button class="gov ${g === n.gov ? "cur" : ""}" data-act="gov" data-g="${g}" ${g === n.gov || !un || n.govCool > 0 || locked ? "disabled" : ""}><b>${G2.name}</b><small>${G2.d}</small><span class="tc">${g === n.gov ? "Current" : !un ? `Needs ${TECH[G2.tech].name}` : n.govCool > 0 ? `Wait ${n.govCool} turns` : "Switch (2 turns of turmoil)"}</span></button>`;
   }
   h += `</div></div>`;
   for (const lk in LAWS) {
-    const L = LAWS[lk]; if (L.tech && !has(n, L.tech)) continue;
+    const L = lawView(n, lk); if (L.tech && !has(n, L.tech)) continue;
     if (!L.opts[n.laws[lk]]) n.laws[lk] = lk === "rp" ? ({ bal: "std", sch: "high", acad: "max" }[n.laws[lk]] || "std") : Object.keys(L.opts)[0];
     h += `<div class="card"><h4>${L.name}</h4><div class="seg">`;
-    for (const ok in L.opts) { const [nmx, tech, d] = L.opts[ok]; const un = !tech || has(n, tech);
+    for (const ok in L.opts) { const [nmx, tech, d] = L.opts[ok]; const un = !tech || has(n, tech); if (!un) continue;
       h += `<button class="${n.laws[lk] === ok ? "on" : ""}" data-act="law" data-l="${lk}" data-o="${ok}" ${!un || locked ? "disabled" : ""} title="${esc(d)}">${nmx}${!un ? " 🔒" : ""}</button>`; }
     h += `</div><p class="small muted">${esc(L.opts[n.laws[lk]][2])}</p></div>`;
   }
@@ -2798,7 +2822,7 @@ function openNationDetail(id) {
     h += `<button class="opt war" data-act="dWar" data-id="${id}" ${blocked ? "disabled" : ""}><span class="oi">⚔️</span><span class="ot"><b>Declare war</b><small>${blocked || "Breaks treaties. Then attack their settlements from the map."}</small></span></button>`;
   }
   h += `</div>`;
-  panel.innerHTML = h; panel.hidden = false; panel.scrollTop = 0;
+  panel.innerHTML = AW(h); panel.hidden = false; panel.scrollTop = 0;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.p === "world"));
 }
 panel.addEventListener("click", e => {
@@ -2869,11 +2893,11 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => { if (curPanel 
 
 // ---------- modals ----------
 let modalCb = null;
-function showModal(html, cb) { modal.querySelector(".mbox").innerHTML = html; modal.hidden = false; modalCb = cb || null; }
+function showModal(html, cb) { modal.querySelector(".mbox").innerHTML = AW(html); modal.hidden = false; modalCb = cb || null; }
 modal.addEventListener("click", e => { const b = e.target.closest("[data-m]"); if (!b || b.disabled) return; const a = b.dataset.m; const cb = modalCb; modal.hidden = true; modalCb = null; if (cb) cb(a); });
 function confirmModal(title, text, yes) { showModal(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="yes">Confirm</button></div>`, a => { if (a === "yes") yes(); }); }
 let toastT = 0;
-function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 1900); }
+function toast(t) { const el = $("toast"); el.textContent = AW(t); el.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove("on"), 1900); }
 
 // ---- simulate 10 years: a governor runs your nation and honors the focus and limits you set ----
 const GOV_FOCUS = {
