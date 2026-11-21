@@ -1326,21 +1326,27 @@ const tribal = n => !n.stateUp;
 // a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
 const TIME = {
   warrior: { name: "Warriors", icon: "⚔️", def: 20, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
-  food:    { name: "Hunters & gatherers", icon: "🏹", def: 45, d: "Bring in plenty of food each, but only as much as your land's game allows, and little in winter." },
-  farm:    { name: "Farmers & herders", icon: "🌾", def: 0, tech: "agriculture", d: "Less food each than hunters, but steady all year and not limited by game. Each farming family needs a farm plot." },
+  food:    { name: "Hunters & gatherers", icon: "🏹", def: 45, grp: "gather", d: "Bring in plenty of food each, but only as much as your land's game allows, and little in winter." },
+  farm:    { name: "Farmers & herders", icon: "🌾", def: 0, tech: "agriculture", grp: "gather", d: "Less food each than hunters, but steady all year and not limited by game. Each farming family needs a farm plot." },
+  water:   { name: "Water carriers", icon: "💧", def: 0, grp: "gather", d: "Fetch water from streams and springs. Each carrier family keeps 6 families supplied. Cisterns and wells mean fewer need to carry." },
   build:   { name: "Builders", icon: "🪓", def: 20, d: "Huts, tools and stores: materials." },
   elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
   scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
 const roleName = (n, k) => TIME[k].name;
 const roleIcon = (n, k) => TIME[k].icon;
-const roleOpen = (n, k) => !TIME[k].tech || has(n, TIME[k].tech);
+const roleOpen = (n, k) => (!TIME[k].tech || has(n, TIME[k].tech)) && !(n.retired && n.retired[k]); /* roles your people have outgrown leave the allocation */
 function timeOf(n) {
   if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
   if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; }
   if (n.time.farm == null) n.time.farm = 0;
+  if (n.time.water == null) { n.time.water = 0; if (G && G.sets && setsOf(n).length) { const w = carriersNeeded(n); n.time.water = w; n.time.food = Math.max(10, (n.time.food || 0) - w); } }
   let sum = 0; for (const k in TIME) sum += n.time[k] || 0;
-  if (sum > 100) for (const k in TIME) n.time[k] = Math.floor((n.time[k] || 0) * 100 / sum / 5) * 5; // shares never add up to more than everyone
+  if (n.retired) for (const k in n.retired) if (n.retired[k] && n.time[k]) { sum -= n.time[k]; n.time[k] = 0; }
+  if (sum > 100) { /* shares never add up to more than everyone: scale down in steps of 5, handing the leftover to the biggest roles */
+    const ks = Object.keys(TIME); for (const k of ks) n.time[k] = Math.round((n.time[k] || 0) * 100 / sum / 5) * 5;
+    const big = () => ks.reduce((b, k) => n.time[k] > n.time[b] ? k : b, ks[0]);
+    for (let g = 0, t = ks.reduce((a, k) => a + n.time[k], 0); t !== 100 && g < 40; g++) { const k = big(); const d = t > 100 ? -5 : 5; n.time[k] += d; t += d; } }
   return n.time; }
 // room: land claimed per family. Crowding lowers fertility and slows builders; plenty of land lifts spirits
 function roomAt(x) { // only land that's hemmed in by neighbors gets crowded; growing borders just haven't reached their reach yet
@@ -1348,7 +1354,7 @@ function roomAt(x) { // only land that's hemmed in by neighbors gets crowded; gr
   return clamp(Math.pow(reach * l / Math.max(.01, want), 2), .2, 3); }
 function roomOf(n) { let a = 0, p = 0; for (const x of setsOf(n)) { a += roomAt(x) * x.pop; p += x.pop; } return p > 0 ? a / p : 1; }
 const crowdF = r => r < 1 ? .45 + .55 * r : 1 + .08 * Math.min(1.5, r - 1); // below 1 = crowded
-const timeShare = (n, k) => (timeOf(n)[k] || 0) / 100; // each role is a straight share of all your people
+const timeShare = (n, k) => n.retired && n.retired[k] ? 0 : (timeOf(n)[k] || 0) / 100; // each role is a straight share of all your people
 const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) sum += t[k] || 0; return Math.max(0, 100 - sum); };
 // ---- elder discussions: before there is research, the elders talk things through, one subject after another.
 // The last talks turn to knowledge itself and to who the people are; then research truly begins ----
@@ -1395,7 +1401,6 @@ const STRUCTS = {
   hearth:   { tab: "amen", name: "Fire pits", one: "fire pit", icon: "🍲", hours: 900, d: "One for every 5 families. Warmth and cooked food: fewer die in winter, and families live better." },
   hides:    { tab: "amen", name: "Tanning frames", one: "tanning frame", icon: "🧥", hours: 1500, d: "Hides become clothes and blankets: winter is easier to survive. Up to one for every 8 families in the coldest lands, fewer where winters are mild, none where it's never cold." },
   refuse:   { tab: "amen", name: "Refuse pits", one: "refuse pit", icon: "🕳️", hours: 800, d: "One for every 10 families. Waste kept away from the huts: less sickness." },
-  skins:    { tab: "water", name: "Water skins & paths", one: "set of water skins", icon: "💧", hours: 700, wcap: 5, d: "Skins, gourds and worn paths to the nearest water. Each supplies 5 families." },
   cistern:  { tab: "water", tech: "pottery", name: "Cisterns", one: "cistern", icon: "🏺", hours: 2500, wcap: 12, d: "Clay-lined pits that catch and hold the rain. Each supplies 12 families." },
   water:    { tab: "water", tech: "mining", name: "Wells", one: "well", icon: "🪣", hours: 4000, wcap: 25, d: "Dug down to the water below. Each supplies 25 families, even in dry land." },
   aqueduct: { tab: "water", tier: 1, tech: "construction", name: "Aqueduct", one: "aqueduct", icon: "🌉", hours: 20000, wcap: 200, d: "Towns only. Water carried from far hills: supplies 200 families." },
@@ -1419,7 +1424,6 @@ const coastal = n => setsOf(n).some(x => W.regions[x.r].c);
 // every village, town and city has its own needs and its own builders
 function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop) }; if (!x.pq) { x.pq = []; x.qp = 0; }
   if (!x.amenV) { x.amenV = 1; const f = Math.max(1, x.pop); if (x.b.hearth == null) x.b.hearth = Math.ceil(f / 5); if (x.b.hides == null) x.b.hides = Math.ceil(f / 8); if (x.b.circle == null) x.b.circle = 1; if (x.b.refuse == null) x.b.refuse = Math.ceil(f / 10); }
-  if (x.b.skins == null && G && W.regions[x.r]) x.b.skins = Math.ceil(Math.max(0, x.pop - waterNat(x) / .6) / 5); /* settlers carry enough water for themselves, even through a dry summer */
   return x.b; }
 const onCoast = x => !!W.regions[x.r].c;
 function needAt(n, x, k) {
@@ -1436,7 +1440,7 @@ function needAt(n, x, k) {
     case "hearth": return Math.ceil(fam / 5);
     case "hides": { const c = coldOf(x); return c < .15 ? 0 : Math.ceil(fam * c / 8); }
     case "refuse": return Math.ceil(fam / 10);
-    case "skins": case "cistern": case "water": case "aqueduct": { const def = Math.max(0, fam - waterSupply(n, x)); return builtAt(x, k) + Math.ceil(def / it.wcap); }
+    case "cistern": case "water": case "aqueduct": { const def = Math.max(0, fam - waterSupply(n, x)); return builtAt(x, k) + Math.ceil(def / it.wcap); }
     case "circle": return 1;
     case "lodge": return Math.ceil(fam / 15);
     default: return 1; // town and city buildings: one each
@@ -1451,8 +1455,15 @@ const AMEN = { warmth: { name: "Warmth", icon: "🔥", k: ["hearth", "hides"], d
 const WATER_NAT = { jungle: 60, forest: 45, grass: 40, plains: 35, tundra: 30, mountain: 30, steppe: 18, desert: 6 };
 const RIVERS = new Set(["Lower Egypt", "Nubia", "Mesopotamia", "Indus", "Punjab", "Bengal", "North China Plain", "Jiangnan", "Sichuan", "Mekong", "Tonkin", "Volga", "Rhineland", "Low Countries", "Western Amazon", "Eastern Amazon", "Wallachia", "Ukraine"]);
 const dry = x => ["desert", "steppe"].includes(W.regions[x.r].t);
-function waterNat(x) { const R = W.regions[x.r], summer = Math.floor((G.month || 0) / 3) === 2; return (WATER_NAT[R.t] || 30) * (RIVERS.has(R.n) ? 4 : 1) * (summer && !RIVERS.has(R.n) ? (dry(x) ? .6 : .85) : 1) * (1 + .3 * (x.exp || 0)); }
-function waterSupply(n, x) { sb(x); let s = waterNat(x); for (const k of ["skins", "cistern", "water", "aqueduct"]) s += builtAt(x, k) * STRUCTS[k].wcap; return s; }
+function waterNat(x, worst) { const R = W.regions[x.r], summer = worst || Math.floor((G.month || 0) / 3) === 2; return (WATER_NAT[R.t] || 30) * (RIVERS.has(R.n) ? 4 : 1) * (summer && !RIVERS.has(R.n) ? (dry(x) ? .6 : .85) : 1) * (1 + .3 * (x.exp || 0)); }
+function waterInfra(x, worst) { let s = waterNat(x, worst); for (const k of ["cistern", "water", "aqueduct"]) s += builtAt(x, k) * STRUCTS[k].wcap; return s; }
+/* your carriers go where water is short: their total haul is shared out by each place's shortfall */
+function carrierHaul(n) { const k = G.turn + ":" + G.sv + ":" + (timeOf(n).water || 0); if (n._wh && n._wh.k === k) return n._wh.m;
+  const m = new Map(), ss = setsOf(n); let tot = 0, def = 0; for (const x of ss) { tot += x.pop; def += Math.max(0, x.pop - waterInfra(x)); }
+  const haul = tot * timeShare(n, "water") * 6; for (const x of ss) { const d = Math.max(0, x.pop - waterInfra(x)); m.set(x.id, def > 0 ? haul * d / def : 0); }
+  n._wh = { k, m }; return m; }
+function waterSupply(n, x) { sb(x); return waterInfra(x) + (tribal(n) ? carrierHaul(n).get(x.id) || 0 : 0); } /* nature and what you've built, plus what your carriers bring */
+function carriersNeeded(n) { let d = 0, P0 = 0; for (const x of setsOf(n)) { sb(x); d += Math.max(0, x.pop * 1.08 - waterInfra(x, true)); P0 += x.pop; } /* enough for the driest season and a little growth */ return P0 ? clamp(Math.ceil(d / 6 / P0 * 20) * 5, 0, 60) : 0; } /* share, with room for a dry summer */
 const waterAt = (n, x) => x.pop > 0 ? Math.min(1, waterSupply(n, x) / x.pop) : 1;
 function waterOf(n) { if (!tribal(n)) return 1; let w = 0, P0 = 0; for (const x of setsOf(n)) { w += waterAt(n, x) * x.pop; P0 += x.pop; } return P0 ? w / P0 : 1; }
 /* how cold a place gets: by latitude, with mountains and tundra colder and jungles never cold */
@@ -1602,7 +1613,8 @@ function econ(n) {
   if (tribal(n)) {
     const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [1 - .35 * coldNation(n), 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
     const game = Math.min(1, room / Math.max(.2, hunt * 2.2)); // too many hunters for the land and the game runs out
-    food *= .6 + 1.1 * hunt * game * season + .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))); /* farmers without plots scratch out small gardens */
+    { const hT = 1.1 * hunt * game * season, fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1); /* farmers without plots scratch out small gardens; herds add meat and milk */
+      n._noHuntR = (.6 + fT) / (.6 + hT + fT); food *= .6 + hT + fT; }
     mat *= (.9 + .2 * trv(n, "ind") / 100) * (.8 + timeShare(n, "build")) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= 1 + .2 * structCov(n, "shop"); sci *= 1 + .1 * structCov(n, "shrine"); }
   const surplus = food - need;
@@ -1864,6 +1876,18 @@ function alertLoss(n, lost, icon, title, text) {
   if (lost / Math.max(1, popOf(n)) >= .01 && !(at[title] > G.turn - TPY)) { at[title] = G.turn; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); }
   else log(text, icon);
 }
+/* as technology advances and needs are met for good, some work stops being necessary and leaves the allocation */
+function retireRoles(n, E) { const R = n.retired || (n.retired = {}), t = timeOf(n), pop = (icon, title, text) => { if (!n.ai) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); };
+  if (!R.food && has(n, "agriculture") && has(n, "husbandry")) {
+    n.huntOkT = E.food * (n._noHuntR || 1) >= E.need * 1.02 && t.farm > 0 ? (n.huntOkT || 0) + 1 : 0;
+    if (n.huntOkT >= 2 * TPY) { R.food = true; t.farm = (t.farm || 0) + (t.food || 0); t.food = 0;
+      pop("🌾", "The last hunt", "For two years your fields and herds have fed everyone on their own. Hunting is no longer needed to survive, so your hunters have become farmers and herders. They no longer appear in Who does what."); } }
+  if (has(n, "pottery") || has(n, "mining")) { const ok = setsOf(n).every(x => waterInfra(x) >= x.pop);
+    if (!R.water) { n.waterOkT = ok ? (n.waterOkT || 0) + 1 : 0;
+      if (n.waterOkT >= 2 * TPY) { R.water = true; t.build = (t.build || 0) + (t.water || 0); t.water = 0;
+        pop("🪣", "Water at hand", "For two years your cisterns, wells and springs have given everyone water. No one needs to carry it anymore, so the water carriers have become builders. They no longer appear in Who does what."); } }
+    else if (setsOf(n).some(x => waterInfra(x) < x.pop * .9)) { R.water = false; n.waterOkT = 0; const w = carriersNeeded(n); t.water = w; t.build = Math.max(0, (t.build || 0) - w);
+      pop("💧", "Water carriers needed again", "Your people have outgrown their cisterns and wells. Some families are carrying water again (Who does what); build more to free them."); } } }
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
@@ -1948,7 +1972,7 @@ function processNation(n) {
       const tot = ds + ls + d + l, loss = Math.min(Math.max(0, x.pop - 2), tot); if (loss <= 0) continue; const k = loss / tot;
       x.pop -= loss; x.shk = Math.max(0, x.shk - (ds + ls) * k); died += (ds + d) * k; dS += ds * k; left += (ls + l) * k; }
     n.lostThirst = (n.lostThirst || 0) + thirstL;
-    if (!n.ai && n.lostThirst >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostThirst); n.lostThirst -= v; alertLoss(n, v, "🏜️", "Not enough water", `${v} famil${v === 1 ? "y" : "ies"} left in search of water, and bad water is making others sick. Build water skins${has(n, "pottery") ? ", cisterns" : ""}${has(n, "mining") ? " and wells" : ""} (Production › Water), or expand toward rivers and springs.`); }
+    if (!n.ai && n.lostThirst >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostThirst); n.lostThirst -= v; alertLoss(n, v, "🏜️", "Not enough water", `${v} famil${v === 1 ? "y" : "ies"} left in search of water, and bad water is making others sick. Assign more water carriers (Who does what)${has(n, "pottery") ? ", build cisterns" : ""}${has(n, "mining") ? " and wells" : ""}, or expand toward rivers and springs.`); }
     n.lostSick = (n.lostSick || 0) + sick; n.lostColdH = (n.lostColdH || 0) + coldH;
     if (!n.ai && n.lostSick >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostSick); n.lostSick -= v; alertLoss(n, v, "🤒", "Sickness", `Sickness carried off ${v} famil${v === 1 ? "y" : "ies"}. Refuse pits${has(n, "pottery") ? ", wells" : ""}${has(n, "mysticism") ? " and sweat lodges" : ""} keep people healthy (Production › Amenities).`); }
     if (!n.ai && n.lostColdH >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostColdH); n.lostColdH -= v; alertLoss(n, v, "🥶", "A hard winter", `${v} famil${v === 1 ? "y" : "ies"} died of cold despite their huts. Fire pits and tanning frames keep families warm (Production › Amenities).`); }
@@ -1957,6 +1981,7 @@ function processNation(n) {
     if (!n.ai && n.lostD + n.lostL >= 1) { const D = Math.floor(n.lostD), Lf = Math.floor(n.lostL + (n.lostD - D)), inShacks = n.lostS >= n.lostD / 2; n.lostD = 0; n.lostL = 0; n.lostS = 0;
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
+  if (tribal(n)) retireRoles(n, E);
   n.hungry = sr < 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
   stepTraits(n, E, H); stepPeoples(n);
   for (const s of sets) {
@@ -2316,7 +2341,8 @@ function aiTurn(n) {
     const nearRival = setsOf(n).some(x => nearSets(x.x, x.y, 5).some(o => o.o !== n.id));
     if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const ag = has(n, "agriculture");
-    const want = { warrior: war ? 30 : 18, food: (E.surplus < 0 ? 55 : 42) * (ag ? .5 : 1), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
+    const want = { warrior: war ? 30 : 18, food: (E.surplus < 0 ? 55 : 42) * (ag ? .5 : 1), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
+    if (n.retired && n.retired.food) { want.farm += want.food; want.food = 0; }
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
@@ -3204,7 +3230,8 @@ function armyBudgetHTML(n) {
 }
 function timeHTML(n) {
   const t = timeOf(n);
-  return `<div class="budget timeal">${Object.entries(TIME).filter(([k]) => roleOpen(n, k)).map(([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`).join("")}<p class="small" data-tidle></p><p class="rec" data-trec></p></div>`;
+  const one = ([k, x]) => `<div class="bl"><label><span>${roleIcon(n, k)} ${roleName(n, k)}</span><b data-tv="${k}"></b></label><input type="range" min="0" max="100" step="5" value="${t[k]}" data-time="${k}" aria-label="${x.name}"><p class="bx" data-tx="${k}"></p></div>`, open = Object.entries(TIME).filter(([k]) => roleOpen(n, k)), gat = open.filter(([, x]) => x.grp === "gather");
+  return `<div class="budget timeal"><div class="tgrp"><h5>🧺 Resource gatherers</h5>${gat.map(one).join("")}</div>${open.filter(([, x]) => x.grp !== "gather").map(one).join("")}<p class="small" data-tidle></p><p class="rec" data-trec></p></div>`;
 }
 function timeFill(root) {
   if (!root || !G) return; const n = P(), E = econM(n), sh = k => timeShare(n, k), set = (sel, v) => { const el = root.querySelector(sel); if (el) el.innerHTML = AW(v); };
@@ -3214,12 +3241,14 @@ function timeFill(root) {
   const pc = v => `${v >= 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}%`, wb = Math.round(maxArmy(n) * sh("warrior") / .2);
   set('[data-tx="warrior"]', `Fields <b>${wb}</b> war band${wb === 1 ? "" : "s"}. ${TIME.warrior.d}`);
   set('[data-tx="food"]', `${TIME.food.d}${roomOf(n) < sh("food") * 2.2 ? ' <b class="bad">Too many hunters for your land: the game is running out.</b>' : ""}`);
-  set('[data-tx="farm"]', `${TIME.farm.d}${structCov(n, "field") < 1 && sh("farm") > 0 ? ` <b class="bad">Only ${Math.round(structCov(n, "field") * 100)}% have a plot; the rest scratch out small gardens.</b>` : ""}`);
+  set('[data-tx="farm"]', `${n.retired && n.retired.food ? "Your fields and herds feed everyone. Each farming family needs a farm plot." : TIME.farm.d}${structCov(n, "field") < 1 && sh("farm") > 0 ? ` <b class="bad">Only ${Math.round(structCov(n, "field") * 100)}% have a plot; the rest scratch out small gardens.</b>` : ""}`);
+  { const wc = waterOf(n), need = carriersNeeded(n); set('[data-tx="water"]', `${TIME.water.d} ${wc < .98 ? `<b class="bad">Only ${Math.round(wc * 100)}% of families have enough water: about ${need}% carriers needed.</b>` : need ? `Everyone has water. About ${need}% carriers are needed here.` : "Your land gives everyone enough water: no carriers needed right now."}`); }
   set('[data-tx="build"]', `${pc(sh("build") - .2)} materials. ${TIME.build.d}`);
   set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
   set('[data-tx="scout"]', `${Math.round(Math.min(6, popOf(n) * sh("scout") * .5) * 10) / 10} scouting trips a season. ${TIME.scout.d}`);
   const war = G.nations.some(o => atWar(n.id, o.id)), hungry = E.surplus < 0;
-  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, "food").toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 20% warriors, 45% ${roleName(n, "food").toLowerCase()}, 20% builders, 10% elders, 5% scouts.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
+  const fk = roleOpen(n, "food") ? "food" : "farm", wn = roleOpen(n, "water") ? carriersNeeded(n) : 0, fpct = 45 - wn;
+  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, fk).toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 20% warriors, ${fpct}% ${roleName(n, fk).toLowerCase()}${wn ? `, ${wn}% water carriers` : ""}, 20% builders, 10% elders, 5% scouts.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
 }
 function openTime(yearly) {
   const n = P();
@@ -3276,7 +3305,7 @@ function panelPeople() {
     h += `<div class="card"><h4>🏕️ Needs</h4><p class="small muted">Every family needs a home, water, food, and the comforts that make life bearable.</p>
       ${line("🛖 Homes", pct(hc), cls(hc))}${line("💧 Water", pct(waterOf(n)), cls(waterOf(n)))}${line("🍖 Food", fed ? "Fed" : "Hungry", fed ? "good" : "bad")}
       ${Object.entries(AMEN).map(([k, a]) => k === "warmth" && coldNation(n) < .15 ? line(`${a.icon} ${a.name}`, `<span class="muted">Not needed: it's never cold here</span>`) : line(`${a.icon} ${a.name}`, pct(am[k]), cls(am[k]))).join("")}
-      ${waterOf(n) < .98 ? `<p class="small muted">💧 Rivers, springs and rain give each place some water for free, more in wet lands and on great rivers, less in deserts and in summer. Beyond that, water must be carried, stored or dug for (Production › Water). Without it, families leave and bad water spreads sickness.</p>` : ""}
+      ${waterOf(n) < .98 ? `<p class="small muted">💧 Rivers, springs and rain give each place some water for free, more in wet lands and on great rivers, less in deserts and in summer. Beyond that, water carriers must fetch it (Who does what), or you can store and dig for it (Production › Water). Without it, families leave and bad water spreads sickness.</p>` : ""}
       ${Object.entries(AMEN).filter(([k]) => am[k] < .95 && !(k === "warmth" && coldNation(n) < .15)).map(([k, a]) => `<p class="small muted">${a.icon} ${a.d}</p>`).join("")}
       <p class="small muted">Build amenities for each settlement in Production › Amenities.</p></div>`; }
   if (tr) { const hm = homeShares(n), huts = setsOf(n).reduce((a, x) => a + Math.min(x.pop, builtAt(x, "hut")), 0);
@@ -3401,7 +3430,7 @@ function panelProduction(n) {
   if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
   h += `<div class="seg ptabs">${tabs.map(([t, q]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${q.icon} ${q.name}</button>`).join("")}</div><div class="card">`;
   if (prodTab === "water") { const R = W.regions[x.r], nat = Math.floor(waterNat(x)), sup = Math.floor(waterSupply(n, x));
-    h += `<p class="small muted">${RIVERS.has(R.n) ? "A great river runs through this land" : `${TER[R.t] ? TER[R.t].name : R.t} land`}: streams, springs and rain give water for about ${nat} families${dry(x) ? ", less in summer" : ""}. With what you've built, ${esc(x.name)} has water for ${sup} of its ${Math.round(x.pop)} families. Wider borders reach more water.</p>`; }
+    h += `<p class="small muted">${RIVERS.has(R.n) ? "A great river runs through this land" : `${TER[R.t] ? TER[R.t].name : R.t} land`}: streams, springs and rain give water for about ${nat} families${dry(x) ? ", less in summer" : ""}. With your water carriers and what you've built, ${esc(x.name)} has water for ${sup} of its ${Math.round(x.pop)} families. Wider borders reach more water.</p>`; }
   for (const it of all.filter(q => q.tab === prodTab && itemOpenAt(n, x, q))) {
     const queued = x.pq.filter(q => q === it.id).length, time = seasonsTxt(it.hours / H);
     if (it.repeat) { const dem = needAt(n, x, it.id), have = builtAt(x, it.id), short = Math.max(0, dem - have);
@@ -4171,7 +4200,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
