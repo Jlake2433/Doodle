@@ -1075,20 +1075,23 @@ function elderTalks(n) {
 // (every family needs a hut), and you assign which needs the builders work on. Each population unit is a family ----
 const BUILDER_HOURS = 300; // hours a builder family puts in each season
 const STRUCTS = {
-  hut:      { name: "Huts", one: "hut", icon: "🛖", hours: 250, d: "Every family needs a home. Families without one have fewer children and grow restless." },
-  pit:      { name: "Storage pits", one: "storage pit", icon: "🏺", hours: 400, d: "One for every 8 families. Food kept for lean times: famine kills far fewer." },
-  rack:     { name: "Drying racks", one: "drying rack", icon: "🍖", hours: 200, d: "One for every 6 food-gathering families. Meat and fish keep longer: more food." },
-  shop:     { name: "Workshops", one: "workshop", icon: "🪓", hours: 600, d: "One for every 4 builder families. Toolmakers work faster: more materials." },
-  shrine:   { name: "Shrines", one: "shrine", icon: "🔥", hours: 1500, d: "One in every settlement. The elders are pleased, and the tribe's lore grows." },
-  palisade: { name: "Palisades", one: "palisade", icon: "🪵", hours: 4000, d: "One around every settlement. Much harder to raid or conquer." },
-  canoe:    { name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 300, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
+  hut:      { tab: "housing", name: "Huts", one: "hut", icon: "🛖", hours: 2400, d: "Every family needs a home. Families without one have fewer children and grow restless." },
+  pit:      { tab: "food", tech: "agriculture", name: "Storage pits", one: "storage pit", icon: "🏺", hours: 3600, d: "One for every 8 families. Food kept for lean times: famine kills far fewer." },
+  rack:     { tab: "food", name: "Drying racks", one: "drying rack", icon: "🍖", hours: 2000, d: "One for every 6 food-gathering families. Meat and fish keep longer: more food." },
+  shop:     { tab: "crafts", tech: "pottery", name: "Workshops", one: "workshop", icon: "🪓", hours: 5000, d: "One for every 4 builder families. Toolmakers work faster: more materials." },
+  shrine:   { tab: "spirit", tech: "mysticism", name: "Shrines", one: "shrine", icon: "🔥", hours: 12000, d: "One in every settlement. The elders are pleased, and the tribe's lore grows." },
+  palisade: { tab: "defense", name: "Palisades", one: "palisade", icon: "🪵", hours: 26000, d: "One around every settlement. Much harder to raid or conquer." },
+  canoe:    { tab: "food", name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
 };
 const GREAT = [
-  { id: "trails", name: "Marked trails", icon: "🥾", hours: 3000, mat: 4, d: "Cairns and blazes mark the paths. Settlers and scouts travel 30% further." },
-  { id: "longhouse", name: "Longhouses", icon: "🏠", hours: 8000, mat: 12, d: "Big shared houses. Villages hold 25% more families." },
-  { id: "stones", name: "Stone circle", icon: "🗿", hours: 30000, mat: 20, d: "A ring of standing stones where the elders meet. Elder talks go 20% faster, and the elders are pleased." },
+  { id: "trails", tab: "travel", name: "Marked trails", icon: "🥾", hours: 20000, mat: 4, d: "Cairns and blazes mark the paths. Settlers and scouts travel 30% further." },
+  { id: "longhouse", tab: "housing", tech: "husbandry", name: "Longhouses", icon: "🏠", hours: 50000, mat: 12, d: "Big shared houses. Villages hold 25% more families." },
+  { id: "stones", tab: "spirit", tech: "tribal", name: "Stone circle", icon: "🗿", hours: 150000, mat: 20, d: "A ring of standing stones where the elders meet. Elder talks go 20% faster, and the elders are pleased." },
 ];
-function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, assign: {}, done: {}, great: null, gprog: 0 });
+const PROD_TABS = { housing: { name: "Housing", icon: "🛖" }, food: { name: "Food", icon: "🍖" }, crafts: { name: "Crafts", icon: "🪓" }, spirit: { name: "Spirit", icon: "🔥" }, defense: { name: "Defense", icon: "🪵" }, travel: { name: "Travel", icon: "🥾" } };
+const itemOf = id => STRUCTS[id] ? Object.assign({ id, repeat: true }, STRUCTS[id]) : GREAT.find(g => g.id === id);
+const itemOpen = (n, it) => it && (!it.tech || has(n, it.tech)) && (!it.coastal || coastal(n));
+function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, assign: {}, done: {}, great: null, gprog: 0 }); if (!P0.queue) { P0.queue = []; P0.qprog = 0; }
   if (P0.built.hut == null) { P0.built.hut = Math.ceil(popOf(n)); for (const k in STRUCTS) P0.assign[k] = k === "hut"; } // a tribe starts with a roof over every family
   return P0; }
 const projDone = (n, k) => !!(n && n.prod && n.prod.done && n.prod.done[k]);
@@ -1106,20 +1109,18 @@ function structDemand(n, k) {
 }
 const structCov = (n, k) => { if (!n || !tribal(n)) return 1; const d = structDemand(n, k); return d > 0 ? Math.min(1, ((n.prod && n.prod.built[k]) || 0) / d) : 1; };
 const builderHours = n => popOf(n) * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS;
-function workProjects(n) { // builders put in their hours each season, shared across the work you've assigned
+function workProjects(n) { // builders work on one thing at a time, in the order you queued them
   if (!tribal(n)) return; const P0 = prodState(n);
-  const jobs = Object.keys(STRUCTS).filter(k => P0.assign[k] && (P0.built[k] || 0) < structDemand(n, k));
-  if (P0.great) jobs.push("great");
-  if (!jobs.length) return;
-  const per = builderHours(n) / jobs.length;
-  for (const k of jobs) {
-    if (k === "great") { const g = GREAT.find(x => x.id === P0.great); P0.gprog += per;
-      if (g && P0.gprog >= g.hours) { P0.done[g.id] = 1; P0.great = null; P0.gprog = 0; G.sv++; if (!n.ai) log(`Your builders finished the ${g.name.toLowerCase()}. ${g.d}`, g.icon); } continue; }
-    const S0 = STRUCTS[k]; P0.prog[k] = (P0.prog[k] || 0) + per;
-    while (P0.prog[k] >= S0.hours && (P0.built[k] || 0) < structDemand(n, k)) { P0.prog[k] -= S0.hours; P0.built[k] = (P0.built[k] || 0) + 1; }
-    if ((P0.built[k] || 0) >= structDemand(n, k)) P0.prog[k] = 0;
+  let hrs = builderHours(n), guard = 0;
+  while (hrs > 0 && P0.queue.length && guard++ < 12) {
+    const it = itemOf(P0.queue[0]); if (!it || (!it.repeat && P0.done[it.id])) { P0.queue.shift(); P0.qprog = 0; continue; }
+    const need = it.hours - P0.qprog, use = Math.min(need, hrs); P0.qprog += use; hrs -= use;
+    if (P0.qprog >= it.hours - 1e-6) { P0.queue.shift(); P0.qprog = 0;
+      if (it.repeat) P0.built[it.id] = (P0.built[it.id] || 0) + 1;
+      else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`Your builders finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); } }
   }
 }
+const seasonsTxt = q => q < 1 ? "less than a season" : q <= 8 ? `about ${Math.ceil(q)} season${Math.ceil(q) === 1 ? "" : "s"}` : `about ${Math.round(q / 4)} years`;
 const popWord = n => n && tribal(n) ? "families" : "people";
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
 const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
@@ -1873,7 +1874,9 @@ function aiTurn(n) {
   else if (n.pers === "builder" && has(n, "guilds")) n.laws.focus = "ind";
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
-  if (tribal(n)) { const P0 = prodState(n); for (const k in STRUCTS) P0.assign[k] = true; if (!P0.great && rnd() < pr(.3)) { const g = GREAT.find(x => !P0.done[x.id] && n.mat >= x.mat); if (g) { n.mat -= g.mat; P0.great = g.id; P0.gprog = 0; } } }
+  if (tribal(n)) { const P0 = prodState(n);
+    if (P0.queue.length < 2) { let best = null, bs = 0; for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpen(n, it)) continue; const d = structDemand(n, k), sh = d ? 1 - (P0.built[k] || 0) / d - P0.queue.filter(x => x === k).length / Math.max(1, d) : 0; if (sh > bs) { bs = sh; best = k; } }
+      if (best) P0.queue.push(best); else { const g = GREAT.find(x => !P0.done[x.id] && itemOpen(n, x) && n.mat >= x.mat && !P0.queue.includes(x.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; P0.queue.push(g.id); } } } }
   if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const want = { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
@@ -2867,23 +2870,33 @@ function panelNation() {
   h += `<div class="card"><h4>Game</h4><div class="row wrap"><button class="btn small ghost" data-act="help">How to play</button><button class="btn small ghost" data-act="newgame">New game</button></div></div>`;
   return h;
 }
+let prodTab = "housing";
 function panelProduction(n) {
-  const P0 = prodState(n), H = builderHours(n), E = econM(n), jobs = Object.keys(STRUCTS).filter(k => P0.assign[k] && (P0.built[k] || 0) < structDemand(n, k)).length + (P0.great ? 1 : 0);
-  let h = ph("Production", `${fmt(H)} builder hours a season · ${fmtP(popOf(n) * timeShare(n, "build"))} builder families`);
-  h += `<div class="card"><h4>⏱️ Your builders</h4>${line("Builder hours each season", fmt(H))}${line("Materials gathered", `${sgn(E.mat)} a season`)}${line("Working on", jobs ? `${jobs} job${jobs > 1 ? "s" : ""} (hours shared equally)` : "Nothing assigned")}
-    <p class="small muted">Builder hours come from your builder families (set in Who does what on the Nation tab). Assign the needs you want them to work on; the hours are shared between them.</p></div>`;
-  h += `<div class="card"><h4>🏗️ What your people need</h4>`;
-  for (const [k, S0] of Object.entries(STRUCTS)) { const dem = structDemand(n, k); if (S0.coastal && !dem) continue;
-    const have = P0.built[k] || 0, short = Math.max(0, dem - have), on = !!P0.assign[k], share = on && short ? H / Math.max(1, jobs) : 0, eta = share > 0 ? Math.ceil((short * S0.hours - (P0.prog[k] || 0)) / share) : 0, pct = dem ? Math.min(100, have / dem * 100) : 100;
-    h += `<div class="need"><div class="ln"><span>${S0.icon} <b>${S0.name}</b></span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}</b></div><div class="bar"><i style="width:${pct}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
-      <p class="small muted">${esc(S0.d)} ${short ? `<b class="bad">${fmtP(short)} more ${short === 1 ? S0.one : S0.name.toLowerCase()} needed</b> · ${fmtP(S0.hours)} hours each.` : "All built."}${on && short ? ` About ${eta} season${eta === 1 ? "" : "s"} at this pace.` : ""}</p>
-      ${short ? `<button class="btn small ${on ? "" : "ghost"}" data-act="sassign" data-k="${k}">${on ? "✓ Builders assigned" : "Assign builders"}</button>` : ""}</div>`; }
+  const P0 = prodState(n), H = Math.max(1e-9, builderHours(n));
+  const tabs = Object.entries(PROD_TABS).filter(([t]) => [...Object.keys(STRUCTS).map(itemOf), ...GREAT].some(it => it.tab === t && itemOpen(n, it)));
+  if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
+  const cur = P0.queue.length ? itemOf(P0.queue[0]) : null;
+  let h = ph("Production", cur ? `Building: ${cur.icon} ${esc(cur.repeat ? cur.one : cur.name)} · ${seasonsTxt((cur.hours - P0.qprog) / H)}` : "Your builders are idle");
+  // the queue
+  h += `<div class="card"><h4>🔨 Being built</h4>`;
+  if (!P0.queue.length) h += `<p class="small muted">Nothing. Pick something to build below. More builders (Who does what, on the Nation tab) build faster.</p>`;
+  else { let t = 0; h += P0.queue.map((id, i) => { const it = itemOf(id); t += (it.hours - (i ? 0 : P0.qprog)) / H;
+    return `<div class="ln"><span>${it.icon} ${esc(it.repeat ? capW(it.one) : it.name)}${i === 0 ? ` <small class="muted">${Math.floor(P0.qprog / it.hours * 100)}%</small>` : ""}</span><b>${seasonsTxt(t)} <button class="btn small ghost" data-act="pdel" data-k="${i}" aria-label="Remove">✕</button></b></div>${i === 0 ? `<div class="bar"><i style="width:${Math.min(100, P0.qprog / it.hours * 100)}%;background:var(--accent)"></i></div>` : ""}`; }).join(""); }
   h += `</div>`;
-  const cur = GREAT.find(x => x.id === P0.great), avail = GREAT.filter(x => !P0.done[x.id] && x.id !== P0.great), done = GREAT.filter(x => P0.done[x.id]);
-  h += `<div class="card"><h4>🗿 Great works</h4>`;
-  if (cur) h += `<div class="ln"><span>${cur.icon} <b>${esc(cur.name)}</b></span><b>${fmtP(P0.gprog)} / ${fmtP(cur.hours)} hours</b></div><div class="bar"><i style="width:${Math.min(100, P0.gprog / cur.hours * 100)}%;background:var(--accent)"></i></div><p class="small muted">${esc(cur.d)}</p>`;
-  else if (avail.length) h += avail.map(g => `<button class="opt" data-act="great" data-k="${g.id}" ${n.mat >= g.mat ? "" : "disabled"}><span class="oi">${g.icon}</span><span class="ot"><b>${esc(g.name)}</b><small>${esc(g.d)} ${fmtP(g.hours)} builder hours.</small></span><span class="oc"><span class="cm">🪵${g.mat}</span></span></button>`).join("");
-  if (done.length) h += `<p class="small">${done.map(g => `${g.icon} ${esc(g.name)} ✓`).join(" · ")}</p>`;
+  // category tabs
+  h += `<div class="seg ptabs">${tabs.map(([t, x]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${x.icon} ${x.name}</button>`).join("")}</div>`;
+  const items = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => it.tab === prodTab && itemOpen(n, it));
+  h += `<div class="card">`;
+  for (const it of items) {
+    const queued = P0.queue.filter(x => x === it.id).length, time = seasonsTxt(it.hours / H);
+    if (it.repeat) { const dem = structDemand(n, it.id), have = P0.built[it.id] || 0, short = Math.max(0, dem - have);
+      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${it.name}</b></span><b class="${short ? "bad" : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}</b></div><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
+        <p class="small muted">${esc(it.d)} ${short ? `<b class="bad">${fmtP(short)} short.</b>` : "Enough for now."} One takes ${time}.${queued ? ` ${queued} in the queue.` : ""}</p>
+        <button class="btn small" data-act="pbuild" data-k="${it.id}" ${P0.queue.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button></div>`; }
+    else { const done = P0.done[it.id];
+      h += `<div class="need"><div class="ln"><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queued ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></div><p class="small muted">${esc(it.d)}${done || queued ? "" : ` Takes ${time}.`}</p>
+        ${done || queued ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && P0.queue.length < 8 ? "" : "disabled"}>Build it</button>`}</div>`; }
+  }
   return h + `</div>`;
 }
 function panelDevelop() {
@@ -3240,8 +3253,9 @@ panel.addEventListener("click", e => {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
     case "naming": openNaming(); break;
-    case "sassign": { const P0 = prodState(n); P0.assign[b.dataset.k] = !P0.assign[b.dataset.k]; save(); refresh(); break; }
-    case "great": { const g = GREAT.find(x => x.id === b.dataset.k), P0 = prodState(n); if (!g || P0.great || n.mat < g.mat) break; n.mat -= g.mat; P0.great = g.id; P0.gprog = 0; toast(`Your builders begin the ${g.name.toLowerCase()}`); hud(); refresh(); break; }
+    case "ptab": prodTab = b.dataset.k; refresh(); break;
+    case "pbuild": { const P0 = prodState(n), it = itemOf(b.dataset.k); if (!it || P0.queue.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || P0.queue.includes(it.id) || n.mat < it.mat) break; n.mat -= it.mat; } P0.queue.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} added to the build queue`); hud(); refresh(); break; }
+    case "pdel": { const P0 = prodState(n), i = +b.dataset.k, id = P0.queue[i], it = itemOf(id); P0.queue.splice(i, 1); if (i === 0) P0.qprog = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
     case "timeal": openTime(false); break;
     case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
@@ -3516,7 +3530,7 @@ function showHelp() {
   <p><b>Loopholes.</b> Leaders have a loyalty you can't see. When your tariffs keep out cheap goods their people want, a disloyal leader may quietly open a loophole and let them in to win over the poor. That weakens your tariff and you may not notice for a while. Once you find out, you can crack down (angering the poor and the leader) or look the other way.</p>
   <p><b>Military assistance.</b> Your army's size follows your budget; you can't buy troops outright. But a people you're on good terms with can send you their troops for a one-time fee, on a 2- or 5-year contract. They fight with their own weapons and training, take losses first, and go home when the contract ends or relations break down.</p>
   <p><b>Public wages.</b> You don't pay private wages, but you do pay everyone the state employs at the going wage: civil servants, scientists, officers, and the workers in nationalized sectors and public projects.</p>
-  <p><b>Families & production.</b> While you're a tribe, each unit of population is a family. Your builder families put in hours every season; in the Production tab you assign them to what your people need: a hut for every family, storage pits, drying racks, workshops, shrines, palisades and canoes, plus great works like a stone circle. Needs grow with your people, so builders must keep up.</p>
+  <p><b>Families & production.</b> While you're a tribe, each unit of population is a family. In the Production tab you choose what your builders make, one thing at a time: a hut, a storage pit, a shrine. Each family needs a hut, and other needs grow with your people. More builders build faster.</p>
   <p><b>Quarters.</b> Every turn is one quarter of a year, from 4000 BCE onward. Change happens slowly in the early ages and speeds up as history does. At the start of each year (Q1) you set the year's budget.</p>
   <p><b>Goal.</b> Grow a single village into a world power. Win by founding a colony on Mars, controlling 40% of the world's territories, or leading in score when 2100 arrives.</p>
   <p><b>Villages.</b> You start with one village of ${START_POP} people. A village holds at most ${VILLAGE_CAP}, a town 3,000, and a city more with each age. When a settlement is full, people move outward and form new villages nearby on their own (as long as there's food and free land). You can also <b>Send settlers</b> to steer where your people go, or restrict migration in Laws.</p>
