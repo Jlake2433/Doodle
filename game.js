@@ -474,16 +474,39 @@ const ASSIM = {
   enc:   { name: "Encourage", icon: "🤝", m: 1.5, d: "Shared feasts, marriages and teaching. They blend in faster." },
   force: { name: "Force it", icon: "⛓️", m: 2.2, d: "Their customs are forbidden. Fastest, but your people and theirs resent it bitterly." },
   apart: { name: "Keep apart", icon: "🧱", m: .3, d: "They live by their own ways. Less friction, but they stay strangers for many generations." } };
-function compatOf(n, g) { let c = g.lang === langOf(n) ? 80 : LANG_FAM[g.lang] && LANG_FAM[g.lang] === LANG_FAM[langOf(n)] ? 60 : 35;
+function compatOf(n, g) { const fit = lg => lg === langOf(n) ? 80 : LANG_FAM[lg] && LANG_FAM[lg] === LANG_FAM[langOf(n)] ? 60 : 35; let c = Math.max(fit(g.lang), g.lang2 ? fit(g.lang2) - 5 : 0);
   if (g.cul && g.cul === n.cul) c += 10; c += ((n.trait && n.trait.open != null ? n.trait.open : 50) - 50) / 5; return clamp(Math.round(c), 5, 95); }
 function ethOf(n) { return n.eth || (n.eth = []); }
-function addPeople(n, o, fam, assim = 0) { if (!o || o.id === n.id || !(fam > 0)) return; const frac = fam / Math.max(1, popOf(n) + fam); if (frac < .002) return;
+function addPeople(n, o, fam, assim = 0) { if (!o || o.id === n.id) return; addGroup(n, { k: o.id, name: demonym(o), lang: langOf(o), cul: o.cul }, fam, assim); }
+function addGroup(n, d, fam, assim = 0, text) { if (!(fam > 0)) return; const frac = fam / Math.max(1, popOf(n) + fam); if (frac < .002) return;
   const E = ethOf(n); for (const g of E) g.share *= 1 - frac;
-  let g = E.find(x => x.k === o.id);
-  if (g) { g.assim = (g.assim * g.share + assim * frac) / (g.share + frac); g.share += frac; return; }
-  g = { k: o.id, name: demonym(o), lang: langOf(o), cul: o.cul, share: frac, assim }; E.push(g);
-  if (!n.ai) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🧑‍🤝‍🧑", title: "A new people among us", text: `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${g.name} now live among the ${demonym(n)}. Their ways ${compatOf(n, g) >= 60 ? "are close to yours" : "are strange to your people"}. Their children may grow up as ${demonym(n)}. The People tab shows how far they've blended in.` }); }
+  let g = E.find(x => x.k === d.k);
+  if (g) { g.assim = (g.assim * g.share + assim * frac) / (g.share + frac); g.share += frac; return g; }
+  g = { ...d, share: frac, assim, since: G.year }; E.push(g);
+  if (!n.ai) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🧑‍🤝‍🧑", title: "A new people among us", text: text || `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${g.name} now live among the ${demonym(n)}. Their ways ${compatOf(n, g) >= 60 ? "are close to yours" : "are strange to your people"}. Their children may grow up as ${demonym(n)}. The People tab shows how far they've blended in.` });
+  return g; }
+const adjOf = n => { const d = demonym(n); return d.endsWith("ians") || d.endsWith("ans") ? d.slice(0, -1) : d.endsWith("s") ? d.slice(0, -1) : d; };
+const yrsAmong = g => Math.max(0, G.year - (g.since != null ? g.since : G.year));
+/* expulsion: a people driven out after generations carries its host's ways with it, and becomes a people of two roots */
+function expelGroup(n, i) { const E = ethOf(n), g = E[i]; if (!g) return; const fam = g.share * popOf(n), long = yrsAmong(g) >= 50 && g.assim >= 15;
+  E.splice(i, 1); for (const x of setsOf(n)) x.pop = Math.max(2, x.pop * (1 - g.share)); for (const h of E) h.share /= Math.max(.05, 1 - g.share);
+  const base = g.base || g.name, via = [...(g.via || []), demonym(n)];
+  const same = demonym(n) === base; /* driven out of their own old homeland: they keep the name they had */
+  const d = long && !same ? { k: `${g.k}~${n.id}`, base, name: `${adjOf(n)} ${base}`, lang: g.lang, lang2: langOf(n), cul: n.cul, via } : { k: g.k, base: g.base, name: g.name, lang: g.lang, lang2: g.lang2, cul: g.cul, via: g.via };
+  const c0 = capSet(n), opts = G.nations.filter(o => o.alive && o.id !== n.id && setsOf(o).length && (dip(n.id, o.id).met || o.id === g.k)).map(o => { const c = capSet(o) || setsOf(o)[0];
+    return { o, sc: trv(o, "open") + (o.id === g.k ? 15 : 0) + 25 * rnd() - (c0 && c ? Math.hypot(c.x - c0.x, c.y - c0.y) * .6 : 0) - (dip(n.id, o.id).war ? 30 : 0) }; }).sort((a, b) => b.sc - a.sc);
+  const to = opts.length ? opts[0].o : null, adj = Math.max(0, (1 - compatOf(n, g) / 100) * (1 - g.assim / 100));
+  n.facMods.push({ k: "commoners", v: Math.round(4 + 25 * adj), why: `Expelled the ${g.name}`, t: 4 }); n.facMods.push({ k: "merchants", v: -6, why: `Lost the ${g.name}'s trades`, t: 4 });
+  if (G.nations[g.k] && G.nations[g.k].alive && typeof g.k === "number") { const dd = dip(n.id, g.k); dd.rel = Math.max(-100, dd.rel - 15); }
+  const where = to ? `the ${nm(to)}` : "the wilds";
+  if (to) { const ts = setsOf(to), tp = popOf(to); for (const x of ts) x.pop += fam * x.pop / Math.max(1, tp);
+    const ng = d.k === to.id ? null : addGroup(to, d, fam, 0, `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${d.name} arrive, driven out by the ${nm(n)}. ${long && !same ? `After ${Math.round(yrsAmong(g))} years there, they carry ${demonym(n)} ways as well as their own: a people of two roots.` : ""} The People tab shows how they settle in.`);
+    if (!ng && to.id === G.player) log(`${Math.max(1, Math.round(fam))} families of our own people come home, driven out by the ${nm(n)}.`, "🏠");
+    if (n.id !== G.player && to.id !== G.player && P() && dip(G.player, n.id).met) log(`The ${nm(n)} drove out the ${g.name}. They have gone to ${where}${long && !same ? ` and are now known as the ${d.name}` : ""}.`, "🚶"); }
+  if (n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🚶", title: `The ${g.name} are driven out`, text: `${Math.max(1, Math.round(fam))} families leave for ${where}.${long && !same ? ` After ${Math.round(yrsAmong(g))} years among you, they take your ways with them: there they will be known as the ${d.name}.` : ""}` });
+  G.sv++; }
 function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const pol = ASSIM[n.laws.assim || "free"] || ASSIM.free, yrs = 1 / TPY;
+  if (n.ai) for (let i = E.length - 1; i >= 0; i--) { const g = E[i]; if (g.share > .02 && yrsAmong(g) >= 40 && compatOf(n, g) < 55 && rnd() < .003 * (1.5 - trv(n, "open") / 100) * (1 - g.assim / 100)) { expelGroup(n, i); return; } }
   for (let i = E.length - 1; i >= 0; i--) { const g = E[i], gen = clamp((.15 + .5 * compatOf(n, g) / 100) * pol.m, .02, .9);
     g.assim += (100 - g.assim) * (1 - Math.pow(1 - gen, yrs / 25)); /* each new generation lets go of a share of the old ways */
     if (g.assim >= 95 || g.share < .001) { E.splice(i, 1);
@@ -2982,7 +3005,8 @@ function panelPeople() {
     h += `<div class="ethrow"><span class="dot" style="background:${cols[i % cols.length]}"></span><b>${esc(g.name)}</b><span class="muted small">${g.own ? `your people · ${esc(lab)}` : esc(LANG_LABEL[g.lang] || capW(g.lang))}</span><b>${pcs}%</b></div>`;
     if (!g.own) { const c = compatOf(n, g);
       h += `<div class="ethm"><div class="bar-row"><span class="small">Culture fit</span><span class="bar thin"><i style="width:${c}%;background:${c >= 60 ? "var(--good)" : c >= 40 ? "#f2b134" : "var(--bad)"}"></i></span><span class="small">${c >= 60 ? "Close" : c >= 40 ? "Distant" : "Foreign"}</span></div>
-        <div class="bar-row"><span class="small">Assimilated</span><span class="bar thin"><i style="width:${Math.round(g.assim)}%;background:#7d5bd6"></i></span><span class="small">${Math.round(g.assim)}%</span></div></div>`; } });
+        <div class="bar-row"><span class="small">Assimilated</span><span class="bar thin"><i style="width:${Math.round(g.assim)}%;background:#7d5bd6"></i></span><span class="small">${Math.round(g.assim)}%</span></div>
+        <div class="ln small"><span class="muted">${yrsAmong(g) < 1 ? "Newly arrived" : `Among you ${Math.round(yrsAmong(g))} years`}${g.via && g.via.length ? ` · ${esc(LANG_LABEL[g.lang] || capW(g.lang))} roots, by way of the ${g.via.map(esc).join(", then the ")}` : ""}</span><button class="btn small ghost" data-act="expel" data-k="${E0.indexOf(g)}">Expel</button></div></div>`; } });
   if (!E0.length) h += `<p class="small muted">Only the ${esc(demonym(n))} live in your lands.</p>`;
   else { const cur = n.laws.assim || "free";
     h += `<p class="small muted">Newcomers keep their ways, but each generation of their children lets more of them go. How fast depends on how close their ways are to yours and on how you treat them. Once fully blended in, they become ${esc(demonym(n))}.</p><div class="opts">`;
@@ -3444,6 +3468,7 @@ panel.addEventListener("click", e => {
     case "budget": openBudget(false); break;
     case "naming": openNaming(); break;
     case "assim": n.laws.assim = b.dataset.k; refresh(); break;
+    case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } x.pq.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
     case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, id = x.pq[i], it = itemOf(id); x.pq.splice(i, 1); if (i === 0) x.qp = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
@@ -3818,7 +3843,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
