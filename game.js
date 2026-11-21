@@ -1393,7 +1393,7 @@ const STRUCTS = {
   temple:   { tab: "spirit", tier: 2, name: "Temple", one: "temple", icon: "🛕", hours: 30000, d: "Cities only. A house for the gods: stability across your lands and elders' favor." },
   field:    { tab: "food", tech: "agriculture", name: "Farm plots", one: "farm plot", icon: "🌱", hours: 1200, d: "One for each farming family. Farmers without a plot scratch out small gardens, which feed far less." },
   hearth:   { tab: "amen", name: "Fire pits", one: "fire pit", icon: "🍲", hours: 900, d: "One for every 5 families. Warmth and cooked food: fewer die in winter, and families live better." },
-  hides:    { tab: "amen", name: "Tanning frames", one: "tanning frame", icon: "🧥", hours: 1500, d: "One for every 8 families. Hides become clothes and blankets: winter is easier to survive." },
+  hides:    { tab: "amen", name: "Tanning frames", one: "tanning frame", icon: "🧥", hours: 1500, d: "Hides become clothes and blankets: winter is easier to survive. Up to one for every 8 families in the coldest lands, fewer where winters are mild, none where it's never cold." },
   refuse:   { tab: "amen", name: "Refuse pits", one: "refuse pit", icon: "🕳️", hours: 800, d: "One for every 10 families. Waste kept away from the huts: less sickness." },
   skins:    { tab: "water", name: "Water skins & paths", one: "set of water skins", icon: "💧", hours: 700, wcap: 5, d: "Skins, gourds and worn paths to the nearest water. Each supplies 5 families." },
   cistern:  { tab: "water", tech: "pottery", name: "Cisterns", one: "cistern", icon: "🏺", hours: 2500, wcap: 12, d: "Clay-lined pits that catch and hold the rain. Each supplies 12 families." },
@@ -1434,7 +1434,7 @@ function needAt(n, x, k) {
     case "shrine": case "palisade": return 1;
     case "canoe": return onCoast(x) ? Math.ceil(fam * sh("food") / 5) : 0;
     case "hearth": return Math.ceil(fam / 5);
-    case "hides": return Math.ceil(fam / 8);
+    case "hides": { const c = coldOf(x); return c < .15 ? 0 : Math.ceil(fam * c / 8); }
     case "refuse": return Math.ceil(fam / 10);
     case "skins": case "cistern": case "water": case "aqueduct": { const def = Math.max(0, fam - waterSupply(n, x)); return builtAt(x, k) + Math.ceil(def / it.wcap); }
     case "circle": return 1;
@@ -1444,7 +1444,7 @@ function needAt(n, x, k) {
 }
 const builtAt = (x, k) => (x.b && x.b[k]) || 0;
 /* amenities: warmth, health and gathering. How well each settlement lives beyond a roof and food */
-const AMEN = { warmth: { name: "Warmth", icon: "🔥", k: ["hearth", "hides"], d: "Fire pits and clothes. Without them, more die in winter, even in huts." },
+const AMEN = { warmth: { name: "Warmth", icon: "🔥", k: ["hearth", "hides"], d: "Fire pits and clothes. Without them, more die in winter, even in huts. The colder your land, the more clothes it takes." },
   health: { name: "Health", icon: "🩺", k: ["refuse", "lodge"], d: "Refuse pits and sweat lodges. Without them, sickness spreads in bigger settlements." },
   joy: { name: "Gathering", icon: "🪘", k: ["circle", "hearth"], d: "A place to gather, and fires to gather around. Without them, families are unhappy." } };
 /* water: rivers, springs and rain give each place some water for free; beyond that, families need water brought to them */
@@ -1452,11 +1452,18 @@ const WATER_NAT = { jungle: 60, forest: 45, grass: 40, plains: 35, tundra: 30, m
 const RIVERS = new Set(["Lower Egypt", "Nubia", "Mesopotamia", "Indus", "Punjab", "Bengal", "North China Plain", "Jiangnan", "Sichuan", "Mekong", "Tonkin", "Volga", "Rhineland", "Low Countries", "Western Amazon", "Eastern Amazon", "Wallachia", "Ukraine"]);
 const dry = x => ["desert", "steppe"].includes(W.regions[x.r].t);
 function waterNat(x) { const R = W.regions[x.r], summer = Math.floor((G.month || 0) / 3) === 2; return (WATER_NAT[R.t] || 30) * (RIVERS.has(R.n) ? 4 : 1) * (summer && !RIVERS.has(R.n) ? (dry(x) ? .6 : .85) : 1) * (1 + .3 * (x.exp || 0)); }
-function waterSupply(n, x) { let s = waterNat(x); for (const k of ["skins", "cistern", "water", "aqueduct"]) s += builtAt(x, k) * STRUCTS[k].wcap; return s; }
+function waterSupply(n, x) { sb(x); let s = waterNat(x); for (const k of ["skins", "cistern", "water", "aqueduct"]) s += builtAt(x, k) * STRUCTS[k].wcap; return s; }
 const waterAt = (n, x) => x.pop > 0 ? Math.min(1, waterSupply(n, x) / x.pop) : 1;
 function waterOf(n) { if (!tribal(n)) return 1; let w = 0, P0 = 0; for (const x of setsOf(n)) { w += waterAt(n, x) * x.pop; P0 += x.pop; } return P0 ? w / P0 : 1; }
+/* how cold a place gets: by latitude, with mountains and tundra colder and jungles never cold */
+function coldOf(x) { const R = W.regions[x.r]; if (!R) return .5; if (R.t === "tundra") return 1; if (R.t === "jungle") return 0;
+  return clamp((Math.abs(R.lat) - 25) / 30 + (R.t === "mountain" ? .2 : 0) + (R.t === "desert" ? -.1 : 0), 0, 1); }
+function coldNation(n) { let c = 0, P0 = 0; for (const x of setsOf(n)) { c += coldOf(x) * x.pop; P0 += x.pop; } return P0 ? c / P0 : .5; }
 function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) return null; const d = needAt(n, x, k); return d > 0 ? Math.min(1, builtAt(x, k) / d) : null; }
-function amenAt(n, x) { const r = {}; let t = 0, c = 0; for (const a in AMEN) { const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; t += r[a]; c++; } r.all = t / c; return r; }
+function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
+  for (const a in AMEN) { if (a === "warmth" && !warm) { r[a] = 1; continue; } /* a hot land needs no warmth */
+    const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; t += r[a]; c++; }
+  r.all = c ? t / c : 1; return r; }
 function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
   for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
 function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
@@ -1593,7 +1600,7 @@ function econ(n) {
   const strat = stratStatus(n);
   const imports = strat.reduce((a, s) => a + s.cost, 0);
   if (tribal(n)) {
-    const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [.65, 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
+    const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [1 - .35 * coldNation(n), 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
     const game = Math.min(1, room / Math.max(.2, hunt * 2.2)); // too many hunters for the land and the game runs out
     food *= .6 + 1.1 * hunt * game * season + .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))); /* farmers without plots scratch out small gardens */
     mat *= (.9 + .2 * trv(n, "ind") / 100) * (.8 + timeShare(n, "build")) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
@@ -1926,9 +1933,9 @@ function processNation(n) {
   let H = 0;
   if (tribal(n)) { let left = 0, died = 0, dS = 0; const winter = Math.floor((G.month || 0) / 3) === 0, cold0 = 1.25 - .75 * trv(n, "res") / 100;
     let sick = 0, coldH = 0, thirstL = 0;
-    for (const x of sets) { sb(x); const am = amenAt(n, x), cold = cold0 * (1.4 - .6 * am.warmth);
+    for (const x of sets) { sb(x); const am = amenAt(n, x), cf = coldOf(x), cold = cold0 * (1.4 - .6 * am.warmth) * (.15 + .85 * cf); /* winters are mild in hot lands */
       /* without fire and clothes, even families in huts suffer in winter; without clean ways, sickness spreads where people crowd */
-      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0; x.pop -= d; coldH += d; }
+      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0 * cf; x.pop -= d; coldH += d; }
       { const wc = waterAt(n, x); if (wc < .98) { const th = x.pop * (1 - wc), lv = th * .03, sk = th * .015; x.pop = Math.max(2, x.pop - lv - sk); thirstL += lv; sick += sk; } }
       if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * (1 - am.health) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
       const need = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
@@ -3268,9 +3275,9 @@ function panelPeople() {
     const hc = Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk);
     h += `<div class="card"><h4>🏕️ Needs</h4><p class="small muted">Every family needs a home, water, food, and the comforts that make life bearable.</p>
       ${line("🛖 Homes", pct(hc), cls(hc))}${line("💧 Water", pct(waterOf(n)), cls(waterOf(n)))}${line("🍖 Food", fed ? "Fed" : "Hungry", fed ? "good" : "bad")}
-      ${Object.values(AMEN).map(a => line(`${a.icon} ${a.name}`, pct(am[Object.keys(AMEN).find(k => AMEN[k] === a)]), cls(am[Object.keys(AMEN).find(k => AMEN[k] === a)]))).join("")}
+      ${Object.entries(AMEN).map(([k, a]) => k === "warmth" && coldNation(n) < .15 ? line(`${a.icon} ${a.name}`, `<span class="muted">Not needed: it's never cold here</span>`) : line(`${a.icon} ${a.name}`, pct(am[k]), cls(am[k]))).join("")}
       ${waterOf(n) < .98 ? `<p class="small muted">💧 Rivers, springs and rain give each place some water for free, more in wet lands and on great rivers, less in deserts and in summer. Beyond that, water must be carried, stored or dug for (Production › Water). Without it, families leave and bad water spreads sickness.</p>` : ""}
-      ${Object.entries(AMEN).filter(([k]) => am[k] < .95).map(([k, a]) => `<p class="small muted">${a.icon} ${a.d}</p>`).join("")}
+      ${Object.entries(AMEN).filter(([k]) => am[k] < .95 && !(k === "warmth" && coldNation(n) < .15)).map(([k, a]) => `<p class="small muted">${a.icon} ${a.d}</p>`).join("")}
       <p class="small muted">Build amenities for each settlement in Production › Amenities.</p></div>`; }
   if (tr) { const hm = homeShares(n), huts = setsOf(n).reduce((a, x) => a + Math.min(x.pop, builtAt(x, "hut")), 0);
     h += `<div class="card"><h4>🛖 Homes</h4>${line("In huts", fmtP(huts))}${line("In shacks they built themselves", fmtP(hm.nShk), hm.nShk >= .5 ? "bad" : "")}${line("No roof at all", fmtP(hm.nNone), hm.nNone >= .5 ? "bad" : "")}
