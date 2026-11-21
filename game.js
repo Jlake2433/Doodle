@@ -540,7 +540,7 @@ function near(n, a, b) { // can people walk/sail from region a to region b?
 let sampler = null;
 // 1 map unit is roughly 24 km. A village of 50 people works about 5 km of land.
 // how far settlers will walk (or row) from their old home to found a new village
-const settleRange = (n, directed) => (2 + .5 * (n ? n.era : 0) + (n && has(n, "wheel") ? .5 : 0)) * (directed ? 2 : 1);
+const settleRange = (n, directed) => (2 + .5 * (n ? n.era : 0) + (n && has(n, "wheel") ? .5 : 0)) * (directed ? 2 : 1) * (projDone(n, "trails") ? 1.3 : 1);
 function overLand(ax, ay, bx, by) { const lp = getLandPath(), steps = Math.max(2, Math.ceil(Math.hypot(bx - ax, by - ay) / .35)); for (let i = 1; i < steps; i++) if (!sampler.isPointInPath(lp, ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps, "evenodd")) return false; return true; }
 function samplePoint(ri, nearPt, owner = -1, maxD = 40, needLand = false) {
   const S = W.regions[ri];
@@ -594,7 +594,7 @@ function nearSets(x, y, r) {
 }
 function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false) {
   const nn = G.nations[nid];
-  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && has(nn, "sailing"))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
+  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || projDone(nn, "canoes")))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
   const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
@@ -1070,6 +1070,24 @@ function elderTalks(n) {
     if (!n.ai) log(`The elders have spoken: ${x.t}${/[?!.]$/.test(x.t) ? "" : "."} ${x.d}`, "🔥");
     if ((n.elderStep || 0) >= ELDER_TALKS.length) { n.resOpen = true; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; if (!n.ai) log("Knowledge can be kept, shared and built upon. Your people begin to study the world.", "🔬"); } }
 }
+// ---- Stone Age projects: things your builders work on together, one at a time ----
+const PROJECTS = [
+  { id: "trails", name: "Marked trails", icon: "🥾", work: 20, mat: 4, d: "Cairns and blazes mark the paths. Settlers and scouts travel 30% further." },
+  { id: "granary", name: "Storage pits", icon: "🏺", work: 25, mat: 8, d: "Grain and dried meat stored for lean times. Famine kills far fewer." },
+  { id: "palisade", name: "Palisade", icon: "🪵", work: 35, mat: 12, d: "A wall of sharpened stakes. Your settlements are much harder to raid or conquer." },
+  { id: "canoes", name: "Dugout canoes", icon: "🛶", work: 30, mat: 10, d: "Boats hollowed from logs. Fishing feeds more (+10% food on coasts and rivers), and scouts and settlers can cross narrow water." },
+  { id: "longhouse", name: "Longhouses", icon: "🛖", work: 45, mat: 16, d: "Big shared houses. Villages hold 25% more people." },
+  { id: "stones", name: "Stone circle", icon: "🗿", work: 60, mat: 22, d: "A ring of standing stones where the elders meet. Elder talks go 20% faster, and the elders are pleased." },
+];
+const projDone = (n, k) => !!(n && n.proj && n.proj.done && n.proj.done[k]);
+function projState(n) { return n.proj || (n.proj = { done: {}, cur: null, prog: 0 }); }
+function workProjects(n) { // builders put in their work each season
+  const P0 = projState(n); if (!P0.cur) return;
+  const x = PROJECTS.find(p => p.id === P0.cur); if (!x) { P0.cur = null; return; }
+  const builders = popOf(n) * (tribal(n) ? timeShare(n, "build") : .05);
+  P0.prog += builders * .1;
+  if (P0.prog >= x.work) { P0.done[x.id] = 1; P0.cur = null; P0.prog = 0; G.sv++; if (!n.ai) log(`Your builders finished the ${x.name.toLowerCase()}. ${x.d}`, x.icon); }
+}
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
 const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellswords" : n.era <= 5 ? "mercenaries" : "military contractors";
 // you ask a friendly people for military assistance and they send their own troops, for a fee paid to them
@@ -1095,7 +1113,7 @@ function bonus(n, ri, key) { // fields are nation-wide; metal deposits help Indu
   return m;
 }
 function capOf(s, n) {
-  if (s.t === 0) return VILLAGE_CAP;
+  if (s.t === 0) return VILLAGE_CAP * (projDone(n || G.nations[s.o], "longhouse") ? 1.25 : 1);
   n = n || G.nations[s.o];
   const cb = bonus(n, s.r, "cap") + (W.regions[s.r].r === "fish" ? .1 : 0);
   const hm = secMult(n, "house");
@@ -1180,7 +1198,8 @@ function econ(n) {
   const luxGold = (luxKinds * .6 + luxExtra * 1.5) * (1 + .3 * n.era) * (L.trade === "prot" ? .6 : 1);
   const strat = stratStatus(n);
   const imports = strat.reduce((a, s) => a + s.cost, 0);
-  if (tribal(n)) { food *= .7 + .9 * timeShare(n, "food"); mat *= .8 + timeShare(n, "build"); sci *= .85 + 1.5 * timeShare(n, "elder"); } // who does what in the tribe
+  if (tribal(n)) { food *= .7 + .9 * timeShare(n, "food"); mat *= .8 + timeShare(n, "build"); sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
+  if (projDone(n, "canoes") && sets.some(x => W.regions[x.r].c)) food *= 1.1;
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
   const armyUp = tribal(n) ? 0 : n.army * unitUpkeep(n);
@@ -1305,6 +1324,7 @@ function facTargets(n, E) {
     add("warriors", Math.round(clamp(mf - 1, -1, 1) * 12), mf < 1 ? "Army underpaid" : "Military budget");
     add("commoners", Math.round(2 * Math.sqrt(B0.sub)), "Subsidies"); add("merchants", Math.round(1.5 * Math.sqrt(B0.sub)), "Subsidies");
     add("commoners", 3 * welfareLv(n), "Welfare"); add("nobles", -2 * B0.inc, "Basic income");
+    if (projDone(n, "stones")) add("elders", 6, "Stone circle");
     if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
     { let nat = 0, tar = 0, sub = 0; for (const k in n.sec || {}) { if (!secUnlocked(n, k)) continue; const st = n.sec[k]; if (st.nat) nat++; if (st.tar && tradeOpen(n)) tar += st.tar; if (st.sub && !st.nat) sub += st.sub; }
@@ -1372,7 +1392,7 @@ function updateExplore() {
     const lp = getLandPath();
     while (sets.length && n.scoutAcc >= 1) { n.scoutAcc--;
       const from = pick(sets), a = rnd() * Math.PI * 2, d = (from.h || .1) + rnd() * walk, x = from.x + Math.cos(a) * d, y = from.y + Math.sin(a) * d;
-      if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing")) addDisc(x, y, .7); } }
+      if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing") || projDone(n, "canoes")) addDisc(x, y, .7); } }
   for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
     const c = capSet(o); if (c) addDisc(c.x, c.y, .5);
     if (dip(n.id, o.id).trade || dip(n.id, o.id).ally) for (const s of setsOf(o)) if (s.t >= 1) addDisc(s.x, s.y, s.h * 2 + .3); }
@@ -1409,6 +1429,7 @@ function recruit(n, k) { const c = unitCost(n); n.gold -= c.g * k; n.mat -= c.m 
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
+  workProjects(n);
   if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
@@ -1477,9 +1498,9 @@ function processNation(n) {
       const r = T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr)) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
       const g = (s.pop * r + T.flat) * free * TD;
       s.pop += g; s.g = g;
-    } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3), TD); s.g = 0; }
+    } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (projDone(n, "granary") ? .4 : 1), TD); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
-    if (s.t === 0 && s.pop > VILLAGE_CAP) s.pop = VILLAGE_CAP;
+    if (s.t === 0 && s.pop > cap) s.pop = cap;
     s.pop = Math.max(2, s.pop);
   }
   // emigration: full settlements send people outward to form rural villages on their own
@@ -1718,7 +1739,7 @@ function upheaval(n) {
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
-  const m = TIERS[s.t].def + fb(d, "def") + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
+  const m = TIERS[s.t].def + fb(d, "def") + (projDone(d, "palisade") ? (s.id === d.cap ? .4 : .2) : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
   return { units, power: (units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m) * defMult(d) };
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
@@ -1818,6 +1839,7 @@ function aiTurn(n) {
   else if (n.pers === "builder" && has(n, "guilds")) n.laws.focus = "ind";
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
+  { const P0 = projState(n); if (!P0.cur) { const nx = PROJECTS.filter(p => !P0.done[p.id] && n.mat >= p.mat); const pk = wars.length && nx.find(p => p.id === "palisade") || nx[0]; if (pk && rnd() < pr(.5)) { n.mat -= pk.mat; P0.cur = pk.id; P0.prog = 0; } } }
   if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const want = { warrior: war ? 30 : 18, food: E.surplus < 0 ? 55 : 42, build: n.pers === "builder" ? 25 : 20, elder: n.cul === "scholarly" ? 18 : 10, scout: n.pers === "trader" ? 10 : 5 };
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
@@ -1983,6 +2005,22 @@ const EVENTS = [
     text: () => "Heavy rains swelled the river. Fields are underwater and villages are damaged.",
     ch: [{ t: "Pay to rebuild", d: n => `−${fmt(20 * eraScale(n))} gold`, f: n => fx.gold(n, -20 * eraScale(n)) },
          { t: "Let them manage", d: () => "−8% population, Commoners upset", f: n => { fx.pop(n, .92); fx.fac(n, "commoners", -10, 5, "Ignored the flood"); } }] },
+  { id: "cave", title: "The Painted Cave", era: [0, 0], icon: "🎨", cond: n => tribal(n),
+    text: () => "Children exploring the hills found a deep cave. Its walls are covered in painted animals, made by people long forgotten.",
+    ch: [{ t: "Make it a sacred place", d: () => "The elders hold rites there", f: n => { fx.fac(n, "elders", 8, 5, "Sacred cave"); fx.sci(n, 4 * eraScale(n)); } },
+         { t: "Add our own paintings", d: () => "The people take pride in their story", f: n => fx.fac(n, "commoners", 6, 5, "Our story on the walls") }] },
+  { id: "winter", title: "The Long Winter", era: [0, 1], icon: "❄️", cond: n => tribal(n),
+    text: () => "Snow has lingered for months. Stores are running thin and the old are failing.",
+    ch: [{ t: "Share everything equally", d: () => "Hard on all, but the tribe holds together", f: n => { fx.pop(n, projDone(n, "granary") ? .99 : .95); fx.fac(n, "commoners", 4, 4, "Shared hardship"); } },
+         { t: "Feed the warriors and hunters first", d: () => "The strong survive; families grieve", f: n => { fx.pop(n, projDone(n, "granary") ? .98 : .93); fx.fac(n, "warriors", 5, 4, "Fed first"); fx.fac(n, "commoners", -6, 4, "The weak went hungry"); } }] },
+  { id: "mammoth", title: "Bones of Giants", era: [0, 0], icon: "🦣", cond: n => tribal(n),
+    text: () => "Hunters have found the bones of an enormous beast, with tusks longer than a man.",
+    ch: [{ t: "Carve tools and charms", d: () => "Fine materials", f: n => fx.mat(n, 10 * eraScale(n)) },
+         { t: "Leave them to the spirits", d: () => "The shamans approve", f: n => fx.fac(n, "elders", 6, 4, "Respect for the giants") }] },
+  { id: "prodigy", title: "A Gifted Child", era: [0, 1], icon: "🧒",
+    text: () => "A child of the tribe remembers every story, counts the stars and asks questions no one can answer.",
+    ch: [{ t: "Let the elders teach her", d: () => "She may become a great shaman", f: n => fx.sci(n, 10 * eraScale(n)) },
+         { t: "She should learn to hunt like the others", d: () => "Tradition is kept", f: n => fx.fac(n, "warriors", 3, 3, "Tradition kept") }] },
   { id: "herd", title: "The Great Herd", era: [0, 0], icon: "🦬", cond: n => tribal(n),
     text: () => "Scouts report a vast herd moving through the valley. It won't stay long.",
     ch: [{ t: "Everyone joins the hunt", d: () => "A feast: more people, but the warriors are tired", f: n => { fx.pop(n, 1.12); fx.fac(n, "warriors", -4, 2, "Exhausting hunt"); } },
@@ -2514,7 +2552,8 @@ function zoomBy(f) { const cx = cw / 2, cy = ch / 2, mx = (cx - view.x) / view.k
 
 // ================= UI =================
 const sheet = $("sheet"), panel = $("panel"), modal = $("modal");
-const dateTxt = () => `Q${Math.floor((G.month || 0) / 3) + 1} ${yearTxt(G.year)}`;
+const SEASONS = ["Winter", "Spring", "Summer", "Autumn"];
+const dateTxt = () => { const q = Math.floor((G.month || 0) / 3); return `${G && G.nations && G.nations[G.player] && tribal(G.nations[G.player]) ? SEASONS[q] : "Q" + (q + 1)} ${yearTxt(G.year)}`; };
 function hud() {
   const n = P(), E = econM(n);
   $("hName").textContent = nm(n);
@@ -2767,6 +2806,13 @@ function panelNation() {
     h += `<div class="card"><h4>Public trust <span class="muted">revolt meter</span></h4><div class="bar-row"><small>${t}/100</small><div class="bar"><i style="width:${t}%;background:${t > 60 ? "var(--good)" : t > 30 ? "var(--warn)" : "var(--bad)"}"></i></div><span>${td < 0 ? "Falling" : t < 100 ? "Rising" : "Steady"}</span></div>
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
+  { const P0 = projState(n), cur = PROJECTS.find(p => p.id === P0.cur), avail = PROJECTS.filter(p => !P0.done[p.id] && p.id !== P0.cur), done = PROJECTS.filter(p => P0.done[p.id]);
+    if (tribal(n) || cur || avail.length < PROJECTS.length) {
+      h += `<div class="card"><h4>🛠️ Projects <span class="muted">your builders' work</span></h4>`;
+      if (cur) h += `<div class="ln"><span>${cur.icon} <b>${esc(cur.name)}</b></span><b>${Math.floor(P0.prog / cur.work * 100)}%</b></div><div class="bar"><i style="width:${Math.min(100, P0.prog / cur.work * 100)}%;background:var(--accent)"></i></div><p class="small muted">${esc(cur.d)} More builders in "Who does what" finish it sooner.</p>`;
+      else if (avail.length) h += `<p class="small muted">Choose what your builders work on next.</p>${avail.map(p => `<button class="opt" data-act="proj" data-k="${p.id}" ${n.mat >= p.mat ? "" : "disabled"}><span class="oi">${p.icon}</span><span class="ot"><b>${esc(p.name)}</b><small>${esc(p.d)}</small></span><span class="oc"><span class="cm">🪵${p.mat}</span></span></button>`).join("")}`;
+      if (done.length) h += `<p class="small">${done.map(p => `${p.icon} ${esc(p.name)} ✓`).join(" · ")}</p>`;
+      h += `</div>`; } }
   if (tribal(n)) h += `<div class="card"><h4>👥 Who does what <span class="muted">your people's roles</span></h4>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label></div>`;
   if (!tribal(n)) h += `<div class="card"><h4>📒 Budget <span class="muted">share of gross income</span></h4><p class="small muted">Set every year. Spending more than you earn puts you in debt.</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me to set it every year</label></div>`;
   h += `<div class="card"><h4>Treasury <span class="muted">per quarter</span></h4>
@@ -3111,6 +3157,9 @@ function openNationDetail(id) {
     h += `<button class="opt" data-act="dPeace" data-id="${id}"><span class="oi">🕊️</span><span class="ot"><b>Propose peace</b><small>${aiAccept(o, "peace", n) ? "They seem willing" : "They are unlikely to accept"}</small></span></button>`;
     if (wscore(n.id, id) > 10) h += `<button class="opt" data-act="dPeaceT" data-id="${id}"><span class="oi">💰</span><span class="ot"><b>Peace for ${fmt(trib)} gold tribute</b><small>You are winning</small></span></button>`;
   } else {
+    if (tribal(n)) {
+      h += `<button class="opt" data-act="dMarry" data-id="${id}" ${d.rel >= -10 && n.gold >= 3 ? "" : "disabled"}><span class="oi">💍</span><span class="ot"><b>Arrange marriages</b><small>Young people of both tribes marry: relations improve a lot and a few families join you. ${d.rel < -10 ? "They're too hostile." : ""}</small></span><span class="oc"><span class="cg">🪙3</span></span></button>`;
+      h += `<button class="opt war" data-act="dRaid" data-id="${id}" ${bordersTouch(n, o) && n.army > 0 && !((d.raidT || -1e9) > G.tt) ? "" : "disabled"}><span class="oi">🏹</span><span class="ot"><b>Raid them</b><small>${bordersTouch(n, o) ? "Steal food, tools and maybe captives without a full war. They will hate you for it, and may strike back." : "Your borders must touch to raid."}</small></span></button>`; }
     h += `<button class="opt" data-act="dGift" data-id="${id}" ${n.gold >= g ? "" : "disabled"}><span class="oi">🎁</span><span class="ot"><b>Send a gift</b><small>Improve relations</small></span><span class="oc">${costTxt({ g, m: 0 })}</span></button>`;
     const tOpen = tradeOpen(n);
     if (!tOpen) h += `<p class="note">Establish Barter Markets (Trade field, in Develop) to sign trade agreements, set tariffs or embargo other peoples.</p>`;
@@ -3144,6 +3193,7 @@ panel.addEventListener("click", e => {
     case "pclose": closePanel(); break;
     case "budget": openBudget(false); break;
     case "naming": openNaming(); break;
+    case "proj": { const p = PROJECTS.find(x => x.id === b.dataset.k), P0 = projState(n); if (!p || P0.cur || n.mat < p.mat) break; n.mat -= p.mat; P0.cur = p.id; P0.prog = 0; toast(`Your builders start on the ${p.name.toLowerCase()}`); hud(); refresh(); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
     case "timeal": openTime(false); break;
     case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
@@ -3193,6 +3243,14 @@ panel.addEventListener("click", e => {
     case "newgame": confirmModal("Start a new game?", "Your current people will be lost.", () => { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} G = null; closePanel(); showTitle(); }); break;
     case "peaceYes": { const pp = G.pendingPeace; makePeace(n, G.nations[pp.from], pp.tribute, G.nations[pp.payer] || null); G.pendingPeace = null; G.news = []; refresh(); break; }
     case "peaceNo": G.pendingPeace = null; refresh(); break;
+    case "dMarry": { const d = dip(n.id, id); n.gold -= 3; d.rel = Math.min(100, d.rel + 18); const c = capSet(n); if (c) c.pop = Math.min(capOf(c, n), c.pop + Math.max(2, popOf(o) * .03)); toast(`Marriages bind your people to the ${o.name}`); hud(); openNationDetail(id); break; }
+    case "dRaid": { const d = dip(n.id, id), ok = rnd() < clamp(power(n) / Math.max(1e-9, power(n) + power(o) * .8), .15, .85);
+      d.raidT = G.tt + 2 * TD * 4; d.rel = Math.max(-100, d.rel - 30); n.warmonger += 2;
+      if (ok) { const loot = Math.max(2, o.mat * .15); n.mat += loot; o.mat = Math.max(0, o.mat - loot); const c = capSet(n), oc = capSet(o), cap = oc ? Math.min(oc.pop * .05, 6) : 0; if (oc) oc.pop -= cap; if (c) c.pop += cap;
+        showModal(`<div class="mi">🏹</div><h2>The raid succeeded</h2><p>Your warriors came back with ${fmt(loot)} 🪵 in food and tools${cap >= 1 ? ` and ${Math.round(cap)} captives` : ""}. The ${esc(o.name)} are furious.</p><div class="row"><button class="btn" data-m="ok">OK</button></div>`); }
+      else { loseUnits(n, 1); showModal(`<div class="mi">🩸</div><h2>The raid failed</h2><p>The ${esc(o.name)} were ready for you. Your warriors were driven off and some did not come back.</p><div class="row"><button class="btn" data-m="ok">OK</button></div>`); }
+      if (d.rel < -60 && rnd() < .5 && !d.war) declareWar(o, n);
+      hud(); openNationDetail(id); break; }
     case "dGift": { const g = Math.round(12 * Math.pow(1.6, n.era)); n.gold -= g; dip(n.id, id).rel += 12; toast(`The ${o.name} appreciate your gift`); hud(); openNationDetail(id); break; }
     case "dTrade": if (tradeOpen(o) && aiAccept(o, "trade", n)) { dip(n.id, id).trade = true; toast("Trade pact signed!"); } else { toast(`The ${o.name} declined`); dip(n.id, id).rel -= 2; } hud(); openNationDetail(id); break;
     case "dTradeEnd": dip(n.id, id).trade = false; dip(n.id, id).rel -= 10; hud(); openNationDetail(id); break;
@@ -3240,11 +3298,11 @@ function governTurn(n, o) { // the governor plays this quarter as an AI would, t
 }
 function openSim() {
   if (!G || G.over || G.demo || !P().alive || simState) return;
-  const n = P(), o = G.simOpts || { focus: "bal", keepCul: true, keepGov: true, keepBud: false, peace: true, pauseWar: true };
+  const n = P(), o = Object.assign({ focus: "bal", keepCul: true, keepGov: true, keepBud: false, peace: true, pauseWar: true, stopMeet: true, stopHard: true, stopNew: true, stopEvents: false }, G.simOpts || {});
   const chk = (k, t) => `<label class="askrow"><input type="checkbox" data-so="${k}" ${o[k] ? "checked" : ""}> ${t}</label>`;
   showModal(`<div class="mi">⏩</div><h2>Simulate 10 years</h2><p class="small">Your governor runs the nation for ${SIM_TURNS} quarters, following the focus you set. Events are decided for you. You can stop at any time.</p>
     <h4>Focus</h4><div class="choices">${Object.entries(GOV_FOCUS).map(([k, f]) => `<label class="choice simf"><input type="radio" name="simf" value="${k}" ${o.focus === k ? "checked" : ""}><b>${f.icon} ${f.name}</b><small>${f.d}</small></label>`).join("")}</div>
-    <h4>Honor these</h4>${chk("keepCul", `Stay a ${cul(n).name} culture`)}${chk("keepGov", `Keep my government (${GOVS[n.gov].name}), laws and army command`)}${chk("keepBud", "Keep my budget exactly as I set it")}${chk("peace", "Don't start any new wars")}${chk("pauseWar", "Stop if someone declares war on me")}
+    <h4>Honor these</h4>${chk("keepCul", `Stay a ${cul(n).name} culture`)}${chk("keepGov", `Keep my government (${GOVS[n.gov].name}), laws and army command`)}${chk("keepBud", "Keep my budget exactly as I set it")}${chk("peace", "Don't start any new wars")}<h4>Stop the simulation if…</h4>${chk("stopMeet", "We meet a new people, or our borders touch someone")}${chk("pauseWar", "We're attacked or someone declares war")}${chk("stopHard", "Hardship strikes: famine or collapsing trust")}${chk("stopNew", "Something new opens up (a discovery, an age, a new option)")}${chk("stopEvents", "Anything happens that needs a decision (so I decide events myself)")}
     <div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="go">Start</button></div>`, a => {
       if (a !== "go") return;
       const box = modal.querySelector(".mbox"), r = box.querySelector('input[name="simf"]:checked'), nw = { focus: r ? r.value : "bal" };
@@ -3272,7 +3330,7 @@ function runSim(o) {
       <div class="row">${pending ? "" : `<button class="btn ghost" data-m="again">⏩ 10 more years</button>`}<button class="btn" data-m="ok">Continue</button></div>`, a => {
         if (curPanel) refresh();
         if (G.over) return showEnd();
-        if (G.pendingCivil) { G.lastReport = []; return afterTurnFlow(); }
+        if (G.pendingCivil || G.event || G.pendingNaming || (G.pendingUnlocks && G.pendingUnlocks.length)) { G.lastReport = []; return afterTurnFlow(); }
         if (G.pendingUnlocks && G.pendingUnlocks.length && a !== "again") return showUnlocks();
         if (a === "again") runSim(o);
       });
@@ -3285,7 +3343,26 @@ function runSim(o) {
     try {
       governTurn(me, o);
       const before = new Set(G.nations.filter(x => x.alive && atWar(me.id, x.id)).map(x => x.id));
+      const metB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && dip(me.id, x.id).met).map(x => x.id));
+      const touchB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && bordersTouch(me, x)).map(x => x.id));
+      const mineB = new Set(setsOf(me).map(x => x.id)), famB = !!me.famine, trustB = me.trust == null ? 100 : me.trust, techB = me.techs.length, talkB = me.elderStep || 0, eraB = me.era;
       endTurn(); turns++;
+      { const m2 = P();
+        const met = G.nations.find(x => x.alive && x.id !== m2.id && dip(m2.id, x.id).met && !metB.has(x.id));
+        const touch = G.nations.find(x => x.alive && x.id !== m2.id && !touchB.has(x.id) && bordersTouch(m2, x));
+        const lost = [...mineB].map(id => setById(id)).find(x => x && x.o !== m2.id);
+        const hit = setsOf(m2).find(x => x.hit != null && G.tt - x.hit <= TD * 1.01);
+        const halt = msg => { stopped = msg; for (const x of G.lastReport) if (x.p !== false) news.push(x); G.lastReport = []; };
+        if (o.stopMeet && met) { halt(`You've met the ${nm(met)}.`); return finish(); }
+        if (o.stopMeet && touch) { halt(`Your borders now touch the ${nm(touch)}'s.`); return finish(); }
+        if (o.pauseWar && (lost || hit)) { halt(lost ? `${lost.name} has been taken by the ${nm(G.nations[lost.o])}!` : `${hit.name} was attacked!`); return finish(); }
+        if (o.stopHard && m2.famine && !famB) { halt("Famine: your people are going hungry."); return finish(); }
+        if (o.stopHard && (m2.trust == null ? 100 : m2.trust) < 30 && trustB >= 30) { halt("Public trust is collapsing."); return finish(); }
+        if (o.stopNew && (m2.era > eraB)) { halt(`Your people have entered the ${ERAS[m2.era]}.`); return finish(); }
+        if (o.stopNew && ((m2.elderStep || 0) > talkB || m2.techs.length > techB)) { const tl = (m2.elderStep || 0) > talkB ? ELDER_TALKS[(m2.elderStep || 1) - 1] : null; halt(tl ? `The elders have settled "${tl.t}".` : `Discovery: ${TECH[m2.techs[m2.techs.length - 1]].name}.`); return finish(); }
+        if (o.stopNew && G.pendingUnlocks && G.pendingUnlocks.length) { halt(`Something new: ${G.pendingUnlocks[0].title}.`); return finish(); }
+        if (o.stopNew && G.pendingNaming) { halt("Your tribe has become a nation."); return finish(); }
+        if (o.stopEvents && G.event) { halt(`${EVENTS.find(x => x.id === G.event.id).title}: your decision is needed.`); return finish(); } }
       for (const x of G.lastReport) if (x.p !== false) news.push(x);
       G.lastReport = [];
       if (G.event) { const e = EVENTS.find(x => x.id === G.event.id), i = Math.floor(rnd() * e.ch.length), c = e.ch[i]; G.news = []; c.f(P()); news.push({ i: e.icon, t: `${e.title}: your governor chose "${c.t}".`, p: true }); news.push(...G.news); G.news = []; G.event = null; P().stab = stabilityOf(P(), P().fac); }
