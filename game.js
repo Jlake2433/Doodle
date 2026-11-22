@@ -3826,7 +3826,7 @@ function panelPolicy() {
     h += `<div class="card"><h4>🎎 Customs</h4><p class="small muted">How your people live. The first customs are born of survival; knowledge opens new ways of living. Customs slowly shape your people's character, and peoples whose customs are like yours feel closer to you. Old customs change slowly: each can change once every 10 years.</p>`;
     for (const k in CUSTOMS) { const C = CUSTOMS[k], cur = C.opts[c[k]], cool = Math.max(0, Math.ceil(((n.cusAt && n.cusAt[k]) != null ? n.cusAt[k] + 10 : -1e9) - G.year));
       h += `<details class="pcol"><summary><span>${C.icon} ${C.name}</span><span class="muted small">${oldFashioned(n, k) ? `<b class="warn">Old-fashioned</b> · ` : ""}${esc(cur.name)}</span></summary><div class="seg">`;
-      for (const o in C.opts) { const O = C.opts[o]; if (!cusOpen(n, O)) continue; h += `<button class="${c[k] === o ? "on" : ""}" data-act="cus" data-k="${k}" data-o="${o}" ${c[k] === o || cool || locked ? "disabled" : ""}>${esc(O.name)}</button>`; }
+      for (const o in C.opts) { const O = C.opts[o]; if (!cusOpen(n, O)) continue; h += `<button class="${c[k] === o ? "on" : ""}" data-act="cus" data-k="${k}" data-o="${o}" ${c[k] === o || (cool && !(n.cusUndo && n.cusUndo[k] && n.cusUndo[k].turn === G.turn && n.cusUndo[k].from === o)) || locked ? "disabled" : ""}>${esc(O.name)}${n.cusUndo && n.cusUndo[k] && n.cusUndo[k].turn === G.turn && n.cusUndo[k].from === o ? " ↩" : ""}</button>`; }
       h += `</div><p class="small muted">${esc(cur.d)}</p><div class="rtags"><span class="rtag ${cusEra(cur) < 0 ? "" : "on"}">${cusAge(cur)}</span></div>${oldFashioned(n, k) ? `<p class="small warn">Your people have moved on from the age this custom was born in. Newer ways are open to you.</p>` : ""}${cur.lean ? `<div class="rtags">${cur.lean.split(" ").map(w => `<span class="rtag">Leans ${w}</span>`).join("")}</div>` : ""}${cool ? `<p class="small warn">Can change again in ${cool} year${cool === 1 ? "" : "s"}.</p>` : ""}</details>`; }
     h += `</div>`; }
   for (const lk in LAWS) {
@@ -3966,9 +3966,14 @@ panel.addEventListener("click", e => {
         const old = relOf(n); n.relig = k; n.relAt = G.year; n.laws.rel = Q.fam === "none" ? "sec" : (n.laws.rel === "sec" ? "faith" : n.laws.rel);
         if (old.fam !== "folk" || Q.fam !== "folk") { n.facMods.push({ k: "commoners", v: -hit, why: `Change of faith to ${Q.name}`, t: yrsT(10) }); n.facMods.push({ k: "elders", v: -Math.round(hit * 1.2), why: "The old priests lose their place", t: yrsT(15) }); }
         culCache.clear(); n.stab = stabilityOf(n, n.fac); log(`${Q.name} is now the national religion.`, Q.icon); refresh(); hud(); }); break; }
-    case "cus": { const k = b.dataset.k, o = b.dataset.o; ensureCustoms(n)[k] = o; (n.cusAt || (n.cusAt = {}))[k] = G.year;
-      n.facMods.push({ k: "commoners", v: -3, why: `Changing old customs (${CUSTOMS[k].name.toLowerCase()})`, t: yrsT(5) }); toast(`${CUSTOMS[k].opts[o].name}: the new custom will take root over the years`); refresh(); break; }
-    case "law": n.laws[b.dataset.l] = b.dataset.o; n.stab = stabilityOf(n, n.fac); refresh(); break;
+    case "cus": { const k = b.dataset.k, o = b.dataset.o, O = CUSTOMS[k].opts[o], c = ensureCustoms(n), un = n.cusUndo && n.cusUndo[k] && n.cusUndo[k].turn === G.turn && n.cusUndo[k].from === o;
+      if (un) { c[k] = o; delete n.cusUndo[k]; n.cusAt[k] = n.cusUndo0 && n.cusUndo0[k] != null ? n.cusUndo0[k] : null; n.facMods = n.facMods.filter(m => m.why !== `Changing old customs (${CUSTOMS[k].name.toLowerCase()})` || m.turn !== G.turn); toast(`Back to ${O.name}`); refresh(); break; } /* changed your mind in the same season: no harm done */
+      confirmModal(`${CUSTOMS[k].icon} ${CUSTOMS[k].name}: ${O.name}?`, `${O.d}${O.lean ? ` Over generations, your people will lean ${O.lean.split(" ").join(" and ")}.` : ""} Old customs change slowly: commoners grumble for a few years, and you can't change this custom again for 10 years (you can still switch back this season).`, () => {
+        (n.cusUndo || (n.cusUndo = {}))[k] = { from: c[k], turn: G.turn }; (n.cusUndo0 || (n.cusUndo0 = {}))[k] = n.cusAt && n.cusAt[k] != null ? n.cusAt[k] : null;
+        c[k] = o; (n.cusAt || (n.cusAt = {}))[k] = G.year;
+        n.facMods.push({ k: "commoners", v: -3, why: `Changing old customs (${CUSTOMS[k].name.toLowerCase()})`, t: yrsT(5), turn: G.turn }); toast(`${O.name}: the new custom will take root over the years`); refresh(); }); break; }
+    case "law": { const l = b.dataset.l, o = b.dataset.o, L = l === "rel" ? null : lawView(n, l), nmx = l === "rel" ? (o === "tol" ? "Tolerated others" : "Enforced") : L.opts[o][0], d = l === "rel" ? (o === "tol" ? "Other faiths may worship freely." : "The national faith is the only one allowed.") : L.opts[o][2];
+      confirmModal(`${l === "rel" ? "Faith and state" : L.name}: ${nmx}?`, `${d} Factions will react to the change.`, () => { n.laws[l] = o; n.stab = stabilityOf(n, n.fac); refresh(); }); break; }
     case "nat": openNationDetail(id); break;
     case "world": openPanel("world"); break;
     case "army": openPanel("army"); break;
