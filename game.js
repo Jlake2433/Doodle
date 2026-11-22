@@ -865,7 +865,7 @@ function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false) {
   const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
-  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, b: { hut: Math.ceil(pop) }, pq: [], qp: 0, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
+  const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, b: { hut: Math.ceil(pop * (!from && (G.turn || 0) < 2 ? 1.2 : 1)) }, pq: [], qp: 0, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
   if (from && nid === G.player && G.fog) { // the settlers know the way they walked
     const d = Math.hypot(x - from.x, y - from.y), steps = Math.ceil(d / .8);
     for (let i = 1; i < steps; i++) addDisc(from.x + (x - from.x) * i / steps, from.y + (y - from.y) * i / steps, .9);
@@ -1325,18 +1325,19 @@ const STATE_POP = 2000;
 const tribal = n => !n.stateUp;
 // a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
 const TIME = {
-  warrior: { name: "Warriors", icon: "⚔️", def: 15, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
-  food:    { name: "Hunters", icon: "🏹", def: 25, grp: "food", d: "Big hauls of meat, but only as much as your land's game allows, and little in a cold winter." },
-  forage:  { name: "Foragers", icon: "🫐", def: 20, grp: "food", d: "Gather roots, nuts, seeds and berries: steadier than the hunt, richest in summer and autumn, poor in a cold winter." },
+  warrior: { name: "Warriors", icon: "⚔️", def: 20, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
+  food:    { name: "Hunters", icon: "🏹", def: 30, grp: "food", d: "Big hauls of meat, but only as much as your land's game allows, and little in a cold winter." },
+  forage:  { name: "Foragers", icon: "🫐", def: 25, grp: "food", d: "Gather roots, nuts, seeds and berries: steadier than the hunt, richest in summer and autumn, poor in a cold winter." },
   fish:    { name: "Fishers", icon: "🎣", def: 0, grp: "food", when: n => fishable(n) > 0, d: "Fish the coasts, lakes and rivers. Steady all year and they don't empty the land of game. Canoes help." },
   farm:    { name: "Farmers & herders", icon: "🌾", def: 0, tech: "agriculture", grp: "food", d: "Less food each than hunters, but steady all year and not limited by game. Each farming family needs a farm plot." },
   water:   { name: "Water carriers", icon: "💧", def: 0, grp: "gather", d: "Fetch water from streams and springs. Each carrier family keeps 6 families supplied. Cisterns and wells mean fewer need to carry." },
   firewood: { name: "Firewood gatherers", icon: "🪵", def: 0, grp: "gather", when: n => coldNation(n) >= .15, d: "Fires need wood. Without enough, fire pits stay cold in winter. Crowded land is stripped of trees, so wood has to come from further away." },
-  wood:    { name: "Wood & stone gatherers", icon: "🪨", def: 10, grp: "gather", d: "Cut wood, quarry stone and gather hides and reeds: the materials your builders use." },
-  build:   { name: "Builders", icon: "🔨", def: 15, d: "Build new things, and keep what you have standing: huts, amenities and your claimed borders all need upkeep, using up materials." },
+  wood:    { name: "Wood & stone gatherers", icon: "🪨", def: 5, grp: "gather", d: "Cut wood, quarry stone and gather hides and reeds: the materials your builders use." },
+  build:   { name: "Builders", icon: "🔨", def: 5, d: "Build new things, and keep what you have standing: huts, amenities and your claimed borders all need upkeep, using up materials." },
   elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
   scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
+const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 + p / 25) / 5) * 5, 5, 20), wood: clamp(Math.round((4 + p / 40) / 5) * 5, 5, 15) }; }; /* building work grows with the tribe */
 const fishable = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
 const fireCov = n => { const need = firewoodNeed(n); return need > 0 ? Math.min(1, timeShare(n, "firewood") / need) : 1; };
@@ -1431,8 +1432,8 @@ function prodState(n) { const P0 = n.prod || (n.prod = { built: {}, prog: {}, as
 const projDone = (n, k) => !!(n && n.prod && n.prod.done && n.prod.done[k]);
 const coastal = n => setsOf(n).some(x => W.regions[x.r].c);
 // every village, town and city has its own needs and its own builders
-function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop) }; if (!x.pq) { x.pq = []; x.qp = 0; }
-  if (!x.amenV) { x.amenV = 1; const f = Math.max(1, x.pop); if (x.b.hearth == null) x.b.hearth = Math.ceil(f / 5); if (x.b.hides == null) x.b.hides = Math.ceil(f / 8); if (x.b.circle == null) x.b.circle = 1; if (x.b.refuse == null) x.b.refuse = Math.ceil(f / 10); }
+function sb(x) { if (!x.b) x.b = { hut: Math.ceil(x.pop * (G && G.turn < 2 ? 1.2 : 1)) }; /* a new tribe has a few spare huts */ if (!x.pq) { x.pq = []; x.qp = 0; }
+  if (!x.amenV) { x.amenV = 1; const f = Math.max(1, x.pop) * (G && G.turn < 2 ? 1.2 : 1); if (x.b.hearth == null) x.b.hearth = Math.ceil(f / 5); if (x.b.hides == null) x.b.hides = Math.ceil(f / 8); if (x.b.circle == null) x.b.circle = 1; if (x.b.refuse == null) x.b.refuse = Math.ceil(f / 10); }
   return x.b; }
 const onCoast = x => !!W.regions[x.r].c;
 function needAt(n, x, k) {
@@ -1493,8 +1494,8 @@ const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
 const MAT_H = 2.5e-6; /* materials used per hour of building or upkeep */
-function upkeepAt(n, x) { let h = 0; for (const k in x.b || {}) if (STRUCTS[k]) h += x.b[k] * STRUCTS[k].hours * .004; h += (x.exp || 0) * 900 * (1 + x.t);
-  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .004; return h; }
+function upkeepAt(n, x) { let h = 0; const sz = clamp(x.pop / 150, .2, 1); /* a small camp's families patch their own huts; upkeep grows as places grow */ for (const k in x.b || {}) if (STRUCTS[k]) h += x.b[k] * STRUCTS[k].hours * .004; h += (x.exp || 0) * 900 * (1 + x.t);
+  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .004; return h * sz; }
 function workProjects(n) { // each settlement's builders work through its own queue, one thing at a time
   if (!tribal(n)) return; const P0 = prodState(n);
   for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x), guard = 0;
@@ -2376,7 +2377,7 @@ function aiTurn(n) {
     if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const ag = has(n, "agriculture");
     const fsh = fishable(n), fw = Math.ceil(firewoodNeed(n) * 100 / 5) * 5;
-    const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: n.pers === "builder" ? 12 : 10, build: n.pers === "builder" ? 20 : 16, elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4 };
+    const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: crewFor(n).wood + (n.pers === "builder" ? 2 : 0), build: crewFor(n).build + (n.pers === "builder" ? 4 : 0), elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4 };
     if (n.retired && n.retired.food) { want.farm += want.food + want.forage; want.food = 0; want.forage = 0; }
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
@@ -3287,8 +3288,8 @@ function timeFill(root) {
   set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
   set('[data-tx="scout"]', `${Math.round(Math.min(6, popOf(n) * sh("scout") * .5) * 10) / 10} scouting trips a season. ${TIME.scout.d}`);
   const war = G.nations.some(o => atWar(n.id, o.id)), hungry = E.surplus < 0;
-  const fk = roleOpen(n, "food") ? "food" : "farm", wn = roleOpen(n, "water") ? carriersNeeded(n) : 0, fpct = 25 - wn, fwn = Math.ceil(firewoodNeed(n) * 100 / 5) * 5;
-  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, fk).toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 15% warriors, ${fpct}% ${roleName(n, fk).toLowerCase()}${fk === "food" ? ", 20% foragers" : ""}${wn ? `, ${wn}% water carriers` : ""}${fwn ? `, ${fwn}% firewood gatherers` : ""}, 10% wood & stone gatherers, 15% builders, 10% elders, 5% scouts.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
+  const fk = roleOpen(n, "food") ? "food" : "farm", wn = roleOpen(n, "water") ? carriersNeeded(n) : 0, fwn = Math.ceil(firewoodNeed(n) * 100 / 5) * 5, cr = crewFor(n), fpct = Math.max(10, 100 - 15 - (fk === "food" ? 20 : 0) - wn - fwn - cr.build - cr.wood - 10 - 5);
+  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, fk).toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 15% warriors, ${fpct}% ${roleName(n, fk).toLowerCase()}${fk === "food" ? ", 20% foragers" : ""}${wn ? `, ${wn}% water carriers` : ""}${fwn ? `, ${fwn}% firewood gatherers` : ""}, ${cr.wood}% wood & stone gatherers, ${cr.build}% builders, 10% elders, 5% scouts. Builders and gatherers are needed more as your tribe grows.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
 }
 function openTime(yearly) {
   const n = P();
