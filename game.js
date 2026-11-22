@@ -1157,7 +1157,7 @@ function tradePartners(n) { return G.nations.filter(o => o.alive && o.id !== n.i
 // early peoples are wary of strangers: they trade only with those they trust, and they open up as they meet more of the world
 let metKey = null, metMap = new Map();
 function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; for (const x of G.nations) if (x.alive && x.id !== o.id && dip(o.id, x.id).met) c++; metMap.set(o.id, c); } return c; }
-const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0) - (setsOf(o).some(x => builtAt(x, "post")) ? 8 : 0)); // relations a people needs before trading with you
+const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0) - (turnCache("po" + o.id, () => setsOf(o).some(x => builtAt(x, "post"))) ? 8 : 0)); // relations a people needs before trading with you
 const relOK = (n, o) => { const d = dip(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
 const canTradeWith = (n, o) => relOK(n, o) && o.alive && o.id !== n.id && dip(n.id, o.id).met && !dip(n.id, o.id).emb && !atWar(n.id, o.id) && tradeOpen(o) && tradeReach(n, o);
 // broad sectors of the economy. Mostly private; you steer them with public investment, subsidies, tariffs or by nationalizing them
@@ -1339,7 +1339,8 @@ const TIME = {
   scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
 const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 + p / 25) / 5) * 5, 5, 20), wood: clamp(Math.round((4 + p / 40) / 5) * 5, 5, 15) }; }; /* building work grows with the tribe */
-const fishable = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
+const fishable = n => turnCache("fi" + n.id, () => fishable0(n));
+const fishable0 = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
 const fireCov = n => { const need = firewoodNeed(n); return need > 0 ? Math.min(1, timeShare(n, "firewood") / need) : 1; };
 const roleName = (n, k) => TIME[k].name;
@@ -1363,7 +1364,8 @@ function timeOf(n) {
 function roomAt(x) { // only land that's hemmed in by neighbors gets crowded; growing borders just haven't reached their reach yet
   const want = hOf(x) * 1.2, l = x.exp && x.expDir != null ? 1 + .18 * x.exp : 1, reach = x.wall != null ? x.wall : hOf(x) * 1.9 * (1 + (x.expDir == null ? .25 * (x.exp || 0) : 0));
   return clamp(Math.pow(reach * l / Math.max(.01, want), 2), .2, 3); }
-function roomOf(n) { let a = 0, p = 0; for (const x of setsOf(n)) { a += roomAt(x) * x.pop; p += x.pop; } return p > 0 ? a / p : 1; }
+function roomOf(n) { return turnCache("ro" + n.id, () => roomOf0(n)); }
+function roomOf0(n) { let a = 0, p = 0; for (const x of setsOf(n)) { a += roomAt(x) * x.pop; p += x.pop; } return p > 0 ? a / p : 1; }
 const crowdF = r => r < 1 ? .45 + .55 * r : 1 + .08 * Math.min(1.5, r - 1); // below 1 = crowded
 const timeShare = (n, k) => n.retired && n.retired[k] ? 0 : (timeOf(n)[k] || 0) / 100; // each role is a straight share of all your people
 const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) sum += t[k] || 0; return Math.max(0, 100 - sum); };
@@ -1502,7 +1504,8 @@ function waterOf(n) { if (!tribal(n)) return 1; let w = 0, P0 = 0; for (const x 
 /* how cold a place gets: by latitude, with mountains and tundra colder and jungles never cold */
 function coldOf(x) { const R = W.regions[x.r]; if (!R) return .5; if (R.t === "tundra") return 1; if (R.t === "jungle") return 0;
   return clamp((Math.abs(R.lat) - 25) / 30 + (R.t === "mountain" ? .2 : 0) + (R.t === "desert" ? -.1 : 0), 0, 1); }
-function coldNation(n) { let c = 0, P0 = 0; for (const x of setsOf(n)) { c += coldOf(x) * x.pop; P0 += x.pop; } return P0 ? c / P0 : .5; }
+function coldNation(n) { return turnCache("cn" + n.id, () => coldNation0(n)); }
+function coldNation0(n) { let c = 0, P0 = 0; for (const x of setsOf(n)) { c += coldOf(x) * x.pop; P0 += x.pop; } return P0 ? c / P0 : .5; }
 function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) return null; const d = needAt(n, x, k); return d > 0 ? Math.min(1, builtAt(x, k) / d) : null; }
 function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
   for (const a in AMEN) { if (a === "warmth" && !warm) { r[a] = 1; continue; } /* a hot land needs no warmth */
@@ -1512,7 +1515,10 @@ function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = cold
 function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
   for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
 function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
-function structCov(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
+let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over every settlement */
+function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
+function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
+function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
 const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1);
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
@@ -1534,7 +1540,7 @@ function workProjects(n) { // each settlement's builders work through its own qu
       if (n.mat <= 0) { x.waitMat = true; break; } /* no materials, no building */
       const use = Math.min(it.hours - x.qp, hrs, Math.max(0, n.mat) / MAT_H); x.qp += use; hrs -= use; n.mat -= use * MAT_H; if (use <= 0) break;
       if (x.qp >= it.hours - 1e-6) { x.pq.shift(); x.qp = 0;
-        if (it.repeat) x.b[it.id] = (x.b[it.id] || 0) + 1;
+        if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; }
         else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); }
         if (it.repeat && it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); } } }
 }
@@ -1542,7 +1548,7 @@ function workProjects(n) { // each settlement's builders work through its own qu
 function decay(n, x) { const sev = (35 - x.cond) / 35, kinds = Object.keys(x.b).filter(k => STRUCTS[k] && x.b[k] > 0), tot = kinds.reduce((a, k) => a + x.b[k], 0);
   let k0 = tot * sev * .04; const lost = {};
   while (tot > 0 && (k0 >= 1 || rnd() < k0)) { k0 -= 1; let r = rnd() * kinds.reduce((a, k) => a + x.b[k], 0), k = kinds[0]; for (const q of kinds) { r -= x.b[q]; if (r <= 0) { k = q; break; } }
-    if (x.b[k] > 0) { x.b[k]--; lost[k] = (lost[k] || 0) + 1; } if (Object.values(lost).reduce((a, v) => a + v, 0) > 6) break; }
+    if (x.b[k] > 0) { x.b[k]--; G.bv = (G.bv || 0) + 1; lost[k] = (lost[k] || 0) + 1; } if (Object.values(lost).reduce((a, v) => a + v, 0) > 6) break; }
   let shrank = false; if ((x.exp || 0) > 0 && rnd() < .12 * sev + .03) { x.exp--; shrank = true; G.sv++; }
   if (n.ai || (!Object.keys(lost).length && !shrank)) return;
   const at = n.alertT || (n.alertT = {}), key = "decay" + x.id, txt = `${Object.entries(lost).map(([k, v]) => `${v} ${v === 1 ? STRUCTS[k].one : STRUCTS[k].name.toLowerCase()}`).join(", ")}${Object.keys(lost).length ? " collapsed" : ""}${shrank ? `${Object.keys(lost).length ? ", and" : ""} the borders shrank back` : ""}`;
