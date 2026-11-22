@@ -1302,6 +1302,7 @@ function unitPower(n) {
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
   m += cul(n).pow || 0;
+  if (tribal(n)) m += .2 * (toolCov(n) - 1); /* sharp spearheads */
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
@@ -1327,7 +1328,7 @@ const tribal = n => !n.stateUp;
 // a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
 const TIME = {
   warrior: { name: "Warriors", icon: "⚔️", def: 20, d: "Fight and guard. More warriors mean bigger war bands, but they gather no food, and every one killed in battle is one of your people lost." },
-  food:    { name: "Hunters", icon: "🏹", def: 30, grp: "food", d: "Big hauls of meat, but only as much as your land's game allows, and little in a cold winter." },
+  food:    { name: "Hunters", icon: "🏹", def: 25, grp: "food", d: "Big hauls of meat, but only as much as your land's game allows, and little in a cold winter." },
   forage:  { name: "Foragers", icon: "🫐", def: 25, grp: "food", d: "Gather roots, nuts, seeds and berries: steadier than the hunt, richest in summer and autumn, poor in a cold winter." },
   fish:    { name: "Fishers", icon: "🎣", def: 0, grp: "food", when: n => fishable(n) > 0, d: "Fish the coasts, lakes and rivers. Steady all year and they don't empty the land of game. Canoes help." },
   farm:    { name: "Farmers & herders", icon: "🌾", def: 0, tech: "agriculture", grp: "food", d: "Less food each than hunters, but steady all year and not limited by game. Each farming family needs a farm plot." },
@@ -1335,10 +1336,19 @@ const TIME = {
   firewood: { name: "Firewood gatherers", icon: "🪵", def: 0, grp: "gather", when: n => coldNation(n) >= .15, d: "Fires need wood. Without enough, fire pits stay cold in winter. Crowded land is stripped of trees, so wood has to come from further away." },
   wood:    { name: "Wood & stone gatherers", icon: "🪨", def: 5, grp: "gather", d: "Cut wood, quarry stone and gather hides and reeds: the materials your builders use." },
   build:   { name: "Builders", icon: "🔨", def: 5, d: "Build new things, and keep what you have standing: huts, amenities and your claimed borders all need upkeep, using up materials." },
+  tools:   { name: "Toolmakers", icon: "🪓", def: 5, d: "Knap flint, shape bone and haft spears. Good tools make everyone better at their work: hunters, foragers, fishers, farmers, gatherers, builders and warriors." },
+  healer:  { name: "Healers", icon: "🌿", def: 0, tech: "mysticism", d: "Herbs, bone-setting and the spirits' help. Healers keep sickness from spreading, see more mothers and babies through, and save some from the winter cold." },
   elder:   { name: "Elders & shamans", icon: "🔥", def: 10, d: "Keep the tribe's lore: research and the elders' favor." },
   scout:   { name: "Scouts", icon: "🧭", def: 5, d: "Walk out past your borders each season and map the land within walking distance, so you find neighbors and good land sooner." },
 };
 const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 + p / 25) / 5) * 5, 5, 20), wood: clamp(Math.round((4 + p / 40) / 5) * 5, 5, 15) }; }; /* building work grows with the tribe */
+/* toolmakers and healers: each tribe needs a few, more as it grows */
+const pct5 = v => Math.max(5, Math.round(v * 20) * 5);
+const toolNeed = n => .04 + Math.min(.06, popOf(n) / 2500);
+const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) / toolNeed(n)));
+const toolF = (n, k = .2) => tribal(n) ? 1 - k + k * toolCov(n) / 1 : 1; /* 1 - k with no tools, up to 1 + .2k with plenty */
+const healNeed = n => .03 + Math.min(.04, popOf(n) / 3000);
+const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) / healNeed(n)));
 const fishable = n => turnCache("fi" + n.id, () => fishable0(n));
 const fishable0 = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
@@ -1351,6 +1361,7 @@ function timeOf(n) {
   if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; }
   if (n.time.farm == null) n.time.farm = 0;
   if (n.time.wood == null) { const w = Math.round((n.time.build || 0) * .6 / 5) * 5, f = n.retired && n.retired.food ? 0 : Math.round((n.time.food || 0) * .4 / 5) * 5; n.time.wood = w; n.time.build = (n.time.build || 0) - w; n.time.forage = f; n.time.food = (n.time.food || 0) - f; n.time.fish = 0; n.time.firewood = 0; } /* older saves: builders split into gatherers and builders, hunters into hunters and foragers */
+  if (n.time.tools == null) { const k = ["food", "forage", "farm", "warrior"].find(q => (n.time[q] || 0) >= 10); n.time.tools = k ? 5 : 0; if (k) n.time[k] -= 5; } /* older saves: a few toolmakers */
   for (const k in TIME) if (n.time[k] == null) n.time[k] = 0;
   if (n.time.water == null) { n.time.water = 0; if (G && G.sets && setsOf(n).length) { const w = carriersNeeded(n); n.time.water = w; n.time.food = Math.max(10, (n.time.food || 0) - w); } }
   let sum = 0; for (const k in TIME) sum += n.time[k] || 0;
@@ -1519,7 +1530,7 @@ let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over
 function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
 function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
-const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1);
+const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25);
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
@@ -1679,8 +1690,8 @@ function econ(n) {
       const winterEase = q === 0 ? .25 * structCov(n, "smoke") * cN : 0; /* smoked stores soften the winter */
       const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")), gT = 1.0 * fo * plants * pRoom, sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
       const fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1) * (1 + .2 * structCov(n, "pens")); /* farmers without plots scratch out small gardens; herds add meat and milk */
-      n._noHuntR = (.6 + fT + sT) / (.6 + hT + gT + fT + sT); food *= .6 + hT + gT + fT + sT; }
-    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
+      const tf = toolF(n); n._noHuntR = (.6 + (fT + sT) * tf) / (.6 + (hT + gT + fT + sT) * tf); food *= .6 + (hT + gT + fT + sT) * tf; } /* better tools, better hauls */
+    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= (1 + .2 * structCov(n, "shop")) * (1 + .1 * structCov(n, "knap")) * (1 + .1 * (has(n, "pottery") ? structCov(n, "kiln") : 0)); sci *= 1 + .1 * structCov(n, "shrine"); }
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
@@ -1935,6 +1946,7 @@ function fertility(n, E) {
   const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3);
   f.push(["Food", sr < 0 ? .5 : clamp(.85 + .15 * sr, .85, 1.3)]);
   f.push(["Homes", .4 + .6 * Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk)]);
+  if (tribal(n) && roleOpen(n, "healer")) f.push(["Healers", 1 + .08 * healCov(n)]);
   if (tribal(n)) { f.push(["Water", .4 + .6 * waterOf(n)]); f.push(["Comforts", .8 + .25 * amenOf(n).all]); }
   const room = roomOf(n); f.push([room < 1 ? "Crowded land" : "Room to roam", crowdF(room)]);
   const mood = n.fac && n.fac.commoners != null ? clamp(.85 + n.fac.commoners / 330, .85, 1.12) : 1; f.push(["Mood", mood]);
@@ -2029,9 +2041,9 @@ function processNation(n) {
     let sick = 0, coldH = 0, thirstL = 0;
     for (const x of sets) { sb(x); const am = amenAt(n, x), cf = coldOf(x), cold = cold0 * (1.4 - .6 * am.warmth) * (.15 + .85 * cf); /* winters are mild in hot lands */
       /* without fire and clothes, even families in huts suffer in winter; without clean ways, sickness spreads where people crowd */
-      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0 * cf; x.pop -= d; coldH += d; }
-      { const wc = waterAt(n, x); if (wc < .98) { const th = x.pop * (1 - wc), lv = th * .03, sk = th * .015; x.pop = Math.max(2, x.pop - lv - sk); thirstL += lv; sick += sk; } }
-      if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * (1 - am.health) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
+      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0 * cf * (1 - .3 * healCov(n)); x.pop -= d; coldH += d; }
+      { const wc = waterAt(n, x); if (wc < .98) { const th = x.pop * (1 - wc), lv = th * .03, sk = th * .015 * (1 - .4 * healCov(n)); x.pop = Math.max(2, x.pop - lv - sk); thirstL += lv; sick += sk; } }
+      if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * (1 - am.health) * (1 - .6 * healCov(n)) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
       const need = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
       x.shk = Math.min(x.shk || 0, need); /* families move out of shacks into new huts */
       let roof = need - x.shk;
@@ -2412,7 +2424,7 @@ function aiTurn(n) {
     if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const ag = has(n, "agriculture");
     const fsh = fishable(n), fw = Math.ceil(firewoodNeed(n) * 100 / 5) * 5;
-    const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: crewFor(n).wood + (n.pers === "builder" ? 2 : 0), build: crewFor(n).build + (n.pers === "builder" ? 4 : 0), elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4 };
+    const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: crewFor(n).wood + (n.pers === "builder" ? 2 : 0), build: crewFor(n).build + (n.pers === "builder" ? 4 : 0), elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4, tools: pct5(toolNeed(n)), healer: has(n, "mysticism") ? pct5(healNeed(n)) : 0 };
     if (n.retired && n.retired.food) { want.farm += want.food + want.forage; want.food = 0; want.forage = 0; }
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
@@ -3318,13 +3330,15 @@ function timeFill(root) {
     set('[data-tx="build"]', `${TIME.build.d} <b class="${us >= 100 ? "bad" : us > 70 ? "warn" : ""}">Upkeep takes ${us}% of their time.</b>`); }
   set('[data-tx="wood"]', `${pc(9.8 * sh("wood") - .98)} materials. ${TIME.wood.d}`);
   set('[data-tx="forage"]', TIME.forage.d);
+  { const tc = toolCov(n), nd = pct5(toolNeed(n)); set('[data-tx="tools"]', `${TIME.tools.d} ${tc < .95 ? `<b class="bad">Not enough tools: everyone works ${Math.round((1 - toolF(n)) * 100)}% worse. About ${nd}% needed.</b>` : `Tools for everyone. About ${nd}% needed.`}`); }
+  if (roleOpen(n, "healer")) { const hc = healCov(n), nd = pct5(healNeed(n)); set('[data-tx="healer"]', `${TIME.healer.d} ${hc < .95 ? `${hc < .3 ? '<b class="bad">' : "<b>"}Healers reach ${Math.round(hc * 100)}% of your people. About ${nd}% needed.</b>` : `Healers reach everyone. About ${nd}% needed.`}`); }
   set('[data-tx="fish"]', `${TIME.fish.d} ${Math.round(fishable(n) * 100)}% of your families live by the water.`);
   { const need = Math.ceil(firewoodNeed(n) * 100 / 5) * 5, fc = fireCov(n); set('[data-tx="firewood"]', `${TIME.firewood.d} ${fc < .98 ? `<b class="bad">Not enough wood: about ${need}% are needed.</b>` : `About ${need}% are needed.`}`); }
   set('[data-tx="elder"]', `${pc(1.5 * sh("elder") - .15)} research. ${TIME.elder.d}`);
   set('[data-tx="scout"]', `${Math.round(Math.min(6, popOf(n) * sh("scout") * .5) * 10) / 10} scouting trips a season. ${TIME.scout.d}`);
   const war = G.nations.some(o => atWar(n.id, o.id)), hungry = E.surplus < 0;
-  const fk = roleOpen(n, "food") ? "food" : "farm", wn = roleOpen(n, "water") ? carriersNeeded(n) : 0, fwn = Math.ceil(firewoodNeed(n) * 100 / 5) * 5, cr = crewFor(n), fpct = Math.max(10, 100 - 15 - (fk === "food" ? 20 : 0) - wn - fwn - cr.build - cr.wood - 10 - 5);
-  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, fk).toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 15% warriors, ${fpct}% ${roleName(n, fk).toLowerCase()}${fk === "food" ? ", 20% foragers" : ""}${wn ? `, ${wn}% water carriers` : ""}${fwn ? `, ${fwn}% firewood gatherers` : ""}, ${cr.wood}% wood & stone gatherers, ${cr.build}% builders, 10% elders, 5% scouts. Builders and gatherers are needed more as your tribe grows.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
+  const fk = roleOpen(n, "food") ? "food" : "farm", wn = roleOpen(n, "water") ? carriersNeeded(n) : 0, fwn = Math.ceil(firewoodNeed(n) * 100 / 5) * 5, cr = crewFor(n), fpct = Math.max(10, 100 - 15 - (fk === "food" ? 20 : 0) - wn - fwn - cr.build - cr.wood - pct5(toolNeed(n)) - (roleOpen(n, "healer") ? pct5(healNeed(n)) : 0) - 10 - 5);
+  set("[data-trec]", `💡 <b>Suggested:</b> ${hungry ? `More ${roleName(n, fk).toLowerCase()} (55%+).` : war ? "More warriors (25–35%), but only as many as you need." : `About 15% warriors, ${fpct}% ${roleName(n, fk).toLowerCase()}${fk === "food" ? ", 20% foragers" : ""}${wn ? `, ${wn}% water carriers` : ""}${fwn ? `, ${fwn}% firewood gatherers` : ""}, ${cr.wood}% wood & stone gatherers, ${cr.build}% builders, ${pct5(toolNeed(n))}% toolmakers${roleOpen(n, "healer") ? `, ${pct5(healNeed(n))}% healers` : ""}, 10% elders, 5% scouts. Builders, gatherers and toolmakers are needed more as your tribe grows.`}<br><small><b>Why:</b> ${hungry ? "Your people are going hungry. Food comes first." : war ? "You're at war and need fighters, but every warrior killed is one of your own people, and warriors gather no food." : "Enough food to grow, enough warriors to guard the tribe, hands to build, keepers of lore, and scouts to find who's out there. Too many warriors starves the tribe and costs lives in every battle."}</small>`);
 }
 function openTime(yearly) {
   const n = P();
