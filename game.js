@@ -91,7 +91,27 @@ const TECHS = [
   ["husbandry", 0, "Animal Husbandry", "Pastures; horses strengthen your warriors."],
   ["mining", 0, "Mining", "Mines dig up materials. Copper becomes usable."],
   ["mysticism", 0, "Mysticism", "Shrines calm your people."],
-  ["tribal", 0, "Tribal Law", "Unlocks the Chiefdom government."],
+  ["tribal", 0, "Tribal Law", "Disputes are settled by custom, not the strongest arm. Unlocks the Chiefdom government."],
+  ["fire", 0, "Taming fire", "Fire for warmth, cooking and keeping beasts away; the tribe gathers around it."],
+  ["stonetools", 0, "Sharper stone tools", "Keener flaked edges: each toolmaker's tools go further."],
+  ["rope", 0, "Cordage and rope", "Twisted fibers bind and lift: builders work faster."],
+  ["snares", 0, "Snares and traps", "Game traps & snares can be built."],
+  ["dogs", 0, "Taming dogs", "Dogs help the hunt and guard the camp: hunters bring in more."],
+  ["spear", 0, "Hafted spears", "Stone points bound to shafts: hunters and warriors strike harder."],
+  ["stories", 0, "Stories and songs", "The tribe's memory lives on: painted rocks can be made."],
+  ["herbs", 0, "Herb lore", "Which plants heal and which kill: healers work better."],
+  ["sewing", 0, "Bone needles", "Sewn clothes keep out the cold: warmer families."],
+  ["fishing", 0, "Hooks and nets", "Fishers bring in more, and fish weirs can be built."],
+  ["smoking", 0, "Smoking meat", "Smoked meat lasts the winter: smokehouses can be built."],
+  ["burial", 0, "Honoring the dead", "Burial grounds can be made."],
+  ["boats", 0, "Dugout canoes", "Hollowed logs carry people over water: canoes can be built."],
+  ["counting", 0, "Counting and marking", "Notches on bone track herds and moons. What we know no longer lives only in memory."],
+  ["weaving", 0, "Weaving", "Fibers become cloth: looms can be built."],
+  ["bow", 0, "Bow and arrow", "Hunters reach further and warriors strike from afar."],
+  ["stockade", 0, "Stockades", "Walls of sharpened logs: palisades can be built."],
+  ["trade", 0, "Gift exchange", "Gifts open doors with strangers: a trading post can be built once you meet another people."],
+  ["calendar", 0, "Watching the seasons", "The moons and stars tell when to sow and gather: farmers and foragers do better."],
+  ["nation", 0, "Who are we?", "The elders speak of the peoples beyond the hills, and of what binds this tribe together: a people, perhaps one day a nation."],
   ["bronze", 1, "Bronze Working", "Barracks. Armies need copper."],
   ["writing", 1, "Writing", "Libraries and the Science focus."],
   ["masonry", 1, "Masonry", "Walls. Towns can grow into cities."],
@@ -136,6 +156,17 @@ const TECHS = [
 const TECH = Object.fromEntries(TECHS.map(t => [t.id, t]));
 TECHS.forEach(t => { const k = TECHS.filter(x => x.era === t.era).indexOf(t); t.cost = Math.round(TECH_BASE[t.era] * (1 + 0.1 * k)); });
 TECH.mars.cost = 60000;
+/* the Stone Age: many small matters for the elders to settle, each cheap; settling 85% of them brings the next age */
+const STONE_REQ = { stonetools: [], fire: [], rope: [], snares: [], dogs: [], spear: ["stonetools"], stories: ["fire"], herbs: [], sewing: ["stonetools"], fishing: ["rope"], smoking: ["fire"], burial: ["stories"],
+  boats: ["stonetools", "fishing"], counting: ["stories"], weaving: ["rope"], bow: ["spear", "rope"], stockade: ["rope"], trade: ["stories"], calendar: ["counting"], pottery: ["fire"], mining: ["stonetools"],
+  agriculture: ["herbs"], husbandry: ["dogs"], mysticism: ["stories"], tribal: ["counting"], nation: ["tribal", "mysticism"] };
+const STONE_ORDER = ["fire", "stonetools", "rope", "snares", "dogs", "herbs", "stories", "spear", "sewing", "smoking", "fishing", "burial", "pottery", "counting", "weaving", "mysticism", "boats", "agriculture", "husbandry", "bow", "stockade", "trade", "mining", "calendar", "tribal", "nation"];
+STONE_ORDER.forEach((id, i) => { TECH[id].cost = Math.round((.45 + 1.1 * i / (STONE_ORDER.length - 1)) * 100) / 100; });
+const STONE_DESC = { agriculture: "Some seeds, pushed into the earth, come back as food: farmers & herders, farm plots and storage pits.", husbandry: "Young animals raised by the fire follow us: herds to keep, and animal pens.",
+  pottery: "River clay hardens in the fire: pots that keep grain dry, cisterns and kilns.", mining: "Some stones can be dug from the hills, and water from deep below: wells.",
+  mysticism: "The elders agree on the spirits of sky, river and ancestors, and the rites to honor them: healers, shrines and sweat lodges.", tribal: "Disputes are settled by custom, not by the strongest arm. The tribe has laws now." };
+const stoneDesc = t => STONE_DESC[t.id] || t.desc;
+const stoneNeed = () => Math.ceil(eraTechs(0).length * .85);
 const eraTechs = e => TECHS.filter(t => t.era === e && t.id !== "mars");
 const eraNeed = e => eraTechs(e).length - 1;
 
@@ -508,7 +539,7 @@ const relNudge = (n, trait) => tagsOf(n.relig || "animism").reduce((a, t) => a +
 const tagChips = (k, mine) => tagsOf(k).map(t => `<span class="rtag ${mine && mine.includes(t) ? "on" : ""}">${RTAGS[t].icon} ${RTAGS[t].name}</span>`).join("");
 /* customs: how your people live. No bonuses: they shape character over generations and how close other peoples feel */
 const CUSTOMS = {
-  burial:  { name: "The dead", icon: "⚱️", opts: {
+  burial:  { tech: "burial", name: "The dead", icon: "⚱️", opts: {
     earth: { name: "Buried in the earth", d: "The dead rest in graves near the living, with the things they will need." },
     fire:  { name: "Cremation", d: "The dead are given to the fire, and their ashes to the wind or the river." },
     sky:   { name: "Sky burial", d: "The dead are laid out on high places for the birds, returned to the world.", lean: "hardy" },
@@ -957,7 +988,7 @@ function newNation(name, color, ri, ai, pers, culture) {
 }
 function newGame(opts) {
   reachCache.clear(); resetCells();
-  G = { v: 2, turn: 1, tt: 0, month: 0, year: -4000, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
+  G = { v: 2, turn: 1, tt: 0, month: 0, year: -3600, player: 0, nations: [], regions: [], sets: [], sid: 1, sv: 0, bld: {}, cons: {}, dip: {}, news: [], diff: opts.diff, over: false, nextEvent: 4, lastReport: [] };
   for (let i = 0; i < NR; i++) G.regions.push({ i, ctrl: -1 });
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder", opts.cul || "mixed");
@@ -1302,7 +1333,7 @@ function unitPower(n) {
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
   m += cul(n).pow || 0;
-  if (tribal(n)) m += .2 * (toolCov(n) - 1); /* sharp spearheads */
+  if (tribal(n)) m += .2 * (toolCov(n) - 1) + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .05 : 0); /* sharp spearheads */
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
@@ -1345,10 +1376,10 @@ const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 +
 /* toolmakers and healers: each tribe needs a few, more as it grows */
 const pct5 = v => Math.max(5, Math.round(v * 20) * 5);
 const toolNeed = n => .04 + Math.min(.06, popOf(n) / 2500);
-const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) / toolNeed(n)));
+const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) / toolNeed(n)));
 const toolF = (n, k = .2) => tribal(n) ? 1 - k + k * toolCov(n) / 1 : 1; /* 1 - k with no tools, up to 1 + .2k with plenty */
 const healNeed = n => .03 + Math.min(.04, popOf(n) / 3000);
-const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) / healNeed(n)));
+const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) / healNeed(n)));
 const fishable = n => turnCache("fi" + n.id, () => fishable0(n));
 const fishable0 = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
@@ -1382,28 +1413,28 @@ const timeShare = (n, k) => n.retired && n.retired[k] ? 0 : (timeOf(n)[k] || 0) 
 const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) sum += t[k] || 0; return Math.max(0, 100 - sum); };
 // ---- elder discussions: before there is research, the elders talk things through, one subject after another.
 // The last talks turn to knowledge itself and to who the people are; then research truly begins ----
-const ELDER_TALKS = [
-  { id: "fire", t: "Around the fire", d: "The elders retell the old stories, and the tribe remembers who it is.", cost: 5 },
-  { tech: "agriculture", t: "Seeds that grow", d: "Some seeds, pushed into the earth, come back as food. Perhaps we could stay and tend them." },
-  { tech: "husbandry", t: "Taming the herds", d: "Young animals raised by the fire follow us. We could keep them instead of hunting them." },
-  { tech: "pottery", t: "Shaping clay", d: "River clay hardens in the fire. Pots keep grain dry and water close." },
-  { tech: "mining", t: "Stones that shine", d: "Some stones are harder than others, and some can be dug from the hills." },
-  { tech: "mysticism", t: "Spirits of the land", d: "The elders agree on the spirits of sky, river and ancestors, and the rites to honor them." },
-  { tech: "tribal", t: "The law of the elders", d: "Disputes are settled by custom, not by the strongest arm. The tribe has laws now." },
-  { id: "counting", t: "Counting and marking", d: "Notches on bone track herds and moons. What we know no longer has to live only in memory.", cost: 14 },
-  { id: "nation", t: "Who are we?", d: "The elders speak of the peoples beyond the hills, and of what binds this tribe together: a people, perhaps one day a nation.", cost: 18 },
-];
-const talkCost = x => x.tech ? TECH[x.tech].cost : x.cost;
-function resOpen(n) { if (!n.resOpen && (n.era >= 1 || Object.keys(n.fields || {}).length > 0 && (n.elderStep == null))) n.resOpen = true; return !!n.resOpen; } // older saves already had research
-const curTalk = n => ELDER_TALKS[n.elderStep || 0];
+function resOpen(n) { if (!n.resOpen && n.era >= 1) n.resOpen = true; return !!n.resOpen; }
+const stoneOpen = (n, t) => t && t.era === 0 && !has(n, t.id) && (STONE_REQ[t.id] || []).every(r => has(n, r));
+const talkCost = t => t.cost;
+function pickTalk(n) { const av = eraTechs(0).filter(t => stoneOpen(n, t)); if (!av.length) return null;
+  const want = { agriculture: .6, husbandry: .7, mysticism: .8, tribal: .85, pottery: .85 }; /* advisors push for the big steps */
+  return av.sort((a, b) => a.cost * (want[a.id] || 1) - b.cost * (want[b.id] || 1))[0].id; }
+const curTalk = n => { if (!n.talk || !stoneOpen(n, TECH[n.talk])) n.talk = pickTalk(n); return n.talk ? TECH[n.talk] : null; };
+function migrateStone(n) { if (n.stoneV) return; n.stoneV = 1;
+  if (G.turn > 2 && (n.elderStep != null || n.resOpen || n.era > 0)) { /* older saves keep what they could already do */
+    const keep = n.resOpen || n.era > 0 ? eraTechs(0).map(t => t.id) : ["fire", "snares", "stories", "burial", "smoking", "stockade", "trade", "boats", "fishing", "rope", "stonetools"].concat(has(n, "agriculture") ? ["weaving"] : []).concat((n.elderStep || 0) > 7 ? ["counting"] : []);
+    for (const id of keep) if (!has(n, id)) n.techs.push(id); } }
 function elderTalks(n) {
-  let guard = 0;
-  while (!n.resOpen && guard++ < 4) { const x = curTalk(n); if (!x) { n.resOpen = true; break; }
-    if (x.tech && has(n, x.tech)) { n.elderStep = (n.elderStep || 0) + 1; continue; }
-    const c = talkCost(x); if (n.sciPts < c) break;
-    n.sciPts -= c; if (x.tech) n.techs.push(x.tech); n.elderStep = (n.elderStep || 0) + 1;
-    if (!n.ai) log(`The elders have spoken: ${x.t}${/[?!.]$/.test(x.t) ? "" : "."} ${x.d}`, "🔥");
-    if ((n.elderStep || 0) >= ELDER_TALKS.length) { n.resOpen = true; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; if (!n.ai) log("Knowledge can be kept, shared and built upon. Your people begin to study the world.", "🔬"); } }
+  migrateStone(n); let guard = 0;
+  while (!n.resOpen && guard++ < 6) {
+    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed()) { /* enough of the old questions settled: a new age */
+      n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
+      if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
+      else if (G.player != null && dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
+      break; }
+    const t = curTalk(n); if (!t || n.sciPts < t.cost) break;
+    n.sciPts -= t.cost; n.techs.push(t.id); n.talk = null;
+    if (!n.ai) log(`The elders have spoken: ${t.name}. ${stoneDesc(t)}`, "🔥"); }
 }
 // ---- Stone Age projects: things your builders work on together, one at a time ----
 // ---- tribal production: builders put in hours each season. Your people need things in proportion to their numbers
@@ -1418,7 +1449,7 @@ const STRUCTS = {
   rack:     { tab: "food", opt: true, name: "Drying racks", one: "drying rack", icon: "🍖", hours: 2000, d: "One for every 6 food-gathering families. Meat and fish keep longer: more food." },
   shop:     { tab: "crafts", tech: "pottery", name: "Workshops", one: "workshop", icon: "🪓", hours: 5000, d: "One for every 4 builder families. Toolmakers work faster: more materials." },
   shrine:   { tab: "spirit", tech: "mysticism", name: "Shrines", one: "shrine", icon: "🔥", hours: 12000, d: "One in every settlement. The elders are pleased, and the tribe's lore grows." },
-  palisade: { tab: "defense", opt: true, name: "Palisades", one: "palisade", icon: "🪵", hours: 26000, d: "One around every settlement. Much harder to raid or conquer." },
+  palisade: { tab: "defense", opt: true, tech: "stockade", name: "Palisades", one: "palisade", icon: "🪵", hours: 26000, d: "One around every settlement. Much harder to raid or conquer." },
   hall:     { tab: "housing", tier: 1, name: "Meeting hall", one: "meeting hall", icon: "🏛️", hours: 9000, d: "Towns only. Where the town gathers to settle matters: much less unrest here." },
   granary:  { tab: "food", tier: 1, tech: "pottery", name: "Granary", one: "granary", icon: "🌾", hours: 8000, d: "Towns only. A great store for the whole town: famine barely touches it." },
   market:   { tab: "crafts", tier: 1, name: "Market square", one: "market square", icon: "🧺", hours: 8000, d: "Towns only. Traders from far and near gather here: +15% gold from this town." },
@@ -1433,20 +1464,20 @@ const STRUCTS = {
   aqueduct: { tab: "water", tier: 1, tech: "construction", name: "Aqueduct", one: "aqueduct", icon: "🌉", hours: 20000, wcap: 200, d: "Towns only. Water carried from far hills: supplies 200 families." },
   circle:   { tab: "amen", name: "Gathering ground", one: "gathering ground", icon: "🪘", hours: 3000, d: "One in every settlement. A cleared place for stories, dances and feasts: families are happier." },
   lodge:    { tab: "amen", tech: "mysticism", name: "Sweat lodges", one: "sweat lodge", icon: "♨️", hours: 2500, d: "One for every 15 families. Healing heat and cleansing rites: less sickness." },
-  traps:    { tab: "food", opt: true, tile: "Game traps", name: "Game traps & snares", one: "set of traps", icon: "🪤", hours: 700, d: "One for every 5 hunter families. Traps work while the hunters sleep: hunters bring in up to 25% more." },
-  weir:     { tab: "food", opt: true, water: true, name: "Fish weirs", one: "fish weir", icon: "🐟", hours: 1600, d: "One for every 5 fisher families, by the water. Stone and stake fences that trap fish: fishers bring in up to 30% more." },
-  smoke:    { tab: "food", opt: true, name: "Smokehouses", one: "smokehouse", icon: "🌫️", hours: 2200, d: "One for every 10 families. Smoked meat and fish last through the winter: lean winters are much less lean." },
+  traps:    { tab: "food", opt: true, tile: "Game traps", tech: "snares", name: "Game traps & snares", one: "set of traps", icon: "🪤", hours: 700, d: "One for every 5 hunter families. Traps work while the hunters sleep: hunters bring in up to 25% more." },
+  weir:     { tab: "food", opt: true, water: true, tech: "fishing", name: "Fish weirs", one: "fish weir", icon: "🐟", hours: 1600, d: "One for every 5 fisher families, by the water. Stone and stake fences that trap fish: fishers bring in up to 30% more." },
+  smoke:    { tab: "food", opt: true, tech: "smoking", name: "Smokehouses", one: "smokehouse", icon: "🌫️", hours: 2200, d: "One for every 10 families. Smoked meat and fish last through the winter: lean winters are much less lean." },
   pens:     { tab: "food", opt: true, tech: "husbandry", name: "Animal pens", one: "animal pen", icon: "🐐", hours: 1800, d: "One for every 6 farming families. Herds kept safe from wolves and thieves: farmers and herders bring in up to 20% more." },
   knap:     { tab: "crafts", opt: true, tile: "Flint knapping", name: "Flint knapping ground", one: "flint knapping ground", icon: "🪨", hours: 3000, d: "One in every settlement. Sharp tools for everyone: +10% materials, and this settlement's builders work 10% faster." },
   kiln:     { tab: "crafts", opt: true, tech: "pottery", name: "Kiln", one: "kiln", icon: "🏺", hours: 5000, d: "One in every settlement. Fired pots and bricks: +10% materials." },
-  loom:     { tab: "amen", opt: true, tech: "agriculture", name: "Looms", one: "loom", icon: "🧶", hours: 1800, d: "One for every 10 families. Woven cloth: warmer families, and a little pride in what they wear." },
+  loom:     { tab: "amen", opt: true, tech: "weaving", name: "Looms", one: "loom", icon: "🧶", hours: 1800, d: "One for every 10 families. Woven cloth: warmer families, and a little pride in what they wear." },
   bath:     { tab: "amen", opt: true, name: "Bathing place", one: "bathing place", icon: "🛁", hours: 1500, d: "One in every settlement. A cleared spot on the water for washing: healthier families." },
-  art:      { tab: "spirit", opt: true, name: "Painted rocks", one: "painted rock", icon: "🎨", hours: 1200, d: "One in every settlement. Hunts, spirits and ancestors painted on stone: families gather here, and the stories live on." },
+  art:      { tab: "spirit", opt: true, tech: "stories", name: "Painted rocks", one: "painted rock", icon: "🎨", hours: 1200, d: "One in every settlement. Hunts, spirits and ancestors painted on stone: families gather here, and the stories live on." },
   burial:   { tab: "spirit", opt: true, name: "Burial ground", one: "burial ground", icon: "🪦", hours: 2000, d: "One in every settlement. A resting place for the dead: the elders and the families are comforted." },
   ditch:    { tab: "defense", opt: true, tile: "Ditches", name: "Ditch and stakes", one: "ditch and stakes", icon: "🔱", hours: 9000, d: "One around every settlement. Cheaper than a palisade: a little harder to raid." },
   watch:    { tab: "defense", opt: true, name: "Lookout post", one: "lookout post", icon: "🗼", hours: 2500, d: "One in every settlement. Raiders are seen coming, and your scouts see further from here." },
-  post:     { tab: "travel", opt: true, when: n => metCount(n) > 0, name: "Trading post", one: "trading post", icon: "🛖", hours: 6000, d: "Your main settlement only. A place where strangers can come to swap goods: other peoples trust you sooner and trade more willingly." },
-  canoe:    { tab: "food", opt: true, name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
+  post:     { tab: "travel", opt: true, when: n => metCount(n) > 0, tech: "trade", name: "Trading post", one: "trading post", icon: "🛖", hours: 6000, d: "Your main settlement only. A place where strangers can come to swap goods: other peoples trust you sooner and trade more willingly." },
+  canoe:    { tab: "food", opt: true, tech: "boats", name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
 };
 const GREAT = [
   { id: "trails", tab: "travel", name: "Marked trails", icon: "🥾", hours: 20000, mat: 4, d: "Cairns and blazes mark the paths. Settlers and scouts travel 30% further." },
@@ -1524,7 +1555,7 @@ function coldNation0(n) { let c = 0, P0 = 0; for (const x of setsOf(n)) { c += c
 function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) return null; const d = needAt(n, x, k); return d > 0 ? Math.min(1, builtAt(x, k) / d) : null; }
 function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
   for (const a in AMEN) { if (a === "warmth" && !warm) { r[a] = 1; continue; } /* a hot land needs no warmth */
-    const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; if (a === "warmth") r[a] = Math.min(1, r[a] + .2 * (covAt(n, x, "loom") || 0)) * (.3 + .7 * fireCov(n)); /* no wood, no fire; woven cloth helps */
+    const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; if (a === "warmth") r[a] = Math.min(1, r[a] + .2 * (covAt(n, x, "loom") || 0) + (has(n, "sewing") ? .1 : 0)) * (.3 + .7 * fireCov(n)); /* no wood, no fire; woven cloth helps */
       if (a === "health") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "bath") || 0)); if (a === "joy") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "art") || 0)); t += r[a]; c++; }
   r.all = c ? t / c : 1; return r; }
 function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
@@ -1534,7 +1565,7 @@ let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over
 function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
 function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
-const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25);
+const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1);
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
@@ -1693,10 +1724,10 @@ function econ(n) {
     const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [1 - .35 * coldNation(n), 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
     const game = Math.min(1, room / Math.max(.2, hunt * 2.2)); // too many hunters for the land and the game runs out
     { const q = Math.floor((G.month || 0) / 3), cN = coldNation(n), fo = timeShare(n, "forage"), fi = timeShare(n, "fish");
-      const plants = [1 - .6 * cN + (q === 0 ? .4 * structCov(n, "smoke") * cN : 0), 1, 1.15, 1.25][q], pRoom = Math.min(1, room / Math.max(.2, fo * 2.5)); /* foragers strip the land too, but less than hunters */
+      const cal = has(n, "calendar") ? 1.05 : 1, plants = [1 - .6 * cN + (q === 0 ? .4 * structCov(n, "smoke") * cN : 0), 1, 1.15, 1.25][q], pRoom = Math.min(1, room / Math.max(.2, fo * 2.5)); /* foragers strip the land too, but less than hunters */
       const winterEase = q === 0 ? .25 * structCov(n, "smoke") * cN : 0; /* smoked stores soften the winter */
-      const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")), gT = 1.0 * fo * plants * pRoom, sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
-      const fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1) * (1 + .2 * structCov(n, "pens")); /* farmers without plots scratch out small gardens; herds add meat and milk */
+      const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")) * (1 + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .1 : 0) + (has(n, "dogs") ? .05 : 0)), gT = 1.0 * fo * plants * pRoom * cal, sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (has(n, "fishing") ? 1.15 : 1) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
+      const fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1) * (1 + .2 * structCov(n, "pens")) * cal; /* farmers without plots scratch out small gardens; herds add meat and milk */
       const tf = toolF(n); n._noHuntR = (.6 + (fT + sT) * tf) / (.6 + (hT + gT + fT + sT) * tf); food *= .6 + (hT + gT + fT + sT) * tf; } /* better tools, better hauls */
     mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= (1 + .2 * structCov(n, "shop")) * (1 + .1 * structCov(n, "knap")) * (1 + .1 * (has(n, "pottery") ? structCov(n, "kiln") : 0)); sci *= 1 + .1 * structCov(n, "shrine"); }
@@ -3161,7 +3192,7 @@ function hud() {
   { const open = resOpen(n), rt = document.querySelector('.tab[data-p="research"]'), dt = document.querySelector('.tab[data-p="develop"]');
     if (rt) rt.innerHTML = open ? "<span>🔬</span>Research" : "<span>🔥</span>Elders";
     if (dt) { dt.hidden = false; dt.innerHTML = !open && tribal(n) ? `<span>🛠️</span><em style="font-style:normal;font-size:7px;letter-spacing:-.04em">Production</em>` : "<span>🏗️</span>Develop"; const tabs = dt.parentElement; tabs.style.gridTemplateColumns = `repeat(${[...tabs.children].filter(x => !x.hidden).length}, 1fr)`; }
-    if (!open) { const x = curTalk(n); $("cSci").innerHTML = `<span class="ci">🔥</span><b>${x ? Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100)) + "%" : "—"}</b><i>${x ? esc(x.t) : ""}</i>`; $("cSci").classList.remove("alert"); } }
+    if (!open) { const x = curTalk(n); $("cSci").innerHTML = `<span class="ci">🔥</span><b>${x ? Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100)) + "%" : "—"}</b><i>${x ? esc(x.name) : ""}</i>`; $("cSci").classList.remove("alert"); } }
   const t = resOpen(n) ? resItem(n, n.research) : null;
   if (resOpen(n)) $("cSci").innerHTML = t ? `<span class="ci">🔬</span><b>${Math.min(99, Math.floor(n.sciPts / t.cost * 100))}%</b><i>${esc(t.mastery || t.develop ? t.name + " " + (lv(n, t.f.k) + 1) : t.name)}</i>` : `<span class="ci">🔬</span><b>—</b><i>Pick research</i>`;
   if (resOpen(n)) $("cSci").classList.toggle("alert", !t && TECHS.some(x => !has(n, x.id) && x.era <= n.era));
@@ -3769,12 +3800,15 @@ function panelTrade() {
   return h;
 }
 function panelElders(n) {
-  const E = econM(n), step = n.elderStep || 0, x = curTalk(n);
+  const E = econM(n), x = curTalk(n), all = eraTechs(0), known = all.filter(t => has(n, t.id)), need = stoneNeed(), rate = Math.max(1e-6, E.sci);
+  const eta = c => seasonsTxt(Math.max(0, c - n.sciPts) / rate).replace("this season", "within a season");
   let h = ph("The elders", "Around the fire, the elders talk things through");
-  h += `<div class="card"><h4>🔥 ${x ? esc(x.t) : "…"}</h4>${x ? `<p class="small">${esc(x.d)}</p><div class="bar-row"><small>${Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100))}%</small><div class="bar"><i style="width:${Math.min(100, n.sciPts / talkCost(x) * 100)}%;background:var(--accent)"></i></div><span>${etaTxt(talkCost(x) - n.sciPts, E.sci)}</span></div>` : ""}
-    <p class="small muted">More elders & shamans in "Who does what" (Nation tab) means faster talks.</p></div>`;
-  const done = ELDER_TALKS.slice(0, step);
-  if (done.length) h += `<div class="card"><h4>What the elders have settled</h4>${done.slice().reverse().map(d => `<div class="ln"><span>✓ ${esc(d.t)}</span></div>`).join("")}</div>`;
+  h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, known.length / need * 100)}%;background:var(--accent)"></i></div><span>${known.length}/${need}</span></div>
+    <p class="small muted">Settle ${need} of the ${all.length} matters before the elders and your people enter the ${ERAS[1]}. More elders & shamans (Who does what) means faster talks.</p></div>`;
+  if (x) h += `<div class="card"><h4>🔥 ${esc(x.name)}</h4><p class="small">${esc(stoneDesc(x))}</p><div class="bar-row"><small>${Math.min(99, Math.floor(n.sciPts / x.cost * 100))}%</small><div class="bar"><i style="width:${Math.min(100, n.sciPts / x.cost * 100)}%;background:var(--accent)"></i></div><span class="small">${eta(x.cost)}</span></div></div>`;
+  const av = all.filter(t => stoneOpen(n, t) && (!x || t.id !== x.id));
+  if (av.length) h += `<h5 class="psec">💬 What to talk about next</h5><div class="opts">${av.map(t => `<button class="opt" data-act="talk" data-k="${t.id}"><span class="oi">🔥</span><span class="ot"><b>${esc(t.name)}</b><small>${esc(stoneDesc(t))} · ${seasonsTxt(t.cost / rate)}</small></span></button>`).join("")}</div>`;
+  if (known.length) h += `<details class="card pcol"><summary><span>✓ <b>Settled</b></span><span class="psum">${known.length}</span></summary>${known.map(t => `<div class="ln"><span>✓ ${esc(t.name)}</span></div>`).join("")}</details>`;
   return h;
 }
 function panelResearch() {
@@ -3954,6 +3988,7 @@ panel.addEventListener("click", e => {
     case "assim": n.laws.assim = b.dataset.k; refresh(); break;
     case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
+    case "talk": { n.talk = b.dataset.k; toast(`The elders turn to ${TECH[b.dataset.k].name.toLowerCase()}`); refresh(); hud(); break; }
     case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= QCAP) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } const cnt = it.repeat ? Math.max(1, Math.min(+b.dataset.n || 1, QCAP - x.pq.length)) : 1; for (let i = 0; i < cnt; i++) x.pq.push(it.id);
       toast(`${it.icon} ${it.repeat ? (cnt > 1 ? `${cnt} ${it.name.toLowerCase()}` : capW(it.one)) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
@@ -4133,7 +4168,7 @@ function runSim(o, resume) {
       const before = new Set(G.nations.filter(x => x.alive && atWar(me.id, x.id)).map(x => x.id));
       const metB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && dip(me.id, x.id).met).map(x => x.id));
       const touchB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && bordersTouch(me, x)).map(x => x.id));
-      const mineB = new Set(setsOf(me).map(x => x.id)), famB = !!me.famine, trustB = me.trust == null ? 100 : me.trust, techB = me.techs.length, talkB = me.elderStep || 0, eraB = me.era;
+      const mineB = new Set(setsOf(me).map(x => x.id)), famB = !!me.famine, trustB = me.trust == null ? 100 : me.trust, techB = me.techs.length, talkB = 0, eraB = me.era;
       endTurn(); turns++;
       { const m2 = P();
         const met = G.nations.find(x => x.alive && x.id !== m2.id && dip(m2.id, x.id).met && !metB.has(x.id));
@@ -4147,7 +4182,7 @@ function runSim(o, resume) {
         if (o.stopHard && m2.famine && !famB) { halt("Famine: your people are going hungry."); return finish(); }
         if (o.stopHard && (m2.trust == null ? 100 : m2.trust) < 30 && trustB >= 30) { halt("Public trust is collapsing."); return finish(); }
         if (o.stopNew && (m2.era > eraB)) { halt(`Your people have entered the ${ERAS[m2.era]}.`); return finish(); }
-        if (o.stopNew && ((m2.elderStep || 0) > talkB || m2.techs.length > techB)) { const tl = (m2.elderStep || 0) > talkB ? ELDER_TALKS[(m2.elderStep || 1) - 1] : null; halt(tl ? `The elders have settled "${tl.t}".` : `Discovery: ${TECH[m2.techs[m2.techs.length - 1]].name}.`); return finish(); }
+        if (o.stopNew && m2.techs.length > techB) { const t = TECH[m2.techs[m2.techs.length - 1]]; halt(t.era === 0 ? `The elders have settled "${t.name}".` : `Discovery: ${t.name}.`); return finish(); }
         if (o.stopNew && G.pendingUnlocks && G.pendingUnlocks.length) { halt(`Something new: ${G.pendingUnlocks[0].title}.`); return finish(); }
         if (o.stopNew && G.pendingNaming) { halt("Your tribe has become a nation."); return finish(); }
         if (o.stopEvents && G.event) { halt(`${EVENTS.find(x => x.id === G.event.id).title}: your decision is needed.`); return finish(); } }
@@ -4280,7 +4315,7 @@ function showTitle() {
   const s = loadSave();
   $("btnContinue").hidden = !s;
   if (s) $("btnContinue").querySelector("small").textContent = `${s.nations[s.player].name} · ${s.year < 0 ? -s.year + " BCE" : s.year + " CE"}`;
-  if (!G) G = { demo: true, turn: 0, year: -4000, player: 0, nations: [], regions: W.regions.map((s, i) => ({ i, ctrl: -1 })), sets: [], bld: {}, cons: {}, dip: {}, news: [], sv: 0 };
+  if (!G) G = { demo: true, turn: 0, year: -3600, player: 0, nations: [], regions: W.regions.map((s, i) => ({ i, ctrl: -1 })), sets: [], bld: {}, cons: {}, dip: {}, news: [], sv: 0 };
   view.k = minK(); clampView(); dirty = true;
 }
 $("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } restoreCells(); startPlaying(); };
