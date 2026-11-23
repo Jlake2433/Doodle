@@ -955,7 +955,7 @@ function growBorders() {
 const hgAt = (s, ang) => { if (!s.hg) return 0; let v = 0; for (let k = 0; k < 8; k++) if (s.hg[k]) { const c = Math.cos(ang - k * Math.PI / 4); if (c > 0) v += s.hg[k] * c * c * c * c; } return v; };
 const lobe = (s, ang) => { if (!s.exp || s.expDir == null) return 1; const c = Math.cos(ang - s.expDir); return 1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5); };
 /* the village itself: the patch of huts and hearths, separate from the land it claims. Each new hut spreads it a little, but only toward open ground */
-const footR0 = s => .03 * (1 + .35 * s.t);
+const footR0 = s => (.011 + .019 * Math.sqrt(clamp(s.pop / 150, 0, 1))) * (1 + .35 * s.t); /* a camp of 30 families is small; it fills out as it grows */
 const footAt = (s, ang) => footR0(s) * (1 + hgAt(s, ang));
 function hutGrow(x) { const hg = x.hg || (x.hg = [0, 0, 0, 0, 0, 0, 0, 0]), near = nearSets(x.x, x.y, 4).filter(o => o !== x), open = [];
   for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (hg[k] >= 1.2) continue;
@@ -3178,7 +3178,8 @@ function drawSettlements(k, me) {
     const sx = s.x * k + view.x, sy = s.y * k + view.y, rr = px * (t === 2 ? 1.15 : 1);
     if (!free(sx, sy, rr)) continue;
     const key = cell(sx, sy); (taken.get(key) || taken.set(key, []).get(key)).push([sx, sy, rr]);
-    if (px < 2.4) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill(); continue; }
+    if (px < 2.4) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill();
+      if (n.cap === s.id) { starPath(s.x, s.y, 3.2 / k); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = .8 / k; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); } continue; }
     const base = shade(n.color, .62), big = footR0(s) * k > px; /* zoomed in, the village is drawn at its true size, spreading as it gains huts */
     const body = dy => { if (!big) { shapePath(t, s.x, s.y + dy, z); return; } const fp = blobPts(s.x, s.y, footR0(s), s.id + 7).map(([qx, qy]) => { const gr = 1 + hgAt(s, Math.atan2(qy - s.y, qx - s.x)); return [s.x + (qx - s.x) * gr, s.y + dy + (qy - s.y) * gr]; });
       ctx.beginPath(); fp.forEach(([qx, qy], i) => { const [nx, ny] = fp[(i + 1) % fp.length], mx = (qx + nx) / 2, my = (qy + ny) / 2; if (!i) ctx.moveTo(mx, my); else ctx.quadraticCurveTo(qx, qy, mx, my); }); const [qx, qy] = fp[0], [nx, ny] = fp[1]; ctx.quadraticCurveTo(qx, qy, (qx + nx) / 2, (qy + ny) / 2); ctx.closePath(); };
@@ -3189,7 +3190,7 @@ function drawSettlements(k, me) {
     ctx.fillStyle = g; ctx.fill();
     ctx.lineWidth = big ? 2.2 / k : z * .22; ctx.strokeStyle = shade(n.color, -.45); ctx.stroke();
     if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = z * .12; ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
-    if (n.cap === s.id) { const sz = big ? Math.max(z, footR0(s) * .7) : z; starPath(s.x + sz * .95, s.y - sz * .95, sz * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = sz * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
+    if (n.cap === s.id) { const sz = big ? Math.max(z * .8, footR0(s) * .55) : z * .8; starPath(s.x, s.y, sz * .62); /* the capital's star sits at its heart */ ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = sz * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
     if ((s.h || .05) * k > (t >= 1 ? 45 : 80)) {
       const txt = `${s.name} · ${fmt(s.pop)}`, w = txt.length * 6.2, lx = sx - w / 2, ly = sy + px * 1.3 + 2;
       if (labels.some(b => lx < b[2] && lx + w > b[0] && ly < b[3] && ly + 13 > b[1])) continue;
