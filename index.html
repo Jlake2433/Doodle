@@ -77,8 +77,8 @@ h2, h3, h4 { font-family: var(--display); font-weight: 600; margin: 0; text-wrap
 /* bottom nav */
 .nav { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px max(10px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 10px) max(10px, env(safe-area-inset-left, 0px)); display: flex; gap: 8px; align-items: flex-end; pointer-events: none; z-index: 6; }
 .nav > * { pointer-events: auto; }
-.tabs { flex: 1; display: grid; grid-template-columns: repeat(8, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
-.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 9px var(--body); position: relative; min-width: 0; letter-spacing: -.02em; overflow: hidden; }
+.tabs { flex: 1; display: grid; grid-template-columns: repeat(9, 1fr); background: var(--paper); border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); overflow: hidden; max-width: 460px; }
+.tab { border: 0; background: none; padding: 7px 0 6px; display: grid; justify-items: center; gap: 1px; font: 700 9px var(--body); position: relative; min-width: 0; letter-spacing: -.03em; overflow: hidden; font-size: 8.5px; }
 .tab span { font-size: 19px; line-height: 1.1; }
 .tab.on { background: #ffe6d8; }
 .tab.alert::after { content: ""; position: absolute; top: 6px; right: 22%; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); border: 2px solid var(--paper); }
@@ -334,6 +334,8 @@ details.card.pcol[open] > summary { margin-bottom: 8px; }
 .ptile.wide { grid-column: 1 / -1; } .ptile.wide .pti { height: auto; } .ptile.wide .pti { min-height: 0; grid-template-rows: none; grid-template-columns: auto 1fr auto; justify-items: start; text-align: left; align-items: center; gap: 8px; padding: 8px 40px 4px 10px; }
 .ptile.wide b { -webkit-line-clamp: unset; }
 .ptile.wide p { margin: 0 10px 8px; }
+#placeBar { position: fixed; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 74px); z-index: 30; display: flex; gap: 10px; align-items: center; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 14px; padding: 10px 12px; box-shadow: var(--pop); font-weight: 700; font-size: 14px; }
+.hist .hrow { display: grid; grid-template-columns: 26px 1fr; gap: 6px; padding: 5px 0; border-bottom: 1px dashed #d8e0ea; font-size: 14px; }
 .ethbar { display: flex; height: 16px; border: 2px solid var(--ink); border-radius: 99px; overflow: hidden; margin: 6px 0 10px; }
 .ethbar i { display: block; height: 100%; }
 .ethrow { display: grid; grid-template-columns: auto auto 1fr auto; gap: 6px; align-items: baseline; margin: 8px 0 2px; }
@@ -406,6 +408,7 @@ details.card.pcol[open] > summary { margin-bottom: 8px; }
       <button class="tab" data-p="army"><span>⚔️</span>Army</button>
       <button class="tab" data-p="policy"><span>📜</span>Laws</button>
       <button class="tab" id="tabWorld" data-p="world"><span>🌍</span>World</button>
+      <button class="tab" data-p="history"><span>📖</span>History</button>
     </div>
     <button id="endTurn">End Turn<small>Next ›</small></button>
   </div>

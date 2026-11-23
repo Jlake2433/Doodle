@@ -38,7 +38,7 @@ const TIERS = [
   { k: "town", name: "Town", icon: "🏘️", gold: 1.3, mat: 1.25, sci: 1.3, food: .9, def: 1.4, trade: 1, r: .08, flat: 2, admin: .6, base: 1, emi: .02, need: 25 },
   { k: "city", name: "City", icon: "🏙️", gold: 1.6, mat: 1.5, sci: 1.8, food: .75, def: 1.9, trade: 3, r: .055, flat: 10, admin: 1.2, base: 3, emi: .012, need: 30 },
 ];
-const VILLAGE_CAP = 50, CITY_POP = 2000, VILLAGES_FOR_TOWN = 4, TOWNS_TO_CLAIM = 3, START_POP = 30, MOVERS = 10;
+const VILLAGE_CAP = 150, CITY_POP = 2000, VILLAGES_FOR_TOWN = 4, TOWNS_TO_CLAIM = 3, START_POP = 30, MOVERS = 10;
 const townReq = k => Math.round(180 * Math.pow(k, 1.5));
 const U = p => Math.pow(Math.max(0, p), .55) / 3.5; // economic weight of a population
 const RANKS = [
@@ -722,6 +722,7 @@ function expelGroup(n, i) { const E = ethOf(n), g = E[i]; if (!g) return; let fa
   const where = to ? `the ${nm(to)}` : "the wilds";
   if (to) { arrive(n, to, d, fam, `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${d.name} arrive, driven out by the ${nm(n)}. ${d.long ? `After ${Math.round(yrsAmong(g))} years there, they carry ${demonym(n)} ways as well as their own: a people of two roots.` : ""} The People tab shows how they're received.`);
     if (n.id !== G.player && to.id !== G.player && P() && dip(G.player, n.id).met) log(`The ${nm(n)} drove out the ${g.name}. They have gone to ${where}${d.long ? ` and are now known as the ${d.name}` : ""}.`, "🚶"); }
+  if (n.id === G.player) hist(n, "🚶", `The ${g.name} were driven out${to ? ` to the ${nm(to)}` : ""}.`);
   if (n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🚶", title: `The ${g.name} are driven out`, text: `${Math.max(1, Math.round(fam))} families leave for ${where}.${d.long ? ` After ${Math.round(yrsAmong(g))} years among you, they take your ways with them: there they will be known as the ${d.name}.` : ""}` });
   G.sv++; }
 function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const pol = ASSIM[n.laws.assim || "free"] || ASSIM.free, yrs = 1 / TPY, ss = setsOf(n);
@@ -908,9 +909,9 @@ function nearSets(x, y, r) {
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) { const a = grid.get(gx + "," + gy); if (a) for (const s of a) out.push(s); }
   return out;
 }
-function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false) {
+function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false, at = null) {
   const nn = G.nations[nid];
-  const pt = from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
+  const pt = at ? [at.x, at.y] : from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
   const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, b: { hut: Math.ceil(pop * (!from && (G.turn || 0) < 2 ? 1.2 : 1)) }, pq: [], qp: 0, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
@@ -929,6 +930,9 @@ function getLandPath() {
   if (!landPath) { landPath = new Path2D(); for (const poly of W.land) for (const rg of poly) { landPath.moveTo(rg[0][0], rg[0][1]); for (let i = 1; i < rg.length; i++) landPath.lineTo(rg[i][0], rg[i][1]); landPath.closePath(); } }
   return landPath;
 }
+/* small villages raise more children; big ones eat more, defend better and raise great minds */
+const bigF = s => s.t > 0 ? 1 : clamp((s.pop - 50) / 100, 0, 1);
+const birthF = s => s.t > 0 ? 1 : 1.25 - .45 * clamp((s.pop - 25) / 125, 0, 1);
 function hOf(s) { const n = G.nations[s.o]; const apc = APC[s.t] / (1 + .05 * (n ? n.era : 0)); return Math.max(.05, Math.sqrt(s.pop * apc) / 48 * 1.13); }
 function growBorders() {
   for (const s of G.sets) { if (s.hp == null) s.hp = HP[s.t];
@@ -948,7 +952,13 @@ function growBorders() {
   G.sv++;
 }
 // a settlement's claim can bulge one way: expanding in a direction pushes a lobe of land out that side
-const lobe = (s, ang) => { if (!s.exp || s.expDir == null) return 1; const c = Math.cos(ang - s.expDir); return 1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5); };
+const hgAt = (s, ang) => { if (!s.hg) return 0; let v = 0; for (let k = 0; k < 8; k++) if (s.hg[k]) { const c = Math.cos(ang - k * Math.PI / 4); if (c > 0) v += s.hg[k] * c * c * c * c; } return v; };
+const lobe = (s, ang) => { const g = 1 + hgAt(s, ang); if (!s.exp || s.expDir == null) return g; const c = Math.cos(ang - s.expDir); return g * (1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5)); };
+/* each new hut nudges the village's land out a little, but only on sides not hemmed in by other settlements */
+function hutGrow(x) { const hg = x.hg || (x.hg = [0, 0, 0, 0, 0, 0, 0, 0]), near = nearSets(x.x, x.y, 4).filter(o => o !== x), open = [];
+  for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (hg[k] >= .3) continue;
+    if (!near.some(o => { const d = Math.hypot(o.x - x.x, o.y - x.y), da = Math.abs(((Math.atan2(o.y - x.y, o.x - x.x) - a) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI); return da < .65 && d < radTo(x, o.x, o.y) + radTo(o, x.x, x.y) + .25; })) open.push(k); }
+  for (const k of open) hg[k] = Math.min(.3, hg[k] + .012 / Math.max(1, open.length / 3)); if (open.length) G.sv++; }
 const radTo = (s, x, y) => (s.h || .05) * lobe(s, Math.atan2(y - s.y, x - s.x));
 const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) - radTo(b, a.x, a.y);
 function touchesSet(n, s) { return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < .25); }
@@ -1053,6 +1063,21 @@ function donorFor(n, ri) {
   }
   return best ? best.s : null;
 }
+const scoutSight = n => (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1) * (tribal(n) && setsOf(n).some(x => builtAt(x, "watch")) ? 1.15 : 1) * (tribal(n) && has(n, "signs") ? 1.1 : 1);
+const villageReach = n => clamp(scoutSight(n) * 1.1, .7, 2.2); /* how far families will walk to found a new village */
+let placeMode = null; /* choosing where a new village goes */
+function placeCheck(n, donor, x, y) { const R = villageReach(n); if (Math.hypot(x - donor.x, y - donor.y) > R) return { why: "Too far: families won't walk beyond your scouts' reach." };
+  if (!sampler) sampler = document.createElement("canvas").getContext("2d");
+  if (!sampler.isPointInPath(getLandPath(), x, y, "evenodd")) return { why: "That's water." };
+  const ri = W.regions.findIndex(S => sampler.isPointInPath(S.path, x, y, "evenodd")); if (ri < 0) return { why: "Choose a spot on land." };
+  if (!has(n, "boats") && !has(n, "sailing") && !overLand(donor.x, donor.y, x, y)) return { why: "Without boats, they can't cross the water." };
+  for (const o of nearSets(x, y, 4)) { const d = Math.hypot(o.x - x, o.y - y), oh = o.h ? radTo(o, x, y) : .08;
+    if (o.o !== n.id && d < oh + .1) return { why: "That land belongs to another people." }; if (d < Math.min(oh, .3) + .19) return { why: `Too close to ${o.name}.` }; }
+  return { ok: true, ri }; }
+function foundAt(n, donor, x, y) { const c = placeCheck(n, donor, x, y); if (!c.ok) return c; const cost = villageCost(n); if (n.gold < cost.g || n.mat < cost.m) return { why: "You can't afford to found a village right now." };
+  const s = addSettlement(n.id, c.ri, MOVERS, donor, null, 0, false, { x, y }); if (!s) return { why: "They couldn't settle there." };
+  n.gold -= cost.g; n.mat -= cost.m; donor.pop -= MOVERS; donor.moveAsk = false; n.founded = (n.founded || 0) + 1;
+  log(`Settlers from ${donor.name} founded the village of ${s.name}.`, "🛖"); if (n.founded <= 3) hist(n, "🛖", `Families from ${donor.name} founded the village of ${s.name}.`); return { ok: true, s }; }
 function foundCheck(n, ri) {
   const r = G.regions[ri], s = W.regions[ri];
   if (r.ctrl >= 0 && r.ctrl !== n.id) return { ok: false, why: `Territory of the ${nm(G.nations[r.ctrl])}` };
@@ -1102,6 +1127,7 @@ function cityCheck(n, s) {
   return { ok: true, c };
 }
 function upgrade(n, s) {
+  hist(n, s.t === 0 ? "🏘️" : "🏙️", `${s.name} grew into a ${s.t === 0 ? "town" : "city"}.`);
   const c = s.t === 0 ? townCost(n) : cityCost(n);
   n.gold -= c.g; n.mat -= c.m;
   if (s.t === 0) { // villages merge: everyone moves together into one town
@@ -1349,6 +1375,7 @@ function unitPower(n) {
   for (const t of ["gunpowder", "rifling"]) if (has(n, t)) m += .15;
   if (n.laws.focus === "mil") m += .15;
   m += cul(n).pow || 0;
+  m += thinkB(n, "war");
   if (tribal(n)) m += .2 * (toolCov(n) - 1) + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .05 : 0); /* sharp spearheads */
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
@@ -1395,7 +1422,7 @@ const toolNeed = n => .04 + Math.min(.06, popOf(n) / 2500);
 const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) * (has(n, "glue") ? 1.1 : 1) / toolNeed(n)));
 const toolF = (n, k = .2) => tribal(n) ? 1 - k + k * toolCov(n) / 1 : 1; /* 1 - k with no tools, up to 1 + .2k with plenty */
 const healNeed = n => .03 + Math.min(.04, popOf(n) / 3000);
-const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) / healNeed(n)));
+const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) * (1 + 2 * thinkB(n, "health")) / healNeed(n)));
 const fishable = n => turnCache("fi" + n.id, () => fishable0(n));
 const fishable0 = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
@@ -1445,12 +1472,13 @@ function elderTalks(n) {
   while (!n.resOpen && guard++ < 6) {
     if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed()) { /* enough of the old questions settled: a new age */
       n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
+      hist(n, "🌅", `Your people entered the ${ERAS[1]}.`);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
       else if (G.player != null && dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
       break; }
     const t = curTalk(n); if (!t || n.sciPts < t.cost) break;
     n.sciPts -= t.cost; n.techs.push(t.id); n.talk = null;
-    if (!n.ai) log(`The elders have spoken: ${t.name}. ${stoneDesc(t)}`, "🔥"); }
+    if (!n.ai) { log(`The elders have spoken: ${t.name}. ${stoneDesc(t)}`, "🔥"); if (["agriculture", "husbandry", "pottery", "mining", "mysticism", "tribal", "nation", "fire", "bow", "boats"].includes(t.id)) hist(n, "🔥", `The elders settled: ${t.name}.`); } }
 }
 // ---- Stone Age projects: things your builders work on together, one at a time ----
 // ---- tribal production: builders put in hours each season. Your people need things in proportion to their numbers
@@ -1581,7 +1609,7 @@ let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over
 function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
 function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
-const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1) * (has(n, "sledges") ? 1.05 : 1);
+const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1) * (has(n, "sledges") ? 1.05 : 1) * (1 + thinkB(n, "build"));
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
@@ -1598,7 +1626,7 @@ function workProjects(n) { // each settlement's builders work through its own qu
       if (x.cond < 35) decay(n, x); }
     x.waitMat = false;
     /* builders finish everything that fits this season, in order; a big job that doesn't fit soaks up whatever time is left over */
-    const fin = it => { if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; if (it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); }
+    const fin = it => { if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; if (it.id === "hut") hutGrow(x); if (it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); }
       else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); } };
     for (let i = 0; i < x.pq.length && hrs > 1e-9 && guard++ < 200;) {
       const it = itemOf(x.pq[i]); if (!it || (!it.repeat && P0.done[it.id])) { x.pq.splice(i, 1); continue; }
@@ -1713,10 +1741,11 @@ function econ(n) {
     g *= spendM; // consumer spending: better wages mean more taxed spending
     if (s.lead && s.lead.pol) { const np = Object.values(s.lead.pol).filter(v => v !== "none").length; g *= 1 - .04 * np; } // local programs come out of the city's own taxes
     const hb = HB.get(s.id); if (hb) { g *= hb.tax; f *= hb.other; m *= hb.other; sc *= hb.other; } // a dominant industry enriches its city but crowds out everything else there
-    food += f; need += s.pop * .8; tax += g; mat += m; sci += sc; pop += s.pop; tierTrade += tier.trade; utot += u;
+    food += f; need += s.pop * .8 * (1 + .2 * bigF(s)); tax += g; mat += m; sci += sc; pop += s.pop; tierTrade += tier.trade; utot += u;
     per.set(s.id, { food: f, gold: g, mat: m, sci: sc });
   }
   // how well each sector is supplied shapes the economy
+  food *= (1 + thinkB(n, "food")) * (tribal(n) ? 1 : 1); mat *= 1 + thinkB(n, "crafts"); sci *= 1 + thinkB(n, "lore") * .6; tax *= 1 + thinkB(n, "trade");
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
@@ -1975,6 +2004,7 @@ function updateContacts() {
       const late = (has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6);
       const ra = reachSet(a), rb = reachSet(b);
       if (late || [...pres(a)].some(ri => rb.has(ri)) || [...pres(b)].some(ri => ra.has(ri))) {
+        if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
         d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
         if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝");
       }
@@ -2009,7 +2039,10 @@ function fertility(n, E) {
   return { mult: f.reduce((a, x) => a * x[1], 1), f };
 }
 // losses get a popup when they matter to a people of your size; small ones go in the report
+/* your nation's history: battles, great people and the moments worth remembering */
+function hist(n, icon, text) { if (!n || n.ai || n.id !== G.player) return; (G.hist || (G.hist = [])).push({ y: G.year, q: Math.floor((G.month || 0) / 3), i: icon, t: text }); if (G.hist.length > 400) G.hist.splice(0, G.hist.length - 400); }
 function alertLoss(n, lost, icon, title, text) {
+  if (lost / Math.max(1, popOf(n)) >= .05) hist(n, icon, `${title}: ${text.split(". ")[0]}.`);
   const at = n.alertT || (n.alertT = {}); /* one popup of each kind a year at most; the rest go to the log */
   if (lost / Math.max(1, popOf(n)) >= .01 && !(at[title] > G.turn - TPY)) { at[title] = G.turn; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); }
   else log(text, icon);
@@ -2030,7 +2063,7 @@ function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
   workProjects(n);
-  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; bud(n).init = true; } // too many mouths: people take up trades, and the state begins
+  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
   n.gold += E.goldNet * TD; n.mat += E.mat * TD;
@@ -2120,6 +2153,7 @@ function processNation(n) {
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   if (tribal(n)) retireRoles(n, E);
+  stepThinkers(n);
   n.hungry = sr < 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
   stepTraits(n, E, H); stepPeoples(n);
   for (const s of sets) {
@@ -2127,7 +2161,7 @@ function processNation(n) {
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
       const r = (T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr))) * FERT.mult + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
-      const g = (s.pop * r * (tribal(n) ? .4 : 1) + T.flat * (tribal(n) ? .5 : 1)) * free * TD; /* hunter-gatherer and early farming peoples grew slowly */
+      const g = (s.pop * r * (tribal(n) ? .4 * birthF(s) : 1) + T.flat * (tribal(n) ? .5 : 1)) * free * TD; /* hunter-gatherer and early farming peoples grew slowly */
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
@@ -2142,10 +2176,11 @@ function processNation(n) {
     // villages send people out when full; towns and cities start pushing people to the countryside as they get crowded
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
     if (sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
-    if (s.t >= 1 && s.g > 0) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
+    if (s.t >= 1 && s.g > 0 && n.ai) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
     if (s.pop >= cap * start) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD;
     else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
+    if (!n.ai) { s.ov = T.need; if (!s.moveAsk) { s.moveAsk = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🛖", title: `${s.name} is getting full`, text: `Some families of ${s.name} would like to found a new village. In Production, tap "Found a new village" and choose where, within your scouts' reach.` }); } continue; } /* you choose where your people settle */
     const ri = bestVillageSpot(n, s.r);
     if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
     s.crowd = false;
@@ -2164,7 +2199,7 @@ function processNation(n) {
   // construction
   for (const ri of pres(n)) { const k = consOf(n.id, ri); if (k) { B(n.id, ri)[k] = 1; setCons(n.id, ri, null); if (!n.ai) log(`${BK[k].name} completed in ${W.regions[ri].n}.`, BK[k].icon); } }
   // research
-  n.sciPts += E.sci * TD;
+  n.sciPts += E.sci * TD * (1 + (curDom(n) && aliveThinkers(n).some(t => t.d === curDom(n)) ? .25 : 0)); /* a great mind speeds research in their field */
   if (!resOpen(n)) elderTalks(n);
   let guard = resOpen(n) ? 0 : 99;
   while (guard++ < 5) {
@@ -2186,19 +2221,19 @@ function processNation(n) {
       continue;
     }
     const t = it.t; n.techs.push(t.id);
-    if (!n.ai) log(`Discovered ${t.name}! ${t.desc}`, "💡");
+    if (!n.ai) { const st = discoveryStory(n, t); log(`Discovered ${t.name}! ${t.desc}`, "💡"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "💡", title: t.name, text: `${st} ${t.desc}` }); hist(n, "💡", st); }
     if (t.id === "mars") victory(n, "science");
     n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
     const ne = n.era;
     if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length) {
       n.era++; if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
-      if (!n.ai) log(`Your people enter the ${ERAS[n.era]}!`, "🌅");
+      if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
       else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
     }
   }
   if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length) {
     n.era++; if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
-    if (!n.ai) log(`Your people enter the ${ERAS[n.era]}!`, "🌅");
+    if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
     else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
   }
   // politics
@@ -2329,6 +2364,7 @@ function tradeNote(by, target, text, icon) {
 }
 // ---- civil war: the nation splits; the far half rises up with a clean treasury ----
 function civilWar(n) {
+  hist(n, "🔥", "Civil war tore the nation apart.");
   const sets = setsOf(n), cap = capSet(n) || sets[0];
   if (sets.length < 2 || !cap) { n.trust = 25; return; }
   const far = sets.filter(x => x.id !== cap.id).sort((a, b) => Math.hypot(b.x - cap.x, b.y - cap.y) - Math.hypot(a.x - cap.x, a.y - cap.y));
@@ -2371,7 +2407,7 @@ function upheaval(n) {
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
-  const m = TIERS[s.t].def + fb(d, "def") + (builtAt(s, "palisade") ? .35 : builtAt(s, "ditch") ? .15 : 0) + (builtAt(s, "watch") ? .05 : 0) + (builtAt(s, "rampart") ? .5 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
+  const m = TIERS[s.t].def + fb(d, "def") + (builtAt(s, "palisade") ? .35 : builtAt(s, "ditch") ? .15 : 0) + .25 * bigF(s) + (builtAt(s, "watch") ? .05 : 0) + (builtAt(s, "rampart") ? .5 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
   return { units, power: (units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m) * defMult(d) * garrisonMult(d) }; // claimed land left unguarded is easier to break into
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
@@ -2397,6 +2433,7 @@ function attack(n, s, units) {
   } else if (win) {
     addWs(n.id, dn.id, s.id === dn.cap ? 15 : 5 + s.t * 3);
     chip(n.id, s);
+    if (n.id === G.player) hist(n, "🏳️", `We took ${s.name} from the ${nm(dn)}.`); else if (dn.id === G.player) hist(dn, "🏴", `The ${nm(n)} took ${s.name} from us.`);
     s.pop *= .85; convertSet(n, dn, s); s.o = n.id; s.focus = null; recalcShares(n); recalcShares(dn); s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
     if (!setsOf(dn).some(x => x.r === ri)) { if (G.bld[ri]) delete G.bld[ri][dn.id]; setCons(dn.id, ri, null); }
@@ -2418,6 +2455,7 @@ function eliminate(dn, by) {
   else if (dip(dn.id, G.player).met) log(`The ${nm(dn)} has been wiped from the map by the ${nm(by)}.`, "☠️", -1);
 }
 function declareWar(a, b) {
+  if (a.id === G.player) hist(a, "⚔️", `War declared on the ${nm(b)}.`); else if (b.id === G.player) hist(b, "⚔️", `The ${nm(a)} declared war on us.`);
   const d = dip(a.id, b.id); d.war = true; d.trade = false; d.ally = false; d.ws = 0; d.wt = G.tt;
   if (d.rel > -60) a.warmonger += 12;
   d.rel = Math.min(d.rel, -50);
@@ -2434,6 +2472,7 @@ function declareWar(a, b) {
   }
 }
 function makePeace(a, b, tribute = 0, payer = null) {
+  if (a.id === G.player || b.id === G.player) hist(G.nations[G.player], "🕊️", `Peace with the ${nm(a.id === G.player ? b : a)}.`);
   const d = dip(a.id, b.id); d.war = false; d.ws = 0; d.truce = 10; d.rel = Math.max(d.rel, -30);
   if (payer && tribute) { payer.gold -= tribute; (payer === a ? b : a).gold += tribute; }
   if (a.id === G.player || b.id === G.player) log(`Peace signed with the ${nm(a.id === G.player ? b : a)}${tribute ? ` (${fmt(tribute)} gold paid by ${payer.id === G.player ? "you" : "them"})` : ""}.`, "🕊️");
@@ -2989,7 +3028,7 @@ function inForeignCorridor(x, y, owner) {
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn;
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
-    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, s.exp && s.expDir != null ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
+    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, (s.exp && s.expDir != null) || s.hg ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
     for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
@@ -3095,6 +3134,8 @@ function draw() {
   }
   // settlements: drawn at true map scale, so you zoom in to see their shapes
   drawSettlements(k, me);
+  if (placeMode) { const d = setById(placeMode.from); if (d) { const R = villageReach(P()); ctx.save(); ctx.lineWidth = 2.5 / k; ctx.setLineDash([6 / k, 5 / k]); ctx.strokeStyle = "#ff7a3d"; ctx.fillStyle = "rgba(255,122,61,.10)";
+    ctx.beginPath(); ctx.arc(d.x, d.y, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); } }
   if (k < 3.2 && seeAll()) {
     for (const n of G.nations) {
       if (!n.alive) continue; const sets = setsOf(n).filter(x => !fogged(x.r)); if (!sets.length) continue;
@@ -3178,12 +3219,19 @@ const pend = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null;
 cv.addEventListener("pointerup", pend); cv.addEventListener("pointercancel", pend);
 cv.addEventListener("wheel", e => { e.preventDefault(); const rect = cv.getBoundingClientRect(); const mx = (e.clientX - rect.left - view.x) / view.k, my = (e.clientY - rect.top - view.y) / view.k;
   view.k = clamp(view.k * Math.exp(-e.deltaY * .0015), minK(), MAXK); view.x = e.clientX - rect.left - mx * view.k; view.y = e.clientY - rect.top - my * view.k; clampView(); dirty = true; }, { passive: false });
+function startPlace(x) { placeMode = { from: x.id }; closePanel(); dirty = true; centerOn(x.x, x.y);
+  let b = document.getElementById("placeBar"); if (!b) { b = document.createElement("div"); b.id = "placeBar"; document.body.appendChild(b); }
+  b.innerHTML = `<span>🛖 Tap where families from <b>${esc(x.name)}</b> should found a village (inside the circle)</span><button class="btn small ghost" id="placeX">Cancel</button>`; b.hidden = false;
+  document.getElementById("placeX").onclick = () => endPlace(); }
+function endPlace() { placeMode = null; const b = document.getElementById("placeBar"); if (b) b.hidden = true; dirty = true; }
 function tapMap(e) {
   const rect = cv.getBoundingClientRect(); const mx = (e.clientX - rect.left - view.x) / view.k, my = (e.clientY - rect.top - view.y) / view.k;
   ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
   let hit = -1; for (const s of W.regions) if (ctx.isPointInPath(s.path, mx, my, "evenodd")) { hit = s.i; break; }
   ctx.restore();
   if (G.setup) { if (hit >= 0) setupPick(hit); return; }
+  if (placeMode) { const n = P(), d = setById(placeMode.from); if (!d) { endPlace(); return; } const r = foundAt(n, d, mx, my);
+    if (r.ok) { toast(`${r.s.name} is founded`); endPlace(); hud(); updateContacts && updateContacts(); } else toast(r.why); dirty = true; return; }
   sel = hit; dirty = true;
   if (hit >= 0) openRegion(hit); else closeSheet();
 }
@@ -3208,7 +3256,7 @@ function hud() {
   $("cMat").innerHTML = `<span class="ci">🪵</span><b>${fmt(n.mat)}</b><i>${sgn(E.mat)}</i>`;
   { const open = resOpen(n), rt = document.querySelector('.tab[data-p="research"]'), dt = document.querySelector('.tab[data-p="develop"]');
     if (rt) rt.innerHTML = open ? "<span>🔬</span>Research" : "<span>🔥</span>Elders";
-    if (dt) { dt.hidden = false; dt.innerHTML = !open && tribal(n) ? `<span>🛠️</span><em style="font-style:normal;font-size:7px;letter-spacing:-.04em">Production</em>` : "<span>🏗️</span>Develop"; const tabs = dt.parentElement; tabs.style.gridTemplateColumns = `repeat(${[...tabs.children].filter(x => !x.hidden).length}, 1fr)`; }
+    if (dt) { dt.hidden = false; dt.innerHTML = !open && tribal(n) ? `<span>🛠️</span><em style="font-style:normal;font-size:6.2px;letter-spacing:-.05em">Production</em>` : "<span>🏗️</span>Develop"; const tabs = dt.parentElement; tabs.style.gridTemplateColumns = `repeat(${[...tabs.children].filter(x => !x.hidden).length}, 1fr)`; }
     if (!open) { const x = curTalk(n); $("cSci").innerHTML = `<span class="ci">🔥</span><b>${x ? Math.min(99, Math.floor(n.sciPts / talkCost(x) * 100)) + "%" : "—"}</b><i>${x ? esc(x.name) : ""}</i>`; $("cSci").classList.remove("alert"); } }
   const t = resOpen(n) ? resItem(n, n.research) : null;
   if (resOpen(n)) $("cSci").innerHTML = t ? `<span class="ci">🔬</span><b>${Math.min(99, Math.floor(n.sciPts / t.cost * 100))}%</b><i>${esc(t.mastery || t.develop ? t.name + " " + (lv(n, t.f.k) + 1) : t.name)}</i>` : `<span class="ci">🔬</span><b>—</b><i>Pick research</i>`;
@@ -3323,7 +3371,7 @@ let curPanel = null;
 function openPanel(name) {
   closeSheet(); curPanel = name;
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.p === name));
-  panel.innerHTML = AW({ nation: panelNation, people: panelPeople, develop: panelDevelop, research: panelResearch, army: panelMilitary, policy: panelPolicy, world: panelWorld, trade: panelTrade }[name]());
+  panel.innerHTML = AW({ nation: panelNation, people: panelPeople, history: panelHistory, develop: panelDevelop, research: panelResearch, army: panelMilitary, policy: panelPolicy, world: panelWorld, trade: panelTrade }[name]());
   budgetFill(panel.querySelector(".budget:not(.timeal)")); timeFill(panel.querySelector(".timeal"));
   panel.hidden = false; panel.scrollTop = 0;
 }
@@ -3443,6 +3491,16 @@ panel.addEventListener("change", e => { if (e.target.id === "prodSet") { prodSet
 panel.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.sinv != null) { save(); refresh(); } });
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
 function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b.disabled || !G) return; e.stopPropagation(); bud(P())[b.dataset.wel] = +b.dataset.l; const box = b.closest(".budget"); box.querySelectorAll(`[data-wel="${b.dataset.wel}"]`).forEach(x => x.classList.toggle("on", x === b)); budgetFill(box); hud(); }
+function panelHistory() {
+  const H = (G.hist || []).slice().reverse(), n = P();
+  let h = ph("History", `The story of the ${esc(demonym(n))}`);
+  if (!H.length) return h + `<p class="note">Nothing memorable has happened yet. Battles, great people, new ages and turning points will be written here.</p>`;
+  const fam = (n.thinkers || []);
+  if (fam.length) h += `<div class="card"><h4>🌟 Great people</h4>${fam.slice().reverse().map(t => line(`${DOMAINS[t.d].icon} ${esc(t.name)} <small class="muted">${esc(t.title)} of ${esc(t.from)}</small>`, t.dead ? `${yearTxt(t.born)}–${yearTxt(t.until)}` : `<span class="good">living</span>`)).join("")}</div>`;
+  let last = null; h += `<div class="card hist">`;
+  for (const e of H) { const yl = yearTxt(e.y); if (yl !== last) { h += `<h5 class="psec">${yl}</h5>`; last = yl; } h += `<div class="hrow"><span>${e.i}</span><span>${esc(e.t)}</span></div>`; }
+  return h + `</div>`;
+}
 function panelPeople() {
   const n = P(), pop = popOf(n), E0 = ethOf(n), T = n.trait || {}, tg = n.traitT || {}, tr = tribal(n);
   const lab = LANG_LABEL[langOf(n)] || capW(langOf(n)), main = Math.max(0, 1 - E0.reduce((a, g) => a + g.share, 0));
@@ -3547,6 +3605,81 @@ function panelNation() {
   return h;
 }
 let prodTab = "housing", prodSet = null; const prodOpen = new Set(); // what you've expanded in Production (everything starts collapsed)
+/* who discovered it: one of your great minds if one fits, otherwise the people who would have */
+const TECH_STORY = {
+  bronze: ["the copper workers", "melted copper with a little tin and poured a metal harder than either: bronze."],
+  writing: ["the temple record-keepers", "turned their tally marks into signs for words. What is said can now outlive the one who said it."],
+  masonry: ["the wall builders", "learned to cut and fit stone so walls stand without mud or timber."],
+  sailing: ["the fisherfolk", "stretched hides on a mast and let the wind do the paddling."],
+  wheel: ["the potters", "watched clay spin on their turning tables and fixed a wooden disk to an axle. Carts now carry what backs could not."],
+  monarchy: ["the chieftains' councils", "agreed that one ruler, and that ruler's heirs, should speak for all."],
+  iron: ["the smiths", "coaxed iron from red rock in hotter furnaces than ever before. Cheap, hard, and everywhere."],
+  currency: ["the traders", "began swapping stamped metal instead of goats and grain. Anything can now be priced."],
+  philosophy: ["the teachers", "asked not what the gods want, but what is true, and argued about it in the open."],
+  construction: ["the builders", "worked out arches, mortar and scaffolds: buildings can now rise high and span wide."],
+  mathematics: ["the land surveyors", "found rules that numbers always obey, and used them to measure fields and stars."],
+  republic: ["the citizens", "decided the people should choose their own leaders, and could send them away."],
+  feudalism: ["the warlords", "swore land for loyalty: lords hold the land and owe the ruler soldiers."],
+  theology: ["the priests", "wrote down what the faith teaches, and argued over every word."],
+  guilds: ["the craftsmen", "banded together to set standards, train apprentices and guard their trade."],
+  astronomy: ["the sky-watchers", "charted the wandering stars and learned to predict the heavens."],
+  chivalry: ["the mounted warriors", "made a code of honor out of the lance, the horse and the oath."],
+  navigation: ["the sailors", "learned to find their way by compass and stars across open ocean."],
+  printing: ["the bookmakers", "set letters in metal and pressed them onto paper: a hundred books where there was one."],
+  gunpowder: ["the alchemists", "mixed saltpeter, charcoal and sulfur, and got a bang that changed war forever."],
+  banking: ["the moneylenders", "began keeping other people's money and lending it out at interest."],
+  absolutism: ["the court", "gathered all power into the crown: one will rules the realm."],
+  enlightenment: ["the thinkers of the salons", "held that reason, not tradition, should guide how people live and govern."],
+  steam: ["the mine engineers", "harnessed boiling water to pump mines dry, and then to drive machines."],
+  railroad: ["the engineers", "laid iron rails and set steam engines on them: distance shrinks."],
+  democracy: ["the reformers", "won the vote for the many, not only the few."],
+  medicine: ["the doctors", "learned that tiny germs, not bad air, spread disease, and how to stop them."],
+  electricity: ["the experimenters", "tamed the spark from the sky and sent it through copper wires."],
+  rifling: ["the gunsmiths", "cut spiral grooves into barrels: bullets fly straight and far."],
+  combustion: ["the mechanics", "built an engine that burns fuel inside itself: small, strong, everywhere."],
+  flight: ["the tinkerers", "built a machine heavier than air that flew."],
+  massmedia: ["the broadcasters", "sent voices and pictures to every home at once."],
+  ideology: ["the political writers", "drew up grand theories of how all society should work."],
+  fission: ["the physicists", "split the atom and released the power inside it."],
+  computers: ["the code-breakers", "built machines that calculate faster than any room of clerks."],
+  internet: ["the network engineers", "linked computers across the world into one web."],
+  robotics: ["the automation engineers", "built machines that work on their own."],
+  globalization: ["the shipping and trade houses", "tied the whole world's markets into one."],
+  rocketry: ["the rocket scientists", "built engines strong enough to escape the sky."],
+  mars: ["the space agency", "landed people on another world."] };
+function discoveryStory(n, t) { const [grp, what] = TECH_STORY[t.id] || ["your scholars", `discovered ${t.name.toLowerCase()}.`], d = TECH_DOM[t.id], g = aliveThinkers(n).find(z => z.d === d), place = (capSet(n) || {}).name || "your lands";
+  return g ? `${g.name}, the ${g.title.toLowerCase()} of ${g.from}, ${what}` : `In ${place}, ${grp} ${what}`; }
+/* great minds: rare people from big villages and towns, each excelling at one kind of work */
+const DOMAINS = { food: { icon: "🏹", out: "food" }, build: { icon: "🔨", out: "building" }, war: { icon: "⚔️", out: "warfare" }, health: { icon: "🌿", out: "health" }, lore: { icon: "📜", out: "learning" }, crafts: { icon: "🪓", out: "materials" }, trade: { icon: "⚖️", out: "trade" } };
+const THINKER_TITLES = [ /* by age: what such a person is called */
+  { food: "Master tracker", build: "Master builder", war: "War leader", health: "Healer-sage", lore: "Keeper of stories", crafts: "Master flintknapper", trade: "Gift-giver" },
+  { food: "Master farmer", build: "Master builder", war: "Warlord", health: "Healer", lore: "Scribe", crafts: "Master smith", trade: "Trader" },
+  { food: "Agronomist", build: "Engineer", war: "Strategist", health: "Physician", lore: "Philosopher", crafts: "Master craftsman", trade: "Merchant prince" },
+  { food: "Agronomist", build: "Master mason", war: "Tactician", health: "Physician", lore: "Scholar", crafts: "Guild master", trade: "Banker" },
+  { food: "Agronomist", build: "Engineer", war: "Master tactician", health: "Anatomist", lore: "Natural philosopher", crafts: "Inventor", trade: "Financier" },
+  { food: "Agricultural scientist", build: "Engineer", war: "General", health: "Doctor", lore: "Physicist", crafts: "Industrialist", trade: "Economist" },
+  { food: "Agricultural scientist", build: "Engineer", war: "General", health: "Doctor", lore: "Physicist", crafts: "Industrialist", trade: "Economist" },
+  { food: "Biotechnologist", build: "Engineer", war: "Strategist", health: "Medical researcher", lore: "Computer scientist", crafts: "Technologist", trade: "Economist" } ];
+/* which kind of mind each discovery suits */
+const TECH_DOM = { fire: "lore", stonetools: "crafts", rope: "build", snares: "food", ochre: "lore", dogs: "food", herbs: "health", burning: "food", stories: "lore", grinding: "food", spear: "war", glue: "crafts", sewing: "crafts", drums: "lore", smoking: "food", flutes: "lore", fishing: "food", burial: "lore", signs: "lore",
+  sledges: "build", midwifery: "health", pottery: "crafts", salt: "food", waterskins: "crafts", counting: "lore", weaving: "crafts", mysticism: "lore", boats: "build", brewing: "food", wattle: "build", agriculture: "food", husbandry: "food", stars: "lore", bow: "war", stockade: "build", trade: "trade",
+  mining: "crafts", calendar: "lore", tribal: "lore", nation: "lore", bronze: "war", writing: "lore", masonry: "build", sailing: "trade", wheel: "build", monarchy: "lore", iron: "war", currency: "trade", philosophy: "lore", construction: "build", mathematics: "lore", republic: "lore",
+  feudalism: "war", theology: "lore", guilds: "crafts", astronomy: "lore", chivalry: "war", navigation: "trade", printing: "lore", gunpowder: "war", banking: "trade", absolutism: "lore", enlightenment: "lore", steam: "crafts", railroad: "build", democracy: "lore", medicine: "health",
+  electricity: "crafts", rifling: "war", combustion: "crafts", flight: "build", massmedia: "lore", ideology: "lore", fission: "lore", computers: "lore", internet: "trade", robotics: "crafts", globalization: "trade", rocketry: "build", mars: "build" };
+const aliveThinkers = n => (n.thinkers || []).filter(t => !t.dead);
+const thinkB = (n, d) => Math.min(.15, aliveThinkers(n).filter(t => t.d === d).length * .05); /* each great mind: +5% in their field */
+const curDom = n => { const id = !n.resOpen ? (curTalk(n) || {}).id : n.research; return TECH_DOM[id] || null; };
+function stepThinkers(n) { const T = n.thinkers || (n.thinkers = []);
+  for (const t of T) if (!t.dead && G.year >= t.until) { t.dead = true; if (!n.ai) { log(`${t.name}, ${t.title.toLowerCase()} of ${t.from}, has died.`, "🕯️"); hist(n, "🕯️", `${t.name}, ${t.title.toLowerCase()} of ${t.from}, died.`); } }
+  if (aliveThinkers(n).length >= 2 + Math.floor(n.era / 2)) return;
+  for (const x of setsOf(n)) { const big = x.t > 0 ? .4 + .3 * x.t : bigF(x); if (big <= 0) continue;
+    if (rnd() > .006 * big / TPY * (1 + .15 * n.era)) continue; /* rare: a big village sees one every century or so */
+    const sh = k => tribal(n) ? timeShare(n, k) : .1, w = { food: sh("food") + sh("forage") + sh("farm") + sh("fish"), build: sh("build") + .05, war: sh("warrior") + (G.nations.some(o => atWar(n.id, o.id)) ? .3 : 0), health: sh("healer") + .05, lore: sh("elder") + .08, crafts: sh("tools") + sh("wood"), trade: .04 + .05 * tradePartners(n).length };
+    let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), d = "lore"; for (const k in w) { r -= w[k]; if (r <= 0) { d = k; break; } }
+    const t = { name: nameFor(n, "person"), d, title: THINKER_TITLES[Math.min(7, n.era)][d], from: x.name, born: G.year, until: G.year + 18 + Math.floor(rnd() * 18) }; T.push(t);
+    if (!n.ai) { (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: DOMAINS[d].icon, title: `A great mind: ${t.name}`, text: `In ${x.name}, ${t.name} has become known as a ${t.title.toLowerCase()}. While they live, your people's ${DOMAINS[d].out} does a little better, and research in their field goes faster. See them in Production.` });
+      hist(n, DOMAINS[d].icon, `${t.name} of ${x.name} became known as a ${t.title.toLowerCase()}.`); }
+    break; } }
 /* why a building is worth it, in a line */
 const PWHY = { hut: "families without homes put up shacks, have fewer children and grow restless", hearth: "warmth and gatherings suffer without fires", hides: "without clothes, more die in the winter cold",
   refuse: "without them, sickness spreads", circle: "families have nowhere to gather and grow unhappy", lodge: "healing heat keeps sickness down", field: "farmers without a plot barely grow anything", cistern: "families are short of water", water: "families are short of water", aqueduct: "families are short of water",
@@ -3581,6 +3714,14 @@ function panelProduction(n) {
         <p class="small muted">Everything queued: ${seasonsTxt(total / H)}.${x.qpId && x.pq.includes(x.qpId) ? ` ${itemOf(x.qpId).icon} ${esc(itemOf(x.qpId).repeat ? capW(itemOf(x.qpId).one) : itemOf(x.qpId).name)}: ${Math.floor(x.qp / itemOf(x.qpId).hours * 100)}% done.` : ""}</p>`; }
     else h += `<div class="ln"><span>🔨 <b>Builders are idle</b></span><span class="small muted">Tap + to build</span></div>`;
     h += `<p class="small muted">${bf} builder famil${bf === 1 ? "y" : "ies"} here put in ${Math.round(H)} days of building a season${us ? ` after upkeep (${us}% of their time)` : ""}.${x.waitMat ? ' <b class="bad">Out of materials: building has stopped.</b>' : ""}</p></div>`; }
+  /* great minds of this nation */
+  { const T = aliveThinkers(n);
+    if (T.length) h += `<h5 class="psec">🌟 Great minds</h5><div class="card">${T.map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b> <small class="muted">${esc(t.title)} of ${esc(t.from)}</small></span><small>+5% ${DOMAINS[t.d].out}</small></div>`).join("")}<p class="small muted">Each lifts your people's ${T.length === 1 ? "work in their field" : "work in their fields"} a little, and research in their field goes faster while they live.</p></div>`;
+    else if (x.t === 0 && x.pop >= 40) h += `<p class="small muted">🌟 Big villages, past about 50 families, sometimes raise a great mind: a master tracker, builder, healer or war leader.</p>`; }
+  /* founding villages */
+  { const c = villageCost(n), can = x.pop >= MOVERS + 10 && n.gold >= c.g && n.mat >= c.m;
+    h += `<div class="row wrap" style="margin:10px 0 0"><button class="btn small" data-act="pfound" ${can ? "" : "disabled"}>🛖 Found a new village from ${esc(x.name)}</button><span class="small muted">${MOVERS} families move · ${costTxt(c)}${x.pop < MOVERS + 10 ? " · needs more families here" : ""}</span></div>
+      <p class="small muted">Small villages raise more children. Big ones need more food but defend better and raise great minds.</p>`; }
   /* what to build next */
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => itemOpenAt(n, x, it));
   const info = it => { if (!it.repeat) return null; const dem = needAt(n, x, it.id), have = builtAt(x, it.id), q = x.pq.filter(z => z === it.id).length; return { dem, have, q, short: Math.max(0, dem - have - q) }; };
@@ -4006,6 +4147,7 @@ panel.addEventListener("click", e => {
     case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "talk": { n.talk = b.dataset.k; toast(`The elders turn to ${TECH[b.dataset.k].name.toLowerCase()}`); refresh(); hud(); break; }
+    case "pfound": { const x = setById(prodSet); if (x) startPlace(x); break; }
     case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= QCAP) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } const cnt = it.repeat ? Math.max(1, Math.min(+b.dataset.n || 1, QCAP - x.pq.length)) : 1; for (let i = 0; i < cnt; i++) x.pq.push(it.id);
       toast(`${it.icon} ${it.repeat ? (cnt > 1 ? `${cnt} ${it.name.toLowerCase()}` : capW(it.one)) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
@@ -4056,7 +4198,7 @@ panel.addEventListener("click", e => {
     case "cul": { const ck = b.dataset.c; confirmModal(`Shift to a ${CULTURES[ck].name} culture?`, `${CULTURES[ck].d} Your people will go through ${durTxt(8)} of upheaval, and you can't shift again for ${durTxt(30)}.`, () => { n.cul = ck; n.culCool = 30; n.culShift = 8; G.fv = (G.fv || 0) + 1; log(`Your people embrace a ${CULTURES[ck].name} culture.`, CULTURES[ck].icon); refresh(); }); break; }
     case "relig": { const k = b.dataset.k, Q = RELIGIONS[k], pie = trv(n, "pie"), hit = Math.round(8 + .25 * Math.max(0, pie - 30));
       confirmModal(`Make ${Q.name} the national religion?`, `${Q.d} Changing faith upsets the people (−${hit} commoners, and the clergy for years), and you can't change it again for 20 years.`, () => {
-        const old = relOf(n); n.relig = k; n.relAt = G.year; n.laws.rel = Q.fam === "none" ? "sec" : (n.laws.rel === "sec" ? "faith" : n.laws.rel);
+        const old = relOf(n); n.relig = k; n.relAt = G.year; hist(n, Q.icon, `${Q.name} became the national religion.`); n.laws.rel = Q.fam === "none" ? "sec" : (n.laws.rel === "sec" ? "faith" : n.laws.rel);
         if (old.fam !== "folk" || Q.fam !== "folk") { n.facMods.push({ k: "commoners", v: -hit, why: `Change of faith to ${Q.name}`, t: yrsT(10) }); n.facMods.push({ k: "elders", v: -Math.round(hit * 1.2), why: "The old priests lose their place", t: yrsT(15) }); }
         culCache.clear(); n.stab = stabilityOf(n, n.fac); log(`${Q.name} is now the national religion.`, Q.icon); refresh(); hud(); }); break; }
     case "cus": { const k = b.dataset.k, o = b.dataset.o, O = CUSTOMS[k].opts[o], c = ensureCustoms(n), un = n.cusUndo && n.cusUndo[k] && n.cusUndo[k].turn === G.turn && n.cusUndo[k].from === o;
@@ -4393,7 +4535,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
