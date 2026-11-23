@@ -953,12 +953,14 @@ function growBorders() {
 }
 // a settlement's claim can bulge one way: expanding in a direction pushes a lobe of land out that side
 const hgAt = (s, ang) => { if (!s.hg) return 0; let v = 0; for (let k = 0; k < 8; k++) if (s.hg[k]) { const c = Math.cos(ang - k * Math.PI / 4); if (c > 0) v += s.hg[k] * c * c * c * c; } return v; };
-const lobe = (s, ang) => { const g = 1 + hgAt(s, ang); if (!s.exp || s.expDir == null) return g; const c = Math.cos(ang - s.expDir); return g * (1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5)); };
-/* each new hut nudges the village's land out a little, but only on sides not hemmed in by other settlements */
+const lobe = (s, ang) => { if (!s.exp || s.expDir == null) return 1; const c = Math.cos(ang - s.expDir); return 1 + .5 * s.exp * Math.pow(Math.max(0, c), 1.5); };
+/* the village itself: the patch of huts and hearths, separate from the land it claims. Each new hut spreads it a little, but only toward open ground */
+const footR0 = s => .03 * (1 + .35 * s.t);
+const footAt = (s, ang) => footR0(s) * (1 + hgAt(s, ang));
 function hutGrow(x) { const hg = x.hg || (x.hg = [0, 0, 0, 0, 0, 0, 0, 0]), near = nearSets(x.x, x.y, 4).filter(o => o !== x), open = [];
-  for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (hg[k] >= .3) continue;
-    if (!near.some(o => { const d = Math.hypot(o.x - x.x, o.y - x.y), da = Math.abs(((Math.atan2(o.y - x.y, o.x - x.x) - a) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI); return da < .65 && d < radTo(x, o.x, o.y) + radTo(o, x.x, x.y) + .25; })) open.push(k); }
-  for (const k of open) hg[k] = Math.min(.3, hg[k] + .012 / Math.max(1, open.length / 3)); if (open.length) G.sv++; }
+  for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (hg[k] >= 1.2) continue;
+    if (!near.some(o => { const d = Math.hypot(o.x - x.x, o.y - x.y), ao = Math.atan2(o.y - x.y, o.x - x.x), da = Math.abs(((ao - a) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI); return da < .65 && d < .9 + footAt(x, ao) + footAt(o, ao + Math.PI); })) open.push(k); } /* a neighbor close by on that side: no room to spread */
+  for (const k of open) hg[k] = Math.min(1.2, hg[k] + .02 / Math.max(1, open.length / 3)); }
 const radTo = (s, x, y) => (s.h || .05) * lobe(s, Math.atan2(y - s.y, x - s.x));
 const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) - radTo(b, a.x, a.y);
 function touchesSet(n, s) { return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < .25); }
@@ -3028,7 +3030,7 @@ function inForeignCorridor(x, y, owner) {
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn;
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
-    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, (s.exp && s.expDir != null) || s.hg ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
+    for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, s.exp && s.expDir != null ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
     for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
@@ -3172,6 +3174,8 @@ function drawSettlements(k, me) {
     return true; };
   for (const s of vis) {
     const t = s.t, n = G.nations[s.o], px = clamp((s.h || .05) * k * .14, 1.4, 4.5 + t * 1.8), z = px / k;
+    if (footR0(s) * k > 7) { const fp = new Path2D(); smoothPoly(fp, blobPts(s.x, s.y, footR0(s), s.id + 7).map(([qx, qy]) => { const g = 1 + hgAt(s, Math.atan2(qy - s.y, qx - s.x)); return [s.x + (qx - s.x) * g, s.y + (qy - s.y) * g]; }));
+      ctx.save(); ctx.globalAlpha = .45; ctx.fillStyle = shade(n.color, -.15); ctx.fill(fp); ctx.globalAlpha = .7; ctx.lineWidth = 1.5 / k; ctx.strokeStyle = shade(n.color, -.4); ctx.stroke(fp); ctx.restore(); }
     const sx = s.x * k + view.x, sy = s.y * k + view.y, rr = px * (t === 2 ? 1.15 : 1);
     if (!free(sx, sy, rr)) continue;
     const key = cell(sx, sy); (taken.get(key) || taken.set(key, []).get(key)).push([sx, sy, rr]);
