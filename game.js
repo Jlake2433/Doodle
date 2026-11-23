@@ -1197,7 +1197,7 @@ function checkFaiths(n) {
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
   if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dip(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
   const seen = G.relSeen || (G.relSeen = {});
-  for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue;
+  for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue; whist(R.icon, `A new faith arose: ${R.name}.`, "first", []);
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d} You can make it your national religion in the Laws tab.` }); }
   if (RELIGIONS[n.relig] && RELIGIONS[n.relig].to && G.year >= RELIGIONS[n.relig].to && !n.relSplitSeen) { n.relSplitSeen = 1;
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: RELIGIONS[n.relig].icon, title: `${RELIGIONS[n.relig].name} has split`, text: `The faithful have divided into rival branches. For now your people keep the old ways; you can choose a branch in the Laws tab.` }); }
@@ -1474,7 +1474,7 @@ function elderTalks(n) {
   while (!n.resOpen && guard++ < 6) {
     if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed()) { /* enough of the old questions settled: a new age */
       n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
-      hist(n, "🌅", `Your people entered the ${ERAS[1]}.`);
+      hist(n, "🌅", `Your people entered the ${ERAS[1]}.`); firstAge(n);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
       else if (G.player != null && dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
       break; }
@@ -2042,7 +2042,11 @@ function fertility(n, E) {
 }
 // losses get a popup when they matter to a people of your size; small ones go in the report
 /* your nation's history: battles, great people and the moments worth remembering */
+function firstAge(n) { const e = n.era; if (G.nations.some(o => o !== n && o.era >= e)) return; whist("🌅", `The ${nm(n)} were the first people to enter the ${ERAS[e]}.`, "first", [n.id]); }
 function hist(n, icon, text) { if (!n || n.ai || n.id !== G.player) return; (G.hist || (G.hist = [])).push({ y: G.year, q: Math.floor((G.month || 0) / 3), i: icon, t: text }); if (G.hist.length > 400) G.hist.splice(0, G.hist.length - 400); }
+/* the world's chronicle: notable events among all peoples. You only read about peoples you've met */
+function whist(icon, text, cat, ids) { (G.whist || (G.whist = [])).push({ y: G.year, i: icon, t: text, c: cat, w: ids }); if (G.whist.length > 600) G.whist.splice(0, G.whist.length - 600); }
+const known = id => id === G.player || (G.nations[id] && dip(G.player, id).met);
 function alertLoss(n, lost, icon, title, text) {
   if (lost / Math.max(1, popOf(n)) >= .05) hist(n, icon, `${title}: ${text.split(". ")[0]}.`);
   const at = n.alertT || (n.alertT = {}); /* one popup of each kind a year at most; the rest go to the log */
@@ -2223,18 +2227,19 @@ function processNation(n) {
       continue;
     }
     const t = it.t; n.techs.push(t.id);
+    if (!G.nations.some(o => o !== n && o.techs.includes(t.id))) { const st = discoveryStory(n, t); whist("💡", `First in the world: ${t.name}, by the ${nm(n)}. ${st}`, "first", [n.id]); }
     if (!n.ai) { const st = discoveryStory(n, t); log(`Discovered ${t.name}! ${t.desc}`, "💡"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "💡", title: t.name, text: `${st} ${t.desc}` }); hist(n, "💡", st); }
     if (t.id === "mars") victory(n, "science");
     n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
     const ne = n.era;
     if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length) {
-      n.era++; if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
+      n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
       if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
       else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
     }
   }
   if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length) {
-    n.era++; if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
+    n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
     if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
     else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
   }
@@ -2366,6 +2371,7 @@ function tradeNote(by, target, text, icon) {
 }
 // ---- civil war: the nation splits; the far half rises up with a clean treasury ----
 function civilWar(n) {
+  whist("💥", `Civil war tore the ${nm(n)} apart.`, "fall", [n.id]);
   hist(n, "💥", "Civil war tore the nation apart.");
   const sets = setsOf(n), cap = capSet(n) || sets[0];
   if (sets.length < 2 || !cap) { n.trust = 25; return; }
@@ -2435,6 +2441,12 @@ function attack(n, s, units) {
   } else if (win) {
     addWs(n.id, dn.id, s.id === dn.cap ? 15 : 5 + s.t * 3);
     chip(n.id, s);
+    n.conq = (n.conq || 0) + 1;
+    if (s.id === dn.cap) whist("🏰", `The ${nm(n)} took ${s.name}, capital of the ${nm(dn)}.`, "war", [n.id, dn.id]);
+    if ([3, 8, 15, 30, 60].includes(n.conq)) { const W0 = G.wpeople || (G.wpeople = []), c = W0.find(p => p.kind === "conq" && p.n === n.id && G.year - p.until < 25);
+      if (c) { c.count = n.conq; c.until = G.year; whist("⚔️", `${c.name} of the ${nm(n)} has now taken ${n.conq} settlements.`, "war", [n.id]); }
+      else { const p = { kind: "conq", name: nameFor(n, "person"), title: n.era < 2 ? "Warlord" : n.era < 5 ? "Conqueror" : "General", n: n.id, born: G.year, until: G.year, count: n.conq, from: nm(n) }; W0.push(p);
+        whist("👑", `${p.name}, ${p.title.toLowerCase()} of the ${nm(n)}, rose to fame by taking ${n.conq} settlements.`, "people", [n.id]); } }
     if (n.id === G.player) hist(n, "🏳️", `We took ${s.name} from the ${nm(dn)}.`); else if (dn.id === G.player) hist(dn, "🏴", `The ${nm(n)} took ${s.name} from us.`);
     s.pop *= .85; convertSet(n, dn, s); s.o = n.id; s.focus = null; recalcShares(n); recalcShares(dn); s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
@@ -2450,7 +2462,7 @@ function attack(n, s, units) {
   return res;
 }
 function eliminate(dn, by) {
-  dn.alive = false; dn.army = 0;
+  dn.alive = false; dn.army = 0; whist("💀", `The ${nm(dn)} are no more${by ? `, destroyed by the ${nm(by)}` : ""}.`, "fall", [dn.id].concat(by ? [by.id] : []));
   G.sv++;
   for (const o of G.nations) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   if (dn.id === G.player) { log("Your last settlement has fallen.", "☠️"); defeat(); }
@@ -3498,9 +3510,25 @@ function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b
 let histTab = "all";
 const HIST_CAT = e => ["⚔️", "🕊️", "🏳️", "🏴", "💥"].includes(e.i) ? "war" : ["💡", "🔥"].includes(e.i) ? "disc" : ["🕯️", ...Object.values(DOMAINS).map(d => d.icon)].includes(e.i) && !/elders settled/.test(e.t) ? "people" : "mile";
 const HIST_TABS = { all: "📖 All", people: "🌟 Great people", war: "⚔️ Wars & battles", disc: "💡 Discoveries", mile: "🏛️ Milestones" };
+let histScope = "ours", wTab = "all";
+const WHIST_TABS = { all: "📖 All", people: "🌟 Great people", war: "⚔️ Conquests", first: "🥇 Firsts", fall: "💀 Rise & fall" };
+function panelWorldHistory() { const n = P();
+  let h = ph("History", "The known world");
+  h += `<div class="seg">${[["ours", `The ${esc(demonym(n))}`], ["world", "The world"]].map(([k, v]) => `<button class="${histScope === k ? "on" : ""}" data-act="hscope" data-k="${k}">${v}</button>`).join("")}</div>`;
+  h += `<div class="ptabs2">${Object.entries(WHIST_TABS).map(([k, v]) => `<button class="${k === wTab ? "on" : ""}" data-act="wtab" data-k="${k}">${v}</button>`).join("")}</div>`;
+  const vis = e => !e.w || !e.w.length || e.w.some(known);
+  if (wTab === "people") { const P0 = (G.wpeople || []).filter(p => known(p.n)).slice().reverse();
+    if (!P0.length) return h + `<p class="note">No great people known yet. You'll hear of them as you meet other peoples.</p>`;
+    return h + `<div class="card">${P0.map(p => { const dead = p.kind === "mind" ? G.year >= p.until : G.year - p.until > 25, o = G.nations[p.n];
+      return `<div class="ln"><span>${p.kind === "conq" ? "👑" : DOMAINS[p.d].icon} <b>${esc(p.name)}</b><br><small class="muted">${esc(p.title)} of the ${esc(o ? nm(o) : p.from)}${p.kind === "conq" ? ` · took ${p.count} settlements` : ""}${p.n === G.player ? " · yours" : ""}</small></span><b>${dead ? `<small>${yearTxt(p.born)}${p.until !== p.born ? `–${yearTxt(p.until)}` : ""}</small>` : '<span class="good">Living</span>'}</b></div>`; }).join("")}</div>`; }
+  const ev = (G.whist || []).filter(e => vis(e) && (wTab === "all" || e.c === wTab)).slice().reverse();
+  if (!ev.length) return h + `<p class="note">Nothing known yet. As you meet other peoples, you'll hear of their great people, conquests and turning points.</p>`;
+  return h + histList(ev); }
 function panelHistory() {
+  if (histScope === "world") return panelWorldHistory();
   const H = (G.hist || []).slice().reverse(), n = P(), fam = n.thinkers || [];
   let h = ph("History", `The story of the ${esc(demonym(n))}`);
+  h += `<div class="seg">${[["ours", `The ${esc(demonym(n))}`], ["world", "The world"]].map(([k, v]) => `<button class="${histScope === k ? "on" : ""}" data-act="hscope" data-k="${k}">${v}</button>`).join("")}</div>`;
   h += `<div class="ptabs2">${Object.entries(HIST_TABS).map(([k, v]) => `<button class="${k === histTab ? "on" : ""}" data-act="htab" data-k="${k}">${v}</button>`).join("")}</div>`;
   if (histTab === "people") {
     if (!fam.length) return h + `<p class="note">No great minds yet. Big villages, past about 50 families, sometimes raise one.</p>`;
@@ -3690,6 +3718,7 @@ function stepThinkers(n) { const T = n.thinkers || (n.thinkers = []);
     const sh = k => tribal(n) ? timeShare(n, k) : .1, w = { food: sh("food") + sh("forage") + sh("farm") + sh("fish"), build: sh("build") + .05, war: sh("warrior") + (G.nations.some(o => atWar(n.id, o.id)) ? .3 : 0), health: sh("healer") + .05, lore: sh("elder") + .08, crafts: sh("tools") + sh("wood"), trade: .04 + .05 * tradePartners(n).length };
     let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), d = "lore"; for (const k in w) { r -= w[k]; if (r <= 0) { d = k; break; } }
     const t = { name: nameFor(n, "person"), d, title: THINKER_TITLES[Math.min(7, n.era)][d], from: x.name, born: G.year, until: G.year + 18 + Math.floor(rnd() * 18) }; T.push(t);
+    whist(DOMAINS[d].icon, `${t.name} of ${x.name} became known as a ${t.title.toLowerCase()} of the ${nm(n)}.`, "people", [n.id]); (G.wpeople || (G.wpeople = [])).push({ ...t, n: n.id, kind: "mind" });
     if (!n.ai) { (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: DOMAINS[d].icon, title: `A great mind: ${t.name}`, text: `In ${x.name}, ${t.name} has become known as a ${t.title.toLowerCase()}. While they live, your people's ${DOMAINS[d].out} does a little better, and research in their field goes faster. See them in Production.` });
       hist(n, DOMAINS[d].icon, `${t.name} of ${x.name} became known as a ${t.title.toLowerCase()}.`); }
     break; } }
@@ -4161,6 +4190,8 @@ panel.addEventListener("click", e => {
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "talk": { n.talk = b.dataset.k; toast(`The elders turn to ${TECH[b.dataset.k].name.toLowerCase()}`); refresh(); hud(); break; }
     case "htab": histTab = b.dataset.k; refresh(); break;
+    case "hscope": histScope = b.dataset.k; refresh(); break;
+    case "wtab": wTab = b.dataset.k; refresh(); break;
     case "pfound": { const x = setById(prodSet); if (x) startPlace(x); break; }
     case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= QCAP) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } const cnt = it.repeat ? Math.max(1, Math.min(+b.dataset.n || 1, QCAP - x.pq.length)) : 1; for (let i = 0; i < cnt; i++) x.pq.push(it.id);
