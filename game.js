@@ -2366,7 +2366,7 @@ function tradeNote(by, target, text, icon) {
 }
 // ---- civil war: the nation splits; the far half rises up with a clean treasury ----
 function civilWar(n) {
-  hist(n, "🔥", "Civil war tore the nation apart.");
+  hist(n, "💥", "Civil war tore the nation apart.");
   const sets = setsOf(n), cap = capSet(n) || sets[0];
   if (sets.length < 2 || !cap) { n.trust = 25; return; }
   const far = sets.filter(x => x.id !== cap.id).sort((a, b) => Math.hypot(b.x - cap.x, b.y - cap.y) - Math.hypot(a.x - cap.x, a.y - cap.y));
@@ -3495,16 +3495,25 @@ panel.addEventListener("change", e => { if (e.target.id === "prodSet") { prodSet
 panel.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.sinv != null) { save(); refresh(); } });
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
 function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b.disabled || !G) return; e.stopPropagation(); bud(P())[b.dataset.wel] = +b.dataset.l; const box = b.closest(".budget"); box.querySelectorAll(`[data-wel="${b.dataset.wel}"]`).forEach(x => x.classList.toggle("on", x === b)); budgetFill(box); hud(); }
+let histTab = "all";
+const HIST_CAT = e => ["⚔️", "🕊️", "🏳️", "🏴", "💥"].includes(e.i) ? "war" : ["💡", "🔥"].includes(e.i) ? "disc" : ["🕯️", ...Object.values(DOMAINS).map(d => d.icon)].includes(e.i) && !/elders settled/.test(e.t) ? "people" : "mile";
+const HIST_TABS = { all: "📖 All", people: "🌟 Great people", war: "⚔️ Wars & battles", disc: "💡 Discoveries", mile: "🏛️ Milestones" };
 function panelHistory() {
-  const H = (G.hist || []).slice().reverse(), n = P();
+  const H = (G.hist || []).slice().reverse(), n = P(), fam = n.thinkers || [];
   let h = ph("History", `The story of the ${esc(demonym(n))}`);
-  if (!H.length) return h + `<p class="note">Nothing memorable has happened yet. Battles, great people, new ages and turning points will be written here.</p>`;
-  const fam = (n.thinkers || []);
-  if (fam.length) h += `<div class="card"><h4>🌟 Great people</h4>${fam.slice().reverse().map(t => line(`${DOMAINS[t.d].icon} ${esc(t.name)} <small class="muted">${esc(t.title)} of ${esc(t.from)}</small>`, t.dead ? `${yearTxt(t.born)}–${yearTxt(t.until)}` : `<span class="good">living</span>`)).join("")}</div>`;
-  let last = null; h += `<div class="card hist">`;
-  for (const e of H) { const yl = yearTxt(e.y); if (yl !== last) { h += `<h5 class="psec">${yl}</h5>`; last = yl; } h += `<div class="hrow"><span>${e.i}</span><span>${esc(e.t)}</span></div>`; }
-  return h + `</div>`;
+  h += `<div class="ptabs2">${Object.entries(HIST_TABS).map(([k, v]) => `<button class="${k === histTab ? "on" : ""}" data-act="htab" data-k="${k}">${v}</button>`).join("")}</div>`;
+  if (histTab === "people") {
+    if (!fam.length) return h + `<p class="note">No great minds yet. Big villages, past about 50 families, sometimes raise one.</p>`;
+    h += `<div class="card">${fam.slice().reverse().map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b><br><small class="muted">${esc(t.title)} of ${esc(t.from)} · +5% ${DOMAINS[t.d].out}</small></span><b>${t.dead ? `<small>${yearTxt(t.born)}–${yearTxt(t.until)}</small>` : '<span class="good">Living</span>'}</b></div>`).join("")}</div>`;
+    const ev = H.filter(e => HIST_CAT(e) === "people" || /, the .* of /.test(e.t)); if (!ev.length) return h;
+    histTab = "people"; return h + histList(ev); }
+  const ev = histTab === "all" ? H : H.filter(e => HIST_CAT(e) === histTab);
+  if (!ev.length) return h + `<p class="note">${histTab === "all" ? "Nothing memorable has happened yet. Battles, great people, new ages and turning points will be written here." : "Nothing here yet."}</p>`;
+  return h + histList(ev);
 }
+function histList(ev) { let h = `<div class="card hist">`, last = null;
+  for (const e of ev) { const yl = yearTxt(e.y); if (yl !== last) { h += `<h5 class="psec">${yl}</h5>`; last = yl; } h += `<div class="hrow"><span>${e.i}</span><span>${esc(e.t)}</span></div>`; }
+  return h + `</div>`; }
 function panelPeople() {
   const n = P(), pop = popOf(n), E0 = ethOf(n), T = n.trait || {}, tg = n.traitT || {}, tr = tribal(n);
   const lab = LANG_LABEL[langOf(n)] || capW(langOf(n)), main = Math.max(0, 1 - E0.reduce((a, g) => a + g.share, 0));
@@ -4151,6 +4160,7 @@ panel.addEventListener("click", e => {
     case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "talk": { n.talk = b.dataset.k; toast(`The elders turn to ${TECH[b.dataset.k].name.toLowerCase()}`); refresh(); hud(); break; }
+    case "htab": histTab = b.dataset.k; refresh(); break;
     case "pfound": { const x = setById(prodSet); if (x) startPlace(x); break; }
     case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= QCAP) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } const cnt = it.repeat ? Math.max(1, Math.min(+b.dataset.n || 1, QCAP - x.pq.length)) : 1; for (let i = 0; i < cnt; i++) x.pq.push(it.id);
