@@ -1430,17 +1430,17 @@ const STRUCTS = {
   aqueduct: { tab: "water", tier: 1, tech: "construction", name: "Aqueduct", one: "aqueduct", icon: "🌉", hours: 20000, wcap: 200, d: "Towns only. Water carried from far hills: supplies 200 families." },
   circle:   { tab: "amen", name: "Gathering ground", one: "gathering ground", icon: "🪘", hours: 3000, d: "One in every settlement. A cleared place for stories, dances and feasts: families are happier." },
   lodge:    { tab: "amen", tech: "mysticism", name: "Sweat lodges", one: "sweat lodge", icon: "♨️", hours: 2500, d: "One for every 15 families. Healing heat and cleansing rites: less sickness." },
-  traps:    { tab: "food", opt: true, name: "Game traps & snares", one: "set of traps", icon: "🪤", hours: 700, d: "One for every 5 hunter families. Traps work while the hunters sleep: hunters bring in up to 25% more." },
+  traps:    { tab: "food", opt: true, tile: "Game traps", name: "Game traps & snares", one: "set of traps", icon: "🪤", hours: 700, d: "One for every 5 hunter families. Traps work while the hunters sleep: hunters bring in up to 25% more." },
   weir:     { tab: "food", opt: true, water: true, name: "Fish weirs", one: "fish weir", icon: "🐟", hours: 1600, d: "One for every 5 fisher families, by the water. Stone and stake fences that trap fish: fishers bring in up to 30% more." },
   smoke:    { tab: "food", opt: true, name: "Smokehouses", one: "smokehouse", icon: "🌫️", hours: 2200, d: "One for every 10 families. Smoked meat and fish last through the winter: lean winters are much less lean." },
   pens:     { tab: "food", opt: true, tech: "husbandry", name: "Animal pens", one: "animal pen", icon: "🐐", hours: 1800, d: "One for every 6 farming families. Herds kept safe from wolves and thieves: farmers and herders bring in up to 20% more." },
-  knap:     { tab: "crafts", opt: true, name: "Flint knapping ground", one: "flint knapping ground", icon: "🪨", hours: 3000, d: "One in every settlement. Sharp tools for everyone: +10% materials, and this settlement's builders work 10% faster." },
+  knap:     { tab: "crafts", opt: true, tile: "Flint knapping", name: "Flint knapping ground", one: "flint knapping ground", icon: "🪨", hours: 3000, d: "One in every settlement. Sharp tools for everyone: +10% materials, and this settlement's builders work 10% faster." },
   kiln:     { tab: "crafts", opt: true, tech: "pottery", name: "Kiln", one: "kiln", icon: "🏺", hours: 5000, d: "One in every settlement. Fired pots and bricks: +10% materials." },
   loom:     { tab: "amen", opt: true, tech: "agriculture", name: "Looms", one: "loom", icon: "🧶", hours: 1800, d: "One for every 10 families. Woven cloth: warmer families, and a little pride in what they wear." },
   bath:     { tab: "amen", opt: true, name: "Bathing place", one: "bathing place", icon: "🛁", hours: 1500, d: "One in every settlement. A cleared spot on the water for washing: healthier families." },
   art:      { tab: "spirit", opt: true, name: "Painted rocks", one: "painted rock", icon: "🎨", hours: 1200, d: "One in every settlement. Hunts, spirits and ancestors painted on stone: families gather here, and the stories live on." },
   burial:   { tab: "spirit", opt: true, name: "Burial ground", one: "burial ground", icon: "🪦", hours: 2000, d: "One in every settlement. A resting place for the dead: the elders and the families are comforted." },
-  ditch:    { tab: "defense", opt: true, name: "Ditch and stakes", one: "ditch and stakes", icon: "🔱", hours: 9000, d: "One around every settlement. Cheaper than a palisade: a little harder to raid." },
+  ditch:    { tab: "defense", opt: true, tile: "Ditches", name: "Ditch and stakes", one: "ditch and stakes", icon: "🔱", hours: 9000, d: "One around every settlement. Cheaper than a palisade: a little harder to raid." },
   watch:    { tab: "defense", opt: true, name: "Lookout post", one: "lookout post", icon: "🗼", hours: 2500, d: "One in every settlement. Raiders are seen coming, and your scouts see further from here." },
   post:     { tab: "travel", opt: true, when: n => metCount(n) > 0, name: "Trading post", one: "trading post", icon: "🛖", hours: 6000, d: "Your main settlement only. A place where strangers can come to swap goods: other peoples trust you sooner and trade more willingly." },
   canoe:    { tab: "food", opt: true, name: "Dugout canoes", one: "canoe", icon: "🛶", hours: 2400, coastal: true, d: "One for every 5 food-gathering families on the coast. More fish, and boats to cross narrow water." },
@@ -3495,21 +3495,49 @@ function panelProduction(n) {
   let x = setById(prodSet); if (!x || x.o !== n.id) { x = setById(n.cap) || sets[0]; prodSet = x ? x.id : null; }
   if (!x) return ph("Production", "") + `<p class="note">You have no settlements.</p>`;
   sb(x); const H = Math.max(1e-9, builderHoursAt(n, x) - upkeepAt(n, x));
-  const lacking = y => Object.keys(STRUCTS).some(k => itemOpenAt(n, y, itemOf(k)) && builtAt(y, k) < needAt(n, y, k) && k === "hut");
+  const lacking = y => builtAt(y, "hut") < needAt(n, y, "hut");
   let h = ph("Production", `${TIERS[x.t].name} of ${esc(x.name)} · ${fmtP(x.pop)} families`);
-  h += `<label class="fld">Settlement<select id="prodSet">${sets.map(y => `<option value="${y.id}" ${y.id === x.id ? "selected" : ""}>${y.t === 2 ? "🏙️" : y.t === 1 ? "🏘️" : "🛖"} ${esc(y.name)} · ${fmtP(y.pop)} families${(y.pq && y.pq.length) ? ` · building` : ""}${lacking(y) ? " ⚠️" : ""}</option>`).join("")}</select></label>`;
-  const cur = x.pq.length ? itemOf(x.pq[0]) : null;
-  const cur0 = x.pq.length ? itemOf(x.pq[0]) : null;
-  h += `<details class="card pcol" data-pk="q" ${prodOpen.has("q") ? "open" : ""}><summary><span>🔨 <b>Being built</b></span><span class="psum">${cur0 ? `${cur0.icon} ${esc(cur0.repeat ? capW(cur0.one) : cur0.name)} · ${seasonsTxt((cur0.hours - x.qp) / H)}${x.pq.length > 1 ? ` · +${x.pq.length - 1} queued` : ""}` : '<span class="muted">Idle</span>'}</span></summary>`;
-  if (!x.pq.length) h += `<p class="small muted">Nothing. Pick something below. Each settlement's own builder families do the work; more builders (Who does what) build faster.</p>`;
-  else { let t = 0; h += x.pq.map((id, i) => { const it = itemOf(id); t += (it.hours - (i ? 0 : x.qp)) / H;
-    return `<div class="ln"><span>${it.icon} ${esc(it.repeat ? capW(it.one) : it.name)}${i === 0 ? ` <small class="muted">${Math.floor(x.qp / it.hours * 100)}%</small>` : ""}</span><b>${seasonsTxt(t)} <button class="btn small ghost" data-act="pdel" data-k="${i}" aria-label="Remove">✕</button></b></div>${i === 0 ? `<div class="bar"><i style="width:${Math.min(100, x.qp / it.hours * 100)}%;background:var(--accent)"></i></div>` : ""}`; }).join(""); }
-  h += `</details>`;
+  if (sets.length > 1) h += `<select id="prodSet" class="psel" aria-label="Settlement">${sets.map(y => `<option value="${y.id}" ${y.id === x.id ? "selected" : ""}>${y.t === 2 ? "🏙️" : y.t === 1 ? "🏘️" : "🛖"} ${esc(y.name)} · ${fmtP(y.pop)} families${(y.pq && y.pq.length) ? " · building" : ""}${lacking(y) ? " ⚠️" : ""}</option>`).join("")}</select>`;
+  /* needs at a glance */
+  { const am = amenAt(n, x), wc = waterAt(n, x), E1 = econM(n), cd = Math.round(x.cond == null ? 100 : x.cond), hut = builtAt(x, "hut"), fam = Math.ceil(x.pop);
+    const cls = v => v < .6 ? "bad" : v < .95 ? "warn" : "good", pc = v => `${Math.round(v * 100)}%`;
+    const chips = [["🛖", `${fmtP(Math.min(hut, fam))}/${fmtP(fam)}`, hut >= fam ? "good" : hut >= fam * .9 ? "warn" : "bad", "Homes"], ["💧", pc(wc), cls(wc), "Water"], ["🍖", E1.raw.surplus >= 0 ? "Fed" : "Hungry", E1.raw.surplus >= 0 ? "good" : "bad", "Food"]];
+    if (coldOf(x) >= .15) chips.push(["🔥", pc(am.warmth), cls(am.warmth), "Warmth"]);
+    chips.push(["🩺", pc(am.health), cls(am.health), "Health"], ["🪘", pc(am.joy), cls(am.joy), "Gathering"], ["🧱", `${cd}%`, cd < 35 ? "bad" : cd < 70 ? "warn" : "good", "Condition"]);
+    h += `<div class="pneeds">${chips.map(([i, v, c, t]) => `<span class="pchip ${c}" title="${t}">${i} ${v}</span>`).join("")}</div>`; }
+  /* the builders */
+  { const cur = x.pq.length ? itemOf(x.pq[0]) : null, bf = Math.round(x.pop * timeShare(n, "build")), us = Math.round((x.upShare || 0) * 100);
+    h += `<div class="card pbld">`;
+    if (cur) { let t = 0; h += `<div class="ln"><span>🔨 <b>${cur.icon} ${esc(cur.repeat ? capW(cur.one) : cur.name)}</b></span><b>${seasonsTxt((cur.hours - x.qp) / H)}</b></div><div class="bar thin"><i style="width:${Math.min(100, x.qp / cur.hours * 100)}%;background:var(--accent)"></i></div>
+        <div class="pq">${x.pq.map((id, i) => { const it = itemOf(id); return `<button class="pqi" data-act="pdel" data-k="${i}" aria-label="Remove ${esc(it.name)}">${it.icon}<small>✕</small></button>`; }).join("")}${x.pq.length < 8 ? `<span class="small muted">${8 - x.pq.length} more can wait in line</span>` : ""}</div>`; }
+    else h += `<div class="ln"><span>🔨 <b>Builders are idle</b></span><span class="small muted">Tap + to build</span></div>`;
+    h += `<p class="small muted">${bf} builder famil${bf === 1 ? "y" : "ies"} here${us ? ` · upkeep takes ${us}% of their time` : ""}.${x.waitMat ? ' <b class="bad">Out of materials: building has stopped.</b>' : ""}</p></div>`; }
+  /* what to build next */
+  const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => itemOpenAt(n, x, it));
+  const info = it => { if (!it.repeat) return null; const dem = needAt(n, x, it.id), have = builtAt(x, it.id), q = x.pq.filter(z => z === it.id).length; return { dem, have, q, short: Math.max(0, dem - have - q) }; };
+  { const sug = all.filter(it => it.repeat).map(it => ({ it, i: info(it) })).filter(o => o.i.short > 0 && (!o.it.opt || o.it.hours / H <= 12)).map(o => ({ ...o, sc: (o.it.opt ? .35 : 1) * o.i.short / Math.max(1, o.i.dem) + (o.it.id === "hut" ? .2 : 0) })).sort((a, b) => b.sc - a.sc).slice(0, 3);
+    if (sug.length) h += `<h5 class="psec">✨ Suggested next</h5><div class="psug">${sug.map(o => `<button class="btn small ${o.it.opt ? "ghost" : ""}" data-act="pbuild" data-k="${o.it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>+ ${o.it.icon} ${esc(capW(o.it.one))}<small>${seasonsTxt(o.it.hours / H)}</small></button>`).join("")}</div>`; }
+  /* everything, by kind */
+  for (const [t, q] of Object.entries(PROD_TABS)) {
+    const items = all.filter(it => it.tab === t && (!it.repeat || (info(it).dem || info(it).have))); if (!items.length) continue;
+    h += `<h5 class="psec">${q.icon} ${q.name}</h5>`;
+    if (t === "water") { const R = W.regions[x.r]; h += `<p class="small muted">${RIVERS.has(R.n) ? "A great river runs through this land" : `${TER[R.t] ? TER[R.t].name : R.t} land`}: water for about ${Math.floor(waterNat(x))} families${dry(x) ? ", less in summer" : ""}. With carriers and what's built, ${Math.floor(waterSupply(n, x))} of ${Math.round(x.pop)} families have water.</p>`; }
+    h += `<div class="pgrid">`;
+    for (const it of items) { const open = prodOpen.has("i:" + it.id);
+      if (it.repeat) { const I = info(it), st = I.have >= I.dem ? "ok" : it.opt ? "opt" : "short";
+        h += `<div class="ptile ${st} ${open ? "wide" : ""}"><button class="pti" data-act="pinfo" data-k="${it.id}"><span class="pi">${it.icon}</span><b>${esc(open ? it.name : it.tile || it.name)}${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</b><span class="pc">${I.dem ? `${fmtP(Math.min(I.have, I.dem))}/${fmtP(I.dem)}` : `${fmtP(I.have)} built`}${I.q ? ` <small>+${I.q}</small>` : ""}</span></button>
+          ${x.pq.length < 8 ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build one ${esc(it.one)}">+</button>` : ""}
+          ${open ? `<p class="small muted">${esc(it.d)} One takes ${seasonsTxt(it.hours / H)}.${it.opt ? " Not needed, but worth having." : ""}</p>` : ""}</div>`; }
+      else { const done = P0.done[it.id], qa = setsOf(n).some(y => y.pq && y.pq.includes(it.id));
+        h += `<div class="ptile great ${done ? "ok" : ""} ${open ? "wide" : ""}"><button class="pti" data-act="pinfo" data-k="${it.id}"><span class="pi">${it.icon}</span><b>${esc(it.name)}</b><span class="pc">${done ? "✓ Built" : qa ? "Queued" : `🪵${it.mat}`}</span></button>
+          ${!done && !qa && n.mat >= it.mat && x.pq.length < 8 ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build ${esc(it.name)}">+</button>` : ""}
+          ${open ? `<p class="small muted">${esc(it.d)}${done ? "" : ` Takes ${seasonsTxt(it.hours / H)} here; a great work, built once.`}</p>` : ""}</div>`; } }
+    h += `</div>`; }
+  /* the settlement's upkeep and borders, out of the way */
   { const cd = Math.round(x.cond == null ? 100 : x.cond), us = Math.round((x.upShare || 0) * 100), cv = x.upCov == null ? 1 : x.upCov;
     h += `<details class="card pcol" data-pk="u" ${prodOpen.has("u") ? "open" : ""}><summary><span>🧱 <b>Upkeep</b></span><span class="psum ${cd < 35 ? "bad" : cd < 70 ? "warn" : ""}">Condition ${cd}%</span></summary>
-      <div class="bar-row"><span class="small">Condition</span><span class="bar thin"><i style="width:${cd}%;background:${cd < 35 ? "var(--bad)" : cd < 70 ? "#f2b134" : "var(--good)"}"></i></span><span class="small">${cd}%</span></div>
       ${line("Builders' time spent on upkeep", `${us}%`, us >= 100 ? "bad" : us > 70 ? "warn" : "")}${line("Materials for upkeep", cv >= .999 ? "Enough" : n.mat <= 0 ? "None left" : "Short", cv >= .999 ? "good" : "bad")}
-      <p class="small muted">Everything built here, and every stretch of claimed border, needs upkeep: builders' time and materials from your stores. Without it, the place wears down; badly worn, buildings collapse and must be rebuilt, and borders shrink back.${x.waitMat ? ' <b class="bad">New building has stopped: no materials left.</b>' : ""}</p></details>`; }
+      <p class="small muted">Everything built here, and every stretch of claimed border, needs upkeep: builders' time and materials. Without it the place wears down; badly worn, buildings collapse and borders shrink back.</p></details>`; }
   // borders
   { const e = x.exp || 0, need = garrisonNeed(n), have = forces(n);
     h += `<details class="card pcol" data-pk="b" ${prodOpen.has("b") ? "open" : ""}><summary><span>🚩 <b>Borders</b></span><span class="psum">${e ? `Expanded ${e}/${EXP_MAX} ${x.expDir == null ? "all around" : "one way"}` : "Natural reach"}${need > have ? ' · <span class="bad">under-guarded</span>' : ""}</span></summary>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
@@ -3520,23 +3548,7 @@ function panelProduction(n) {
         return `<button class="${on ? "on" : ""}" data-act="pdir" data-v="${ang == null ? "all" : ang}">${lab === "ALL" ? "All around" : { NW: "↖", N: "↑", NE: "↗", W: "←", E: "→", SW: "↙", S: "↓", SE: "↘" }[lab]}</button>`; }).join("")}</div>
       <p class="small muted">${x.expDir == null ? "All around: a modest ring of extra land on every side." : "One direction: reaches much further that way, and no further elsewhere."}</p>
       <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></details>`; }
-  const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT];
-  const tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && itemOpenAt(n, x, it)));
-  if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
-  h += `<div class="seg ptabs">${tabs.map(([t, q]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${q.icon} ${q.name}</button>`).join("")}</div><div class="card">`;
-  if (prodTab === "water") { const R = W.regions[x.r], nat = Math.floor(waterNat(x)), sup = Math.floor(waterSupply(n, x));
-    h += `<p class="small muted">${RIVERS.has(R.n) ? "A great river runs through this land" : `${TER[R.t] ? TER[R.t].name : R.t} land`}: streams, springs and rain give water for about ${nat} families${dry(x) ? ", less in summer" : ""}. With your water carriers and what you've built, ${esc(x.name)} has water for ${sup} of its ${Math.round(x.pop)} families. Wider borders reach more water.</p>`; }
-  for (const it of all.filter(q => q.tab === prodTab && itemOpenAt(n, x, q))) {
-    const queued = x.pq.filter(q => q === it.id).length, time = seasonsTxt(it.hours / H);
-    if (it.repeat) { const dem = needAt(n, x, it.id), have = builtAt(x, it.id), short = Math.max(0, dem - have); if (!dem && !have) continue; /* doesn't apply here */
-      h += `<details class="need pcol" data-pk="i:${it.id}" ${prodOpen.has("i:" + it.id) ? "open" : ""}><summary><span>${it.icon} <b>${it.name}</b>${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</span><b class="${short ? (it.opt ? "muted" : "bad") : "good"}">${fmtP(Math.min(have, dem))} / ${fmtP(dem)}${queued ? ` <small class="muted">+${queued}</small>` : ""}</b></summary><div class="bar"><i style="width:${dem ? Math.min(100, have / dem * 100) : 100}%;background:${short ? "var(--warn)" : "var(--good)"}"></i></div>
-        <p class="small muted">${esc(it.d)} ${short ? (it.opt ? `Not needed, but worth having: ${fmtP(short)} more would help here.` : `<b class="bad">${fmtP(short)} short here.</b>`) : "Enough here for now."} One takes ${time}.${queued ? ` ${queued} queued.` : ""}</p>
-        ${short > queued ? `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>Build one ${it.one}</button>` : ""}</details>`; }
-    else { const done = P0.done[it.id], queuedAny = setsOf(n).some(y => y.pq && y.pq.includes(it.id));
-      h += `<details class="need pcol" data-pk="i:${it.id}" ${prodOpen.has("i:" + it.id) ? "open" : ""}><summary><span>${it.icon} <b>${esc(it.name)}</b></span><b>${done ? '<span class="good">✓ Built</span>' : queuedAny ? "Queued" : `<span class="cm">🪵${it.mat}</span>`}</b></summary><p class="small muted">${esc(it.d)}${done || queuedAny ? "" : ` Takes ${time} here.`}</p>
-        ${done || queuedAny ? "" : `<button class="btn small" data-act="pbuild" data-k="${it.id}" ${n.mat >= it.mat && x.pq.length < 8 ? "" : "disabled"}>Build it in ${esc(x.name)}</button>`}</details>`; }
-  }
-  return h + `</div>`;
+  return h;
 }
 function panelDevelop() {
   if (tribal(P()) && !resOpen(P())) return panelProduction(P());
@@ -3915,6 +3927,7 @@ panel.addEventListener("click", e => {
     case "assim": n.laws.assim = b.dataset.k; refresh(); break;
     case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
+    case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
     case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } x.pq.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
     case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, id = x.pq[i], it = itemOf(id); x.pq.splice(i, 1); if (i === 0) x.qp = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
     case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
