@@ -3128,10 +3128,9 @@ function draw() {
     ctx.font = `700 ${fs}px Nunito, system-ui, sans-serif`;
     for (const s of W.regions) {
       if ((s.ls * k < 20 && k < 6) || fogged(s.i)) continue;
-      ctx.lineWidth = 3 / k; ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.fillStyle = "rgba(29,42,77,.75)";
-      ctx.strokeText(s.n, s.lx, s.ly); ctx.fillText(s.n, s.lx, s.ly);
+      screenText(s.n, s.lx, s.ly, k, "700 11px Nunito, system-ui, sans-serif", 3, "rgba(255,255,255,.85)", "rgba(29,42,77,.75)");
       const bits = (consOf(me, s.i) ? "🔨" : "") + (s.r && k > 3 ? RES[s.r].icon : "");
-      if (bits) { ctx.font = `${fs * 1.05}px system-ui, sans-serif`; ctx.fillText(bits, s.lx, s.ly + fs * 1.25); ctx.font = `700 ${fs}px Nunito, system-ui, sans-serif`; }
+      if (bits) screenText(bits, s.lx, s.ly + fs * 1.25, k, "11.5px system-ui, sans-serif", 0, null, "#000");
     }
   }
   // settlements: drawn at true map scale, so you zoom in to see their shapes
@@ -3161,6 +3160,8 @@ function shapePath(t, x, y, z) {
   else if (t === 1) { if (ctx.roundRect) ctx.roundRect(x - z, y - z, z * 2, z * 2, z * .32); else ctx.rect(x - z, y - z, z * 2, z * 2); }
   else { const h = z * 1.05; ctx.moveTo(x, y - h); ctx.lineTo(x + h * .95, y + h * .62); ctx.lineTo(x - h * .95, y + h * .62); ctx.closePath(); }
 }
+/* text is drawn at screen size: tiny map-unit fonts smear into blobs when zoomed far in */
+function screenText(txt, x, y, k, font, lw, stroke, fill) { ctx.save(); ctx.translate(x, y); ctx.scale(1 / k, 1 / k); ctx.font = font; if (lw) { ctx.lineWidth = lw; ctx.strokeStyle = stroke; ctx.strokeText(txt, 0, 0); } ctx.fillStyle = fill; ctx.fillText(txt, 0, 0); ctx.restore(); }
 function drawSettlements(k, me) {
   const x0 = -view.x / k - 1, y0 = -view.y / k - 1, x1 = (cw - view.x) / k + 1, y1 = (ch - view.y) / k + 1;
   ctx.lineJoin = "round";
@@ -3193,10 +3194,8 @@ function drawSettlements(k, me) {
       const txt = `${s.name} · ${fmt(s.pop)}`, w = txt.length * 6.2, lx = sx - w / 2, ly = sy + px * 1.3 + 2;
       if (labels.some(b => lx < b[2] && lx + w > b[0] && ly < b[3] && ly + 13 > b[1])) continue;
       labels.push([lx, ly, lx + w, ly + 13]);
-      const fs = 11 / k;
-      ctx.font = `800 ${fs}px Nunito, system-ui, sans-serif`; ctx.lineWidth = fs * .3; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.fillStyle = "#1d2a4d";
-      const ty = s.y + z * 1.3 + fs * .7;
-      ctx.strokeText(txt, s.x, ty); ctx.fillText(txt, s.x, ty);
+      const fs = 11 / k, ty = s.y + (big ? footR0(s) * 1.6 : z * 1.3) + fs * .7;
+      screenText(txt, s.x, ty, k, "800 11px Nunito, system-ui, sans-serif", 3.3, "rgba(255,255,255,.9)", "#1d2a4d");
     }
   }
 }
