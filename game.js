@@ -3174,21 +3174,21 @@ function drawSettlements(k, me) {
     return true; };
   for (const s of vis) {
     const t = s.t, n = G.nations[s.o], px = clamp((s.h || .05) * k * .14, 1.4, 4.5 + t * 1.8), z = px / k;
-    if (footR0(s) * k > 7) { const fp = new Path2D(); smoothPoly(fp, blobPts(s.x, s.y, footR0(s), s.id + 7).map(([qx, qy]) => { const g = 1 + hgAt(s, Math.atan2(qy - s.y, qx - s.x)); return [s.x + (qx - s.x) * g, s.y + (qy - s.y) * g]; }));
-      ctx.save(); ctx.globalAlpha = .45; ctx.fillStyle = shade(n.color, -.15); ctx.fill(fp); ctx.globalAlpha = .7; ctx.lineWidth = 1.5 / k; ctx.strokeStyle = shade(n.color, -.4); ctx.stroke(fp); ctx.restore(); }
     const sx = s.x * k + view.x, sy = s.y * k + view.y, rr = px * (t === 2 ? 1.15 : 1);
     if (!free(sx, sy, rr)) continue;
     const key = cell(sx, sy); (taken.get(key) || taken.set(key, []).get(key)).push([sx, sy, rr]);
     if (px < 2.4) { ctx.fillStyle = shade(n.color, -.45); ctx.beginPath(); ctx.arc(s.x, s.y, z, 0, Math.PI * 2); ctx.fill(); continue; }
-    const base = shade(n.color, .62);
-    shapePath(t, s.x, s.y + z * .22, z); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
-    shapePath(t, s.x, s.y, z);
-    const g = ctx.createLinearGradient(s.x, s.y - z, s.x, s.y + z);
+    const base = shade(n.color, .62), big = footR0(s) * k > px; /* zoomed in, the village is drawn at its true size, spreading as it gains huts */
+    const body = dy => { if (!big) { shapePath(t, s.x, s.y + dy, z); return; } const fp = blobPts(s.x, s.y, footR0(s), s.id + 7).map(([qx, qy]) => { const gr = 1 + hgAt(s, Math.atan2(qy - s.y, qx - s.x)); return [s.x + (qx - s.x) * gr, s.y + dy + (qy - s.y) * gr]; });
+      ctx.beginPath(); fp.forEach(([qx, qy], i) => { const [nx, ny] = fp[(i + 1) % fp.length], mx = (qx + nx) / 2, my = (qy + ny) / 2; if (!i) ctx.moveTo(mx, my); else ctx.quadraticCurveTo(qx, qy, mx, my); }); const [qx, qy] = fp[0], [nx, ny] = fp[1]; ctx.quadraticCurveTo(qx, qy, (qx + nx) / 2, (qy + ny) / 2); ctx.closePath(); };
+    body(z * .22); ctx.fillStyle = "rgba(20,30,60,.3)"; ctx.fill();
+    body(0);
+    const gz = big ? footR0(s) * 1.6 : z, g = ctx.createLinearGradient(s.x, s.y - gz, s.x, s.y + gz);
     g.addColorStop(0, shade(base, .5)); g.addColorStop(1, shade(base, -.1));
     ctx.fillStyle = g; ctx.fill();
-    ctx.lineWidth = z * .22; ctx.strokeStyle = shade(n.color, -.45); ctx.stroke();
+    ctx.lineWidth = big ? 2.2 / k : z * .22; ctx.strokeStyle = shade(n.color, -.45); ctx.stroke();
     if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = z * .12; ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
-    if (n.cap === s.id) { starPath(s.x + z * .95, s.y - z * .95, z * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = z * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
+    if (n.cap === s.id) { const sz = big ? Math.max(z, footR0(s) * .7) : z; starPath(s.x + sz * .95, s.y - sz * .95, sz * .62); ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = sz * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
     if ((s.h || .05) * k > (t >= 1 ? 45 : 80)) {
       const txt = `${s.name} · ${fmt(s.pop)}`, w = txt.length * 6.2, lx = sx - w / 2, ly = sy + px * 1.3 + 2;
       if (labels.some(b => lx < b[2] && lx + w > b[0] && ly < b[3] && ly + 13 > b[1])) continue;
