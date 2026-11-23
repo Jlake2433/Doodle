@@ -3490,6 +3490,12 @@ function panelNation() {
   return h;
 }
 let prodTab = "housing", prodSet = null; const prodOpen = new Set(); // what you've expanded in Production (everything starts collapsed)
+/* why a building is worth it, in a line */
+const PWHY = { hut: "families without homes put up shacks, have fewer children and grow restless", hearth: "warmth and gatherings suffer without fires", hides: "without clothes, more die in the winter cold",
+  refuse: "without them, sickness spreads", circle: "families have nowhere to gather and grow unhappy", lodge: "healing heat keeps sickness down", field: "farmers without a plot barely grow anything", cistern: "families are short of water", water: "families are short of water", aqueduct: "families are short of water",
+  rack: "dried meat and fish: more food", canoe: "more fish, and boats to cross narrow water", traps: "hunters bring in up to 25% more", weir: "fishers bring in up to 30% more", smoke: "lean winters become much less lean", pens: "farmers and herders bring in up to 20% more",
+  knap: "+10% materials and faster builders here", kiln: "+10% materials", loom: "warmer, prouder families", bath: "healthier families", art: "families gather here and are happier", burial: "the elders and families are comforted",
+  ditch: "a little harder to raid", watch: "raiders are seen coming, and scouts see further", palisade: "much harder to raid or conquer", post: "other peoples trust you sooner and trade more willingly", shrine: "the elders are pleased and lore grows", pit: "famine kills far fewer", shop: "toolmakers work faster: more materials" };
 function panelProduction(n) {
   const P0 = prodState(n), sets = setsOf(n).slice().sort((a, b) => b.t - a.t || b.pop - a.pop);
   let x = setById(prodSet); if (!x || x.o !== n.id) { x = setById(n.cap) || sets[0]; prodSet = x ? x.id : null; }
@@ -3516,11 +3522,16 @@ function panelProduction(n) {
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => itemOpenAt(n, x, it));
   const info = it => { if (!it.repeat) return null; const dem = needAt(n, x, it.id), have = builtAt(x, it.id), q = x.pq.filter(z => z === it.id).length; return { dem, have, q, short: Math.max(0, dem - have - q) }; };
   { const sug = all.filter(it => it.repeat).map(it => ({ it, i: info(it) })).filter(o => o.i.short > 0 && (!o.it.opt || o.it.hours / H <= 12)).map(o => ({ ...o, sc: (o.it.opt ? .35 : 1) * o.i.short / Math.max(1, o.i.dem) + (o.it.id === "hut" ? .2 : 0) })).sort((a, b) => b.sc - a.sc).slice(0, 3);
-    if (sug.length) h += `<h5 class="psec">✨ Suggested next</h5><div class="psug">${sug.map(o => `<button class="btn small ${o.it.opt ? "ghost" : ""}" data-act="pbuild" data-k="${o.it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>+ ${o.it.icon} ${esc(capW(o.it.one))}<small>${seasonsTxt(o.it.hours / H)}</small></button>`).join("")}</div>`; }
+    const why = o => { const it = o.it, I = o.i, w = PWHY[it.id] || it.d; if (it.id === "hut") return `${fmtP(I.short)} famil${I.short === 1 ? "y has" : "ies have"} no hut${I.have >= x.pop ? " coming soon as the village grows" : ""}: ${w}.`;
+      return it.opt ? `Not needed, but ${w}.` : `${fmtP(I.short)} short for ${fmtP(x.pop)} families: ${w}.`; };
+    if (sug.length) h += `<h5 class="psec">✨ Suggested next</h5><div class="psug">${sug.map(o => `<div class="psr"><button class="btn small ${o.it.opt ? "ghost" : ""}" data-act="pbuild" data-k="${o.it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>+ ${o.it.icon} ${esc(capW(o.it.one))}<small>${seasonsTxt(o.it.hours / H)}</small></button><p class="small muted">${capW(why(o))}</p></div>`).join("")}</div>`; }
   /* everything, by kind */
-  for (const [t, q] of Object.entries(PROD_TABS)) {
-    const items = all.filter(it => it.tab === t && (!it.repeat || (info(it).dem || info(it).have))); if (!items.length) continue;
-    h += `<h5 class="psec">${q.icon} ${q.name}</h5>`;
+  const shown = it => !it.repeat || info(it).dem || info(it).have, tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && shown(it)));
+  if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
+  const shortIn = t => all.some(it => it.tab === t && it.repeat && !it.opt && info(it).short > 0);
+  h += `<div class="ptabs2">${tabs.map(([t, q]) => `<button class="${t === prodTab ? "on" : ""}" data-act="ptab" data-k="${t}">${q.icon} ${q.name}${shortIn(t) ? ' <i class="dot"></i>' : ""}</button>`).join("")}</div>`;
+  for (const [t, q] of tabs.filter(([t]) => t === prodTab)) {
+    const items = all.filter(it => it.tab === t && shown(it));
     if (t === "water") { const R = W.regions[x.r]; h += `<p class="small muted">${RIVERS.has(R.n) ? "A great river runs through this land" : `${TER[R.t] ? TER[R.t].name : R.t} land`}: water for about ${Math.floor(waterNat(x))} families${dry(x) ? ", less in summer" : ""}. With carriers and what's built, ${Math.floor(waterSupply(n, x))} of ${Math.round(x.pop)} families have water.</p>`; }
     h += `<div class="pgrid">`;
     for (const it of items) { const open = prodOpen.has("i:" + it.id);
