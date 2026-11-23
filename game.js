@@ -2466,8 +2466,7 @@ function aiTurn(n) {
   if (has(n, "currency") && n.pers === "trader") n.laws.trade = "free";
   if (has(n, "steam")) n.laws.labor = n.stab < 45 ? "rights" : "unreg";
   if (has(n, "printing") && !n.laws.press) n.laws.press = "cens";
-  if (n.era === 0 && sets.length < 4) n.laws.focus = "grow";
-  else if (n.pers === "aggressive" && has(n, "bronze")) n.laws.focus = "mil";
+  if (n.pers === "aggressive" && has(n, "bronze")) n.laws.focus = "mil";
   else if (n.pers === "builder" && has(n, "guilds")) n.laws.focus = "ind";
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
