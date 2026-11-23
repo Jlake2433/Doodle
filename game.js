@@ -111,6 +111,20 @@ const TECHS = [
   ["stockade", 0, "Stockades", "Walls of sharpened logs: palisades can be built."],
   ["trade", 0, "Gift exchange", "Gifts open doors with strangers: a trading post can be built once you meet another people."],
   ["calendar", 0, "Watching the seasons", "The moons and stars tell when to sow and gather: farmers and foragers do better."],
+  ["ochre", 0, "Ochre and dyes", "Red and yellow earth for body paint and decoration: a small source of pride."],
+  ["drums", 0, "Drums and dance", "Gatherings come alive: families gather more happily."],
+  ["glue", 0, "Birch tar glue", "Boiled bark glue holds blades to hafts: each toolmaker's tools go further."],
+  ["sledges", 0, "Sledges and drag-poles", "Heavy loads drag easily: builders work faster."],
+  ["wattle", 0, "Wattle and daub", "Woven walls plastered with mud: buildings need less upkeep."],
+  ["burning", 0, "Controlled burning", "Fire clears old growth for new shoots and game: foragers and hunters do better."],
+  ["midwifery", 0, "Midwifery", "Wise women see mothers and babies through birth: a little more fertile."],
+  ["signs", 0, "Trail signs", "Blazes and cairns mark the way: scouts see further."],
+  ["stars", 0, "Star lore", "Night after night the elders watch the sky: their talks go faster."],
+  ["salt", 0, "Salt", "Salt keeps meat and fish: a little more food."],
+  ["grinding", 0, "Grinding stones", "Seeds and nuts ground into flour: foragers do better."],
+  ["waterskins", 0, "Water skins", "Stitched hides carry more water: each water carrier supplies more families."],
+  ["flutes", 0, "Bone flutes", "Music around the fire: a small joy for the families."],
+  ["brewing", 0, "Brewing", "Fermented honey and grain: feasts are merrier."],
   ["nation", 0, "Who are we?", "The elders speak of the peoples beyond the hills, and of what binds this tribe together: a people, perhaps one day a nation."],
   ["bronze", 1, "Bronze Working", "Barracks. Armies need copper."],
   ["writing", 1, "Writing", "Libraries and the Science focus."],
@@ -157,11 +171,13 @@ const TECH = Object.fromEntries(TECHS.map(t => [t.id, t]));
 TECHS.forEach(t => { const k = TECHS.filter(x => x.era === t.era).indexOf(t); t.cost = Math.round(TECH_BASE[t.era] * (1 + 0.1 * k)); });
 TECH.mars.cost = 60000;
 /* the Stone Age: many small matters for the elders to settle, each cheap; settling 85% of them brings the next age */
+const STONE_C0 = .2, STONE_C1 = .4; /* lore each talk takes, from the first to the last */
 const STONE_REQ = { stonetools: [], fire: [], rope: [], snares: [], dogs: [], spear: ["stonetools"], stories: ["fire"], herbs: [], sewing: ["stonetools"], fishing: ["rope"], smoking: ["fire"], burial: ["stories"],
   boats: ["stonetools", "fishing"], counting: ["stories"], weaving: ["rope"], bow: ["spear", "rope"], stockade: ["rope"], trade: ["stories"], calendar: ["counting"], pottery: ["fire"], mining: ["stonetools"],
-  agriculture: ["herbs"], husbandry: ["dogs"], mysticism: ["stories"], tribal: ["counting"], nation: ["tribal", "mysticism"] };
-const STONE_ORDER = ["fire", "stonetools", "rope", "snares", "dogs", "herbs", "stories", "spear", "sewing", "smoking", "fishing", "burial", "pottery", "counting", "weaving", "mysticism", "boats", "agriculture", "husbandry", "bow", "stockade", "trade", "mining", "calendar", "tribal", "nation"];
-STONE_ORDER.forEach((id, i) => { TECH[id].cost = Math.round((.45 + 1.1 * i / (STONE_ORDER.length - 1)) * 100) / 100; });
+  agriculture: ["herbs"], ochre: ["fire"], drums: ["stories"], glue: ["fire", "stonetools"], sledges: ["rope"], wattle: ["weaving"], burning: ["fire"], midwifery: ["herbs"], signs: ["stories"],
+  stars: ["counting"], salt: ["smoking"], grinding: ["stonetools"], waterskins: ["sewing"], flutes: ["stories"], brewing: ["pottery"], husbandry: ["dogs"], mysticism: ["stories"], tribal: ["counting"], nation: ["tribal", "mysticism"] };
+const STONE_ORDER = ["fire", "stonetools", "rope", "snares", "ochre", "dogs", "herbs", "burning", "stories", "grinding", "spear", "glue", "sewing", "drums", "smoking", "flutes", "fishing", "burial", "signs", "sledges", "midwifery", "pottery", "salt", "waterskins", "counting", "weaving", "mysticism", "boats", "brewing", "wattle", "agriculture", "husbandry", "stars", "bow", "stockade", "trade", "mining", "calendar", "tribal", "nation"];
+STONE_ORDER.forEach((id, i) => { TECH[id].cost = Math.round((STONE_C0 + STONE_C1 * i / (STONE_ORDER.length - 1)) * 1000) / 1000; });
 const STONE_DESC = { agriculture: "Some seeds, pushed into the earth, come back as food: farmers & herders, farm plots and storage pits.", husbandry: "Young animals raised by the fire follow us: herds to keep, and animal pens.",
   pottery: "River clay hardens in the fire: pots that keep grain dry, cisterns and kilns.", mining: "Some stones can be dug from the hills, and water from deep below: wells.",
   mysticism: "The elders agree on the spirits of sky, river and ancestors, and the rites to honor them: healers, shrines and sweat lodges.", tribal: "Disputes are settled by custom, not by the strongest arm. The tribe has laws now." };
@@ -1376,7 +1392,7 @@ const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 +
 /* toolmakers and healers: each tribe needs a few, more as it grows */
 const pct5 = v => Math.max(5, Math.round(v * 20) * 5);
 const toolNeed = n => .04 + Math.min(.06, popOf(n) / 2500);
-const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) / toolNeed(n)));
+const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) * (has(n, "glue") ? 1.1 : 1) / toolNeed(n)));
 const toolF = (n, k = .2) => tribal(n) ? 1 - k + k * toolCov(n) / 1 : 1; /* 1 - k with no tools, up to 1 + .2k with plenty */
 const healNeed = n => .03 + Math.min(.04, popOf(n) / 3000);
 const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) / healNeed(n)));
@@ -1541,7 +1557,7 @@ function waterInfra(x, worst) { let s = waterNat(x, worst); for (const k of ["ci
 /* your carriers go where water is short: their total haul is shared out by each place's shortfall */
 function carrierHaul(n) { const k = G.turn + ":" + G.sv + ":" + (timeOf(n).water || 0); if (n._wh && n._wh.k === k) return n._wh.m;
   const m = new Map(), ss = setsOf(n); let tot = 0, def = 0; for (const x of ss) { tot += x.pop; def += Math.max(0, x.pop - waterInfra(x)); }
-  const haul = tot * timeShare(n, "water") * 6; for (const x of ss) { const d = Math.max(0, x.pop - waterInfra(x)); m.set(x.id, def > 0 ? haul * d / def : 0); }
+  const haul = tot * timeShare(n, "water") * (has(n, "waterskins") ? 7 : 6); for (const x of ss) { const d = Math.max(0, x.pop - waterInfra(x)); m.set(x.id, def > 0 ? haul * d / def : 0); }
   n._wh = { k, m }; return m; }
 function waterSupply(n, x) { sb(x); return waterInfra(x) + (tribal(n) ? carrierHaul(n).get(x.id) || 0 : 0); } /* nature and what you've built, plus what your carriers bring */
 function carriersNeeded(n) { let d = 0, P0 = 0; for (const x of setsOf(n)) { sb(x); d += Math.max(0, x.pop * 1.08 - waterInfra(x, true)); P0 += x.pop; } /* enough for the driest season and a little growth */ return P0 ? clamp(Math.ceil(d / 6 / P0 * 20) * 5, 0, 60) : 0; } /* share, with room for a dry summer */
@@ -1556,7 +1572,7 @@ function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) ret
 function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
   for (const a in AMEN) { if (a === "warmth" && !warm) { r[a] = 1; continue; } /* a hot land needs no warmth */
     const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; if (a === "warmth") r[a] = Math.min(1, r[a] + .2 * (covAt(n, x, "loom") || 0) + (has(n, "sewing") ? .1 : 0)) * (.3 + .7 * fireCov(n)); /* no wood, no fire; woven cloth helps */
-      if (a === "health") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "bath") || 0)); if (a === "joy") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "art") || 0)); t += r[a]; c++; }
+      if (a === "health") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "bath") || 0)); if (a === "joy") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "art") || 0) + (has(n, "drums") ? .05 : 0)); t += r[a]; c++; }
   r.all = c ? t / c : 1; return r; }
 function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
   for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
@@ -1565,13 +1581,13 @@ let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over
 function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
 function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
-const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1);
+const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1) * (has(n, "sledges") ? 1.05 : 1);
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
 const MAT_H = 6e-4; /* materials used per builder-day of building or upkeep */
 function upkeepAt(n, x) { let h = 0; const sz = clamp(x.pop / 150, .2, 1); /* a small camp's families patch their own huts; upkeep grows as places grow */ for (const k in x.b || {}) if (STRUCTS[k]) h += x.b[k] * STRUCTS[k].hours * .04; h += (x.exp || 0) * 15 * (1 + x.t);
-  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .02; return h * sz; }
+  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .02; return h * sz * (has(n, "wattle") ? .8 : 1); }
 function workProjects(n) { // each settlement's builders work through its own queue, one thing at a time
   if (!tribal(n)) return; const P0 = prodState(n);
   for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x), guard = 0;
@@ -1726,10 +1742,10 @@ function econ(n) {
     { const q = Math.floor((G.month || 0) / 3), cN = coldNation(n), fo = timeShare(n, "forage"), fi = timeShare(n, "fish");
       const cal = has(n, "calendar") ? 1.05 : 1, plants = [1 - .6 * cN + (q === 0 ? .4 * structCov(n, "smoke") * cN : 0), 1, 1.15, 1.25][q], pRoom = Math.min(1, room / Math.max(.2, fo * 2.5)); /* foragers strip the land too, but less than hunters */
       const winterEase = q === 0 ? .25 * structCov(n, "smoke") * cN : 0; /* smoked stores soften the winter */
-      const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")) * (1 + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .1 : 0) + (has(n, "dogs") ? .05 : 0)), gT = 1.0 * fo * plants * pRoom * cal, sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (has(n, "fishing") ? 1.15 : 1) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
+      const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")) * (1 + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .1 : 0) + (has(n, "dogs") ? .05 : 0) + (has(n, "burning") ? .03 : 0)), gT = 1.0 * fo * plants * pRoom * cal * (1 + (has(n, "burning") ? .05 : 0) + (has(n, "grinding") ? .05 : 0)), sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (has(n, "fishing") ? 1.15 : 1) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
       const fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1) * (1 + .2 * structCov(n, "pens")) * cal; /* farmers without plots scratch out small gardens; herds add meat and milk */
-      const tf = toolF(n); n._noHuntR = (.6 + (fT + sT) * tf) / (.6 + (hT + gT + fT + sT) * tf); food *= .6 + (hT + gT + fT + sT) * tf; } /* better tools, better hauls */
-    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1); } // who does what in the tribe
+      const tf = toolF(n); n._noHuntR = (.6 + (fT + sT) * tf) / (.6 + (hT + gT + fT + sT) * tf); food *= (.6 + (hT + gT + fT + sT) * tf) * (has(n, "salt") ? 1.03 : 1); } /* better tools, better hauls */
+    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1) * (has(n, "stars") ? 1.05 : 1); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= (1 + .2 * structCov(n, "shop")) * (1 + .1 * structCov(n, "knap")) * (1 + .1 * (has(n, "pottery") ? structCov(n, "kiln") : 0)); sci *= 1 + .1 * structCov(n, "shrine"); }
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
@@ -1863,7 +1879,8 @@ function facTargets(n, E) {
       { const bu = structCov(n, "burial"), ar = structCov(n, "art"), lo = has(n, "agriculture") ? structCov(n, "loom") : 0;
         if (bu > .05) { add("elders", Math.round(4 * bu), "Burial grounds"); add("commoners", Math.round(2 * bu), "The dead are honored"); }
         if (ar > .05) add("commoners", Math.round(2 * ar), "Painted rocks"); if (lo > .05) add("commoners", Math.round(2 * lo), "Woven cloth");
-        if (projDone(n, "mound")) { add("elders", 8, "Ancestral mound"); add("commoners", 3, "Ancestral mound"); } }
+        if (projDone(n, "mound")) { add("elders", 8, "Ancestral mound"); add("commoners", 3, "Ancestral mound"); }
+        { const sm = (has(n, "ochre") ? 1 : 0) + (has(n, "flutes") ? 1 : 0) + (has(n, "brewing") ? 2 : 0); if (sm) add("commoners", sm, "Little joys: paint, music, brew"); } }
       { const wc = waterOf(n); if (wc < .98) add("commoners", -Math.round(28 * (1 - wc) + 2), "Not enough water"); }
       { const am = amenOf(n); if (am.all < .95) add("commoners", -Math.round(16 * (1 - am.all)), "Lacking comforts"); else add("commoners", 2, "Comfortable lives"); }
       { const hm = homeShares(n), soft = 1 - .5 * trv(n, "res") / 100; if (hm.shk > .005) add("commoners", -Math.round(26 * hm.shk * soft), "Families living in shacks"); if (hm.none > .005) add("commoners", -Math.round(35 * hm.none * soft), "Families with no roof"); } }
@@ -1933,7 +1950,7 @@ function updateExplore() {
     for (const d of G.fog.slice().sort((a, b) => b.r - a.r)) if (!keep.some(k => Math.hypot(k.x - d.x, k.y - d.y) + d.r <= k.r + .003)) keep.push(d);
     G.fog = keep; }
   if (has(n, "flight")) { G.fogAll = true; G.exp.fill(1); return; }
-  const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1) * (tribal(n) && setsOf(n).some(x => builtAt(x, "watch")) ? 1.15 : 1);
+  const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1) * (tribal(n) && setsOf(n).some(x => builtAt(x, "watch")) ? 1.15 : 1) * (tribal(n) && has(n, "signs") ? 1.1 : 1);
   for (const s of setsOf(n)) addDisc(s.x, s.y, (s.h || .1) * 1.5 + sight * (1 + s.t * .6));
   // scouts walk out past the borders and map what they find, a few trips each season
   { const sets = setsOf(n), scouts = tribal(n) ? popOf(n) * timeShare(n, "scout") : popOf(n) * .002 * (bud(n).travel || 0);
@@ -1985,6 +2002,7 @@ function fertility(n, E) {
   f.push(["Food", sr < 0 ? .5 : clamp(.85 + .15 * sr, .85, 1.3)]);
   f.push(["Homes", .4 + .6 * Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk)]);
   if (tribal(n) && roleOpen(n, "healer")) f.push(["Healers", 1 + .08 * healCov(n)]);
+  if (tribal(n) && has(n, "midwifery")) f.push(["Midwives", 1.04]);
   if (tribal(n)) { f.push(["Water", .4 + .6 * waterOf(n)]); f.push(["Comforts", .8 + .25 * amenOf(n).all]); }
   const room = roomOf(n); f.push([room < 1 ? "Crowded land" : "Room to roam", crowdF(room)]);
   const mood = n.fac && n.fac.commoners != null ? clamp(.85 + n.fac.commoners / 330, .85, 1.12) : 1; f.push(["Mood", mood]);
@@ -2109,7 +2127,7 @@ function processNation(n) {
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
       const r = (T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr))) * FERT.mult + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
-      const g = (s.pop * r + T.flat) * free * TD;
+      const g = (s.pop * r * (tribal(n) ? .4 : 1) + T.flat * (tribal(n) ? .5 : 1)) * free * TD; /* hunter-gatherer and early farming peoples grew slowly */
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
