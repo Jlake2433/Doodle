@@ -1408,7 +1408,10 @@ function elderTalks(n) {
 // ---- Stone Age projects: things your builders work on together, one at a time ----
 // ---- tribal production: builders put in hours each season. Your people need things in proportion to their numbers
 // (every family needs a hut), and you assign which needs the builders work on. Each population unit is a family ----
-const BUILDER_HOURS = 300; // hours a builder family puts in each season
+const BUILDER_HOURS = 25; // days of building a builder family puts in each season
+/* how many builder-days each thing takes: small things take a day or two, great works take years */
+const WORK_DAYS = { rack: 2, traps: 1, hearth: 1, hides: 2, refuse: 2, circle: 8, bath: 5, art: 4, burial: 6, loom: 4, smoke: 6, pens: 6, weir: 8, field: 5, pit: 5, canoe: 8, knap: 6, hut: 10, lodge: 10, cistern: 12, watch: 12, kiln: 15, shrine: 25, water: 30, post: 30, shop: 20, ditch: 40, palisade: 120,
+  hall: 150, granary: 120, market: 120, rampart: 300, temple: 600, aqueduct: 800, trails: 200, longhouse: 600, mound: 1500, stones: 2000 };
 const STRUCTS = {
   hut:      { tab: "housing", name: "Huts", one: "hut", icon: "🛖", hours: 2400, d: "Every family needs a home. Families without one have fewer children and grow restless." },
   pit:      { tab: "food", tech: "agriculture", name: "Storage pits", one: "storage pit", icon: "🏺", hours: 3600, d: "One for every 8 families. Food kept for lean times: famine kills far fewer." },
@@ -1451,6 +1454,7 @@ const GREAT = [
   { id: "mound", tab: "spirit", tech: "mysticism", name: "Ancestral mound", icon: "⛰️", hours: 90000, mat: 6, d: "A great earthen mound over the honored dead. The elders and the families are proud of it, and your people grow more devout." },
   { id: "stones", tab: "spirit", tech: "tribal", name: "Stone circle", icon: "🗿", hours: 150000, mat: 20, d: "A ring of standing stones where the elders meet. Elder talks go 20% faster, and the elders are pleased." },
 ];
+for (const k in WORK_DAYS) { if (STRUCTS[k]) STRUCTS[k].hours = WORK_DAYS[k]; const g = GREAT.find(q => q.id === k); if (g) g.hours = WORK_DAYS[k]; }
 const PROD_TABS = { housing: { name: "Housing", icon: "🛖" }, water: { name: "Water", icon: "💧" }, food: { name: "Food", icon: "🍖" }, amen: { name: "Amenities", icon: "🪘" }, crafts: { name: "Crafts", icon: "🪓" }, spirit: { name: "Spirit", icon: "🔥" }, defense: { name: "Defense", icon: "🪵" }, travel: { name: "Travel", icon: "🥾" } };
 const itemOf = id => STRUCTS[id] ? Object.assign({ id, repeat: true }, STRUCTS[id]) : GREAT.find(g => g.id === id);
 const itemOpen = (n, it) => it && (!it.tech || has(n, it.tech)) && (!it.coastal || coastal(n)) && (!it.when || it.when(n));
@@ -1534,27 +1538,29 @@ const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0)
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
 const itemOpenAt = (n, x, it) => itemOpen(n, it) && (!it.tier || x.t >= it.tier) && (!it.coastal || onCoast(x)) && (!it.water || onWater(x));
 /* upkeep: everything built, and every stretch of claimed border, needs builders' time and materials to keep standing */
-const MAT_H = 2.5e-6; /* materials used per hour of building or upkeep */
-function upkeepAt(n, x) { let h = 0; const sz = clamp(x.pop / 150, .2, 1); /* a small camp's families patch their own huts; upkeep grows as places grow */ for (const k in x.b || {}) if (STRUCTS[k]) h += x.b[k] * STRUCTS[k].hours * .004; h += (x.exp || 0) * 900 * (1 + x.t);
-  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .004; return h * sz; }
+const MAT_H = 6e-4; /* materials used per builder-day of building or upkeep */
+function upkeepAt(n, x) { let h = 0; const sz = clamp(x.pop / 150, .2, 1); /* a small camp's families patch their own huts; upkeep grows as places grow */ for (const k in x.b || {}) if (STRUCTS[k]) h += x.b[k] * STRUCTS[k].hours * .04; h += (x.exp || 0) * 15 * (1 + x.t);
+  if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .02; return h * sz; }
 function workProjects(n) { // each settlement's builders work through its own queue, one thing at a time
   if (!tribal(n)) return; const P0 = prodState(n);
   for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x), guard = 0;
     /* upkeep comes first: builders' time, and materials from your stores */
-    { const up = upkeepAt(n, x), hU = Math.min(hrs, up), mN = hU * MAT_H, mU = Math.min(Math.max(0, n.mat), mN); n.mat -= mU; hrs -= hU;
+    { const up = upkeepAt(n, x), hU = Math.min(hrs, up), mN = hU * MAT_H * .3, /* repairs use a third of the materials new building does */ mU = Math.min(Math.max(0, n.mat), mN); n.mat -= mU; hrs -= hU;
       const cov = up > 0 ? (hU / up) * (mN > 0 ? mU / mN : 1) : 1; x.upCov = cov; x.upShare = builderHoursAt(n, x) > 0 ? Math.min(1, up / builderHoursAt(n, x)) : (up > 0 ? 1 : 0);
       x.cond = clamp((x.cond == null ? 100 : x.cond) + (cov >= .999 ? 3 : -(1 - cov) * 10), 0, 100);
       if (x.cond < 35) decay(n, x); }
     x.waitMat = false;
-    while (hrs > 0 && x.pq.length && guard++ < 12) {
-      const it = itemOf(x.pq[0]); if (!it || (!it.repeat && P0.done[it.id])) { x.pq.shift(); x.qp = 0; continue; }
-      if (n.mat <= 0) { x.waitMat = true; break; } /* no materials, no building */
-      const use = Math.min(it.hours - x.qp, hrs, Math.max(0, n.mat) / MAT_H); x.qp += use; hrs -= use; n.mat -= use * MAT_H; if (use <= 0) break;
-      if (x.qp >= it.hours - 1e-6) { x.pq.shift(); x.qp = 0;
-        if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; }
-        else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); }
-        if (it.repeat && it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); } } }
-}
+    /* builders finish everything that fits this season, in order; a big job that doesn't fit soaks up whatever time is left over */
+    const fin = it => { if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; if (it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); }
+      else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); } };
+    for (let i = 0; i < x.pq.length && hrs > 1e-9 && guard++ < 200;) {
+      const it = itemOf(x.pq[i]); if (!it || (!it.repeat && P0.done[it.id])) { x.pq.splice(i, 1); continue; }
+      const prog = x.qpId === it.id && x.pq.indexOf(it.id) === i ? x.qp : 0, need = it.hours - prog;
+      if (n.mat < need * MAT_H) { x.waitMat = true; break; } /* no materials, no building */
+      if (need <= hrs + 1e-9) { hrs -= need; n.mat -= need * MAT_H; x.pq.splice(i, 1); if (prog) { x.qp = 0; x.qpId = null; } fin(it); continue; }
+      i++; }
+    if (hrs > 1e-9 && x.pq.length && !x.waitMat) { const id = x.qpId && x.pq.includes(x.qpId) ? x.qpId : x.pq[0], it = itemOf(id), use = Math.min(hrs, Math.max(0, n.mat) / MAT_H);
+      if (x.qpId !== id) { x.qpId = id; x.qp = 0; } x.qp = Math.min(it.hours - 1e-6, x.qp + use); n.mat -= use * MAT_H; } } }
 /* neglected places fall apart: buildings collapse and must be rebuilt, and claimed borders slip away */
 function decay(n, x) { const sev = (35 - x.cond) / 35, kinds = Object.keys(x.b).filter(k => STRUCTS[k] && x.b[k] > 0), tot = kinds.reduce((a, k) => a + x.b[k], 0);
   let k0 = tot * sev * .04; const lost = {};
@@ -1565,7 +1571,8 @@ function decay(n, x) { const sev = (35 - x.cond) / 35, kinds = Object.keys(x.b).
   const at = n.alertT || (n.alertT = {}), key = "decay" + x.id, txt = `${Object.entries(lost).map(([k, v]) => `${v} ${v === 1 ? STRUCTS[k].one : STRUCTS[k].name.toLowerCase()}`).join(", ")}${Object.keys(lost).length ? " collapsed" : ""}${shrank ? `${Object.keys(lost).length ? ", and" : ""} the borders shrank back` : ""}`;
   if (at[key] > G.turn - TPY) { log(`In ${x.name}, ${txt}.`, "🏚️"); return; } at[key] = G.turn;
   (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🏚️", title: `${x.name} is falling apart`, text: `With too little upkeep, ${txt}. Give your builders the time and the materials to keep things standing (more builders, or more wood & stone gatherers), then rebuild what was lost.` }); }
-const seasonsTxt = q => q < 1 ? "less than a season" : q <= 8 ? `about ${Math.ceil(q)} season${Math.ceil(q) === 1 ? "" : "s"}` : `about ${Math.round(q / 4)} years`;
+const QCAP = 60; /* things waiting in a settlement's queue */
+const seasonsTxt = q => q <= 1 ? "this season" : q < 1 ? "less than a season" : q <= 8 ? `about ${Math.ceil(q)} season${Math.ceil(q) === 1 ? "" : "s"}` : `about ${Math.round(q / 4)} years`;
 // ---- expanding borders: a settlement can claim a little more land, but it must be guarded ----
 const EXP_MAX = 2;
 const garrisonNeed = n => setsOf(n).reduce((a, x) => a + (x.exp || 0) * (1 + x.t), 0);
@@ -2416,9 +2423,11 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const P0 = prodState(n);
-    for (const x of setsOf(n)) { sb(x); if (x.pq.length >= 2) continue; let best = null, bs = 0;
+    for (const x of setsOf(n)) { sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 1.2); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
+     for (let tries = 0; tries < 12 && qd < cap; tries++) { let best = null, bs = 0;
       for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = (1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d) * (STRUCTS[k].opt ? .35 : 1); if (sh > bs) { bs = sh; best = k; } } /* needs before nice-to-haves */
-      if (best) x.pq.push(best);
+      if (best) { x.pq.push(best); qd += STRUCTS[best].hours; } else break; }
+      if (x.pq.length) continue;
       else if (x.id === n.cap) { const g = GREAT.find(q => !P0.done[q.id] && itemOpen(n, q) && n.mat >= q.mat && !x.pq.includes(q.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; x.pq.push(g.id); } } }
     const nearRival = setsOf(n).some(x => nearSets(x.x, x.y, 5).some(o => o.o !== n.id));
     if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
@@ -3514,17 +3523,23 @@ function panelProduction(n) {
   /* the builders */
   { const cur = x.pq.length ? itemOf(x.pq[0]) : null, bf = Math.round(x.pop * timeShare(n, "build")), us = Math.round((x.upShare || 0) * 100);
     h += `<div class="card pbld">`;
-    if (cur) { let t = 0; h += `<div class="ln"><span>🔨 <b>${cur.icon} ${esc(cur.repeat ? capW(cur.one) : cur.name)}</b></span><b>${seasonsTxt((cur.hours - x.qp) / H)}</b></div><div class="bar thin"><i style="width:${Math.min(100, x.qp / cur.hours * 100)}%;background:var(--accent)"></i></div>
-        <div class="pq">${x.pq.map((id, i) => { const it = itemOf(id); return `<button class="pqi" data-act="pdel" data-k="${i}" aria-label="Remove ${esc(it.name)}">${it.icon}<small>✕</small></button>`; }).join("")}${x.pq.length < 8 ? `<span class="small muted">${8 - x.pq.length} more can wait in line</span>` : ""}</div>`; }
+    if (cur) { const groups = []; x.pq.forEach((id, i) => { const g = groups[groups.length - 1]; if (g && g.id === id) g.c++; else groups.push({ id, i, c: 1 }); });
+      let left = H, done = {}, total = 0; const pi = x.qpId ? x.pq.indexOf(x.qpId) : -1;
+      x.pq.forEach((id, i) => { const it = itemOf(id), need = it.hours - (i === pi ? x.qp : 0); total += need; if (need <= left + 1e-6) { left -= need; done[id] = (done[id] || 0) + 1; } });
+      const nm1 = (it, c) => it.repeat ? (c === 1 ? capW(it.one) : `${c} ${it.name.toLowerCase()}`) : it.name, thisQ = Object.entries(done).map(([id, c]) => `${itemOf(id).icon} ${nm1(itemOf(id), c)}`).join(", ");
+      h += `<div class="ln"><span>🔨 <b>This season:</b></span><b>${thisQ || `${cur.icon} part of the ${esc(cur.repeat ? cur.one : cur.name)}`}</b></div>
+        <div class="bar thin"><i style="width:${Math.min(100, H / Math.max(1e-9, total) * 100)}%;background:var(--accent)"></i></div>
+        <div class="pq">${groups.map(g => { const it = itemOf(g.id); return `<button class="pqi" data-act="pdel" data-k="${g.i}" data-c="${g.c}" aria-label="Remove ${esc(it.name)}">${it.icon}${g.c > 1 ? `<b>×${g.c}</b>` : ""}<small>✕</small></button>`; }).join("")}</div>
+        <p class="small muted">Everything queued: ${seasonsTxt(total / H)}.${x.qpId && x.pq.includes(x.qpId) ? ` ${itemOf(x.qpId).icon} ${esc(itemOf(x.qpId).repeat ? capW(itemOf(x.qpId).one) : itemOf(x.qpId).name)}: ${Math.floor(x.qp / itemOf(x.qpId).hours * 100)}% done.` : ""}</p>`; }
     else h += `<div class="ln"><span>🔨 <b>Builders are idle</b></span><span class="small muted">Tap + to build</span></div>`;
-    h += `<p class="small muted">${bf} builder famil${bf === 1 ? "y" : "ies"} here${us ? ` · upkeep takes ${us}% of their time` : ""}.${x.waitMat ? ' <b class="bad">Out of materials: building has stopped.</b>' : ""}</p></div>`; }
+    h += `<p class="small muted">${bf} builder famil${bf === 1 ? "y" : "ies"} here put in ${Math.round(H)} days of building a season${us ? ` after upkeep (${us}% of their time)` : ""}.${x.waitMat ? ' <b class="bad">Out of materials: building has stopped.</b>' : ""}</p></div>`; }
   /* what to build next */
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => itemOpenAt(n, x, it));
   const info = it => { if (!it.repeat) return null; const dem = needAt(n, x, it.id), have = builtAt(x, it.id), q = x.pq.filter(z => z === it.id).length; return { dem, have, q, short: Math.max(0, dem - have - q) }; };
-  { const sug = all.filter(it => it.repeat).map(it => ({ it, i: info(it) })).filter(o => o.i.short > 0 && (!o.it.opt || o.it.hours / H <= 12)).map(o => ({ ...o, sc: (o.it.opt ? .35 : 1) * o.i.short / Math.max(1, o.i.dem) + (o.it.id === "hut" ? .2 : 0) })).sort((a, b) => b.sc - a.sc).slice(0, 3);
+  { const sug = all.filter(it => it.repeat).map(it => ({ it, i: info(it) })).filter(o => o.i.short > 0 && (!o.it.opt || o.it.hours * o.i.short / H <= 8)).map(o => ({ ...o, sc: (o.it.opt ? .35 : 1) * o.i.short / Math.max(1, o.i.dem) + (o.it.id === "hut" ? .2 : 0) })).sort((a, b) => b.sc - a.sc).slice(0, 3);
     const why = o => { const it = o.it, I = o.i, w = PWHY[it.id] || it.d; if (it.id === "hut") return `${fmtP(I.short)} famil${I.short === 1 ? "y has" : "ies have"} no hut${I.have >= x.pop ? " coming soon as the village grows" : ""}: ${w}.`;
       return it.opt ? `Not needed, but ${w}.` : `${fmtP(I.short)} short for ${fmtP(x.pop)} families: ${w}.`; };
-    if (sug.length) h += `<h5 class="psec">✨ Suggested next</h5><div class="psug">${sug.map(o => `<div class="psr"><button class="btn small ${o.it.opt ? "ghost" : ""}" data-act="pbuild" data-k="${o.it.id}" ${x.pq.length >= 8 ? "disabled" : ""}>+ ${o.it.icon} ${esc(capW(o.it.one))}<small>${seasonsTxt(o.it.hours / H)}</small></button><p class="small muted">${capW(why(o))}</p></div>`).join("")}</div>`; }
+    if (sug.length) h += `<h5 class="psec">✨ Suggested next</h5><div class="psug">${sug.map(o => `<div class="psr"><button class="btn small ${o.it.opt ? "ghost" : ""}" data-act="pbuild" data-k="${o.it.id}" data-n="${o.i.short}" ${x.pq.length >= QCAP ? "disabled" : ""}>+ ${o.it.icon} ${o.i.short > 1 ? `${esc(o.it.name)} ×${o.i.short}` : esc(capW(o.it.one))}<small>${seasonsTxt(o.it.hours * o.i.short / H)}</small></button><p class="small muted">${capW(why(o))}</p></div>`).join("")}</div>`; }
   /* everything, by kind */
   const shown = it => !it.repeat || info(it).dem || info(it).have, tabs = Object.entries(PROD_TABS).filter(([t]) => all.some(it => it.tab === t && shown(it)));
   if (!tabs.some(([t]) => t === prodTab)) prodTab = tabs.length ? tabs[0][0] : "housing";
@@ -3537,11 +3552,12 @@ function panelProduction(n) {
     for (const it of items) { const open = prodOpen.has("i:" + it.id);
       if (it.repeat) { const I = info(it), st = I.have >= I.dem ? "ok" : it.opt ? "opt" : "short";
         h += `<div class="ptile ${st} ${open ? "wide" : ""}"><button class="pti" data-act="pinfo" data-k="${it.id}"><span class="pi">${it.icon}</span><b>${esc(open ? it.name : it.tile || it.name)}${it.tier ? ` <span class="pill">${it.tier === 2 ? "City" : "Town"}</span>` : ""}</b><span class="pc">${I.dem ? `${fmtP(Math.min(I.have, I.dem))}/${fmtP(I.dem)}` : `${fmtP(I.have)} built`}${I.q ? ` <small>+${I.q}</small>` : ""}</span></button>
-          ${x.pq.length < 8 ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build one ${esc(it.one)}">+</button>` : ""}
-          ${open ? `<p class="small muted">${esc(it.d)} One takes ${seasonsTxt(it.hours / H)}.${it.opt ? " Not needed, but worth having." : ""}</p>` : ""}</div>`; }
+          ${x.pq.length < QCAP ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build one ${esc(it.one)}">+</button>` : ""}
+          ${open ? `<p class="small muted">${esc(it.d)} One takes ${Math.round(it.hours)} builder-day${it.hours === 1 ? "" : "s"}${it.hours <= H ? `: about ${Math.floor(H / it.hours)} a season with your builders here` : `: about ${seasonsTxt(it.hours / H)}`}.${it.opt ? " Not needed, but worth having." : ""}</p>
+            <div class="row wrap" style="margin:0 10px 10px">${[1, 5].map(c => `<button class="btn small ghost" data-act="pbuild" data-k="${it.id}" data-n="${c}" ${x.pq.length >= QCAP ? "disabled" : ""}>+${c}</button>`).join("")}${I.short > 1 ? `<button class="btn small" data-act="pbuild" data-k="${it.id}" data-n="${I.short}" ${x.pq.length >= QCAP ? "disabled" : ""}>Build all ${I.short} needed</button>` : ""}</div>` : ""}</div>`; }
       else { const done = P0.done[it.id], qa = setsOf(n).some(y => y.pq && y.pq.includes(it.id));
         h += `<div class="ptile great ${done ? "ok" : ""} ${open ? "wide" : ""}"><button class="pti" data-act="pinfo" data-k="${it.id}"><span class="pi">${it.icon}</span><b>${esc(it.name)}</b><span class="pc">${done ? "✓ Built" : qa ? "Queued" : `🪵${it.mat}`}</span></button>
-          ${!done && !qa && n.mat >= it.mat && x.pq.length < 8 ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build ${esc(it.name)}">+</button>` : ""}
+          ${!done && !qa && n.mat >= it.mat && x.pq.length < QCAP ? `<button class="padd" data-act="pbuild" data-k="${it.id}" aria-label="Build ${esc(it.name)}">+</button>` : ""}
           ${open ? `<p class="small muted">${esc(it.d)}${done ? "" : ` Takes ${seasonsTxt(it.hours / H)} here; a great work, built once.`}</p>` : ""}</div>`; } }
     h += `</div>`; }
   /* the settlement's upkeep and borders, out of the way */
@@ -3939,8 +3955,9 @@ panel.addEventListener("click", e => {
     case "expel": { const g = ethOf(n)[+b.dataset.k]; if (!g) break; confirmModal(`Expel the ${g.name}?`, `${Math.max(1, Math.round(g.share * popOf(n)))} families will be driven from your lands. Those who resent strangers will cheer; you lose their hands and trades, and they won't forget it.${yrsAmong(g) >= 50 && g.assim >= 15 ? ` After ${Math.round(yrsAmong(g))} years among you, they'll carry your ways wherever they go.` : ""}`, () => { expelGroup(n, +b.dataset.k); showUnlocks(); refresh(); hud(); }); break; }
     case "ptab": prodTab = b.dataset.k; refresh(); break;
     case "pinfo": { const k = "i:" + b.dataset.k; if (prodOpen.has(k)) prodOpen.delete(k); else prodOpen.add(k); refresh(); break; }
-    case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= 8) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } x.pq.push(it.id); toast(`${it.icon} ${it.repeat ? capW(it.one) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
-    case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, id = x.pq[i], it = itemOf(id); x.pq.splice(i, 1); if (i === 0) x.qp = 0; if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
+    case "pbuild": { const x = setById(prodSet), P0 = prodState(n), it = itemOf(b.dataset.k); if (!x || !it) break; sb(x); if (x.pq.length >= QCAP) break; if (!it.repeat) { if (P0.done[it.id] || setsOf(n).some(y => y.pq && y.pq.includes(it.id)) || n.mat < it.mat) break; n.mat -= it.mat; } const cnt = it.repeat ? Math.max(1, Math.min(+b.dataset.n || 1, QCAP - x.pq.length)) : 1; for (let i = 0; i < cnt; i++) x.pq.push(it.id);
+      toast(`${it.icon} ${it.repeat ? (cnt > 1 ? `${cnt} ${it.name.toLowerCase()}` : capW(it.one)) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
+    case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, c = Math.max(1, +b.dataset.c || 1), id = x.pq[i], it = itemOf(id); x.pq.splice(i, c); if (x.qpId && !x.pq.includes(x.qpId)) { x.qp = 0; x.qpId = null; } if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
     case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
     case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
     case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
