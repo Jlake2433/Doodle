@@ -624,7 +624,7 @@ const CUSTOMS = {
     rite:   { name: "Initiation rites", d: "The young are taught the sacred secrets of the people.", lean: "devout" },
     virtue: { name: "Training in virtue", tech: "philosophy", d: "The young are raised to be wise, brave and just, not only strong.", lean: "content" },
     school: { name: "Schooling", tech: "printing", d: "The young learn letters and numbers.", lean: "industrious" } } } };
-const RAISE = { hunters: { q: 1, g: 1, r: 1 }, fields: { q: .88, g: 1.1, r: 1.02 }, trained: { q: 1.15, g: .94, r: .96 }, spartan: { q: 1.4, g: .82, r: .88 } }; /* fighting quality, growth, research */
+const RAISE = { hunters: { q: 1, g: 1, r: 1 }, fields: { q: .8, g: 1.1, r: 1.02 }, trained: { q: 2, g: .94, r: .96 }, spartan: { q: 3, g: .82, r: .88 } }; /* base warrior level, growth, research */ /* fighting quality, growth, research */
 const LEAN = { hardy: { res: 5 }, warlike: { mar: 6 }, peaceable: { mar: -6 }, devout: { pie: 5 }, worldly: { pie: -5 }, open: { open: 6 }, insular: { open: -6 }, content: { con: 4 }, restless: { con: -4 }, industrious: { ind: 6 } };
 const cusOpen = (n, o) => !o.tech || has(n, o.tech);
 const cusEra = o => o.tech ? TECH[o.tech].era : -1; /* -1: the primal, survival-born ways */
@@ -972,12 +972,13 @@ function hutGrow(x) { const hg = x.hg || (x.hg = [0, 0, 0, 0, 0, 0, 0, 0]), near
   for (const k of open) hg[k] = Math.min(1.2, hg[k] + .02 / Math.max(1, open.length / 3)); }
 const radTo = (s, x, y) => (s.h || .05) * lobe(s, Math.atan2(y - s.y, x - s.x));
 const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) - radTo(b, a.x, a.y);
-function touchesSet(n, s) { return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < .25); }
+const huntR = n => n && tribal(n) ? turnCache("hr" + n.id, () => .4 * scoutSight(n)) : 0; /* tribes range over hunting lands beyond their borders */
+function touchesSet(n, s) { const r = .25 + huntR(n) + huntR(G.nations[s.o]); return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < r); }
 let touchKey = null, touchPairs = new Set();
 function bordersTouch(a, b) {
   const key = G.sv + ":" + G.turn;
   if (touchKey !== key) { touchKey = key; touchPairs = new Set();
-    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1) touchPairs.add(pk(s.o, o.o)); }
+    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) touchPairs.add(pk(s.o, o.o)); } /* borders, or hunting lands, meet */
   return touchPairs.has(pk(a.id, b.id));
 }
 // a won battle pushes the defender's border back; the attacker's land grows into the gap
@@ -1380,15 +1381,18 @@ function adminCap(n) {
   return Math.floor(a);
 }
 /* what makes a fighting force menacing beyond its numbers */
-function newChief(n) { return { name: nameFor(n, "person"), skill: clamp(1 + (rnd() + rnd() - 1) * .12, .85, 1.15), w: 0, l: 0, born: G.year }; } /* Stone Age war chiefs are ordinary men */
-function battleQuality(n) { let q = 1; const E = n._fedE;
-  q *= E == null ? 1 : E < 0 ? .7 : E > .2 ? 1.05 : 1; /* hungry warriors fight badly */
-  q *= .9 + .2 * trv(n, "mar") / 100; /* martial spirit */
-  const R = RAISE[(n.cus || {}).raise]; if (R) q *= R.q; /* how warriors are raised */
-  if (tribal(n)) q *= 1 + .1 * structCov(n, "drill"); /* training grounds */
+/* a war chief: his skill, his nerve (how readily he pulls back), how long he holds when losing, and how well he reads a fight. Stone Age chiefs are ordinary men */
+function newChief(n) { const r = (a, b) => a + (b - a) * (rnd() + rnd()) / 2;
+  return { name: nameFor(n, "person"), skill: r(.9, 1.1), nerve: r(.22, .42), hold: r(.35, .65), err: r(.15, .35), w: 0, l: 0, born: G.year }; }
+const chiefOf = n => { if (!n.chief || G.year - n.chief.born > 30 || n.chief.nerve == null) n.chief = newChief(n); return n.chief; };
+const gearOf = n => n.era === 0 ? 1 + (has(n, "spear") ? .1 : 0) + (has(n, "bow") ? .1 : 0) : ERA_POW[n.era]; /* stone, then spears and bows; then each age's arms */
+const fedOf = n => { const E = n._fedE; return E == null ? 1 : E < 0 ? .6 : E > .2 ? 1.1 : 1; }; /* hungry warriors fight badly */
+/* warrior level: how many ordinary hunters one of your warriors is worth */
+function battleQuality(n) { let q = (RAISE[(n.cus || {}).raise] || RAISE.hunters).q; /* how warriors are raised */
+  q *= fedOf(n) * (.9 + .3 * trv(n, "mar") / 100); /* fed, and martial spirit */
+  if (tribal(n)) q *= 1 + .2 * structCov(n, "drill"); /* training grounds */
   q *= 1 - Math.min(.3, (n.ww || 0) * .01); /* war weariness */
-  if (!n.chief || G.year - n.chief.born > 30) n.chief = newChief(n); q *= n.chief.skill;
-  return q; }
+  return q * chiefOf(n).skill; }
 function unitPower(n) {
   let m = 1 + (GOVS[n.gov].pow || 0), bp = 0;
   m += fb(n, "pow");
@@ -1397,7 +1401,7 @@ function unitPower(n) {
   if (n.laws.focus === "mil") m += .15;
   m += cul(n).pow || 0;
   m += thinkB(n, "war");
-  if (tribal(n)) m += .2 * (toolCov(n) - 1) + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .05 : 0); /* sharp spearheads */
+  if (tribal(n)) m += .2 * (toolCov(n) - 1); /* sharp, well-kept weapons */
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
@@ -1405,7 +1409,7 @@ function unitPower(n) {
   m *= milMult(n.milFund == null ? 1 : n.milFund) * qualMult(n.milQual || 0);
   if (has(n, "combustion") && secUnlocked(n, "oil")) m *= .85 + .15 * Math.min(1, secF(n, "oil"));
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
-  return ERA_POW[n.era] * m;
+  return gearOf(n) * m;
 }
 // ---- mercenaries: a one-time fee buys fighters on a fixed contract; they leave when it runs out ----
 const mercUnits = n => (n.mercs || []).reduce((a, m) => a + m.k, 0);
@@ -2088,6 +2092,14 @@ function retireRoles(n, E) { const R = n.retired || (n.retired = {}), t = timeOf
         pop("🪣", "Water at hand", "For two years your cisterns, wells and springs have given everyone water. No one needs to carry it anymore, so the water carriers have become builders. They no longer appear in Who does what."); } }
     else if (setsOf(n).some(x => waterInfra(x) < x.pop * .9)) { R.water = false; n.waterOkT = 0; const w = carriersNeeded(n); t.water = w; t.build = Math.max(0, (t.build || 0) - w);
       pop("💧", "Water carriers needed again", "Your people have outgrown their cisterns and wells. Some families are carrying water again (Who does what); build more to free them."); } } }
+/* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
+function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
+  const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dip(n.id, o.id);
+    return { o, d, sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 6).sort((a, b) => a.sc - b.sc), to = cand.length ? cand[0].o : null;
+  const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
+  whist("🍂", to ? `The ${nm(n)} faded away; its last families joined the ${nm(to)}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to ? [to.id] : []));
+  if (to) { const tc = capSet(to) || setsOf(to)[0], f = fam * .7; tc.pop += f; addPeople(to, n, f, 0, tc); }
+  n.alive = false; n.army = 0; for (const o of G.nations) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; } G.sv++; }
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
@@ -2182,6 +2194,8 @@ function processNation(n) {
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   if (tribal(n)) retireRoles(n, E);
+  if (n.ai && tribal(n)) { const p0 = popOf(n); n.pop0 = n.pop0 || Math.max(20, p0); n.lowT = p0 < .4 * n.pop0 ? (n.lowT || 0) + 1 : 0;
+    if (p0 < 12 || n.lowT > 20 * TPY) { collapseTribe(n); return; } } /* too few left to carry on */
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; n._fedE = sr; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
@@ -2438,26 +2452,33 @@ function upheaval(n) {
 }
 
 // ================= WAR =================
-/* numbers count with diminishing returns: ten times the warriors is about four times the strength */
-const NUM_EXP = .6, numStr = u => Math.pow(Math.max(0, u), NUM_EXP), unitsFor = str => Math.pow(Math.max(0, str), 1 / NUM_EXP);
+
 /* odds follow the strength ratio: at 2 to 1 the stronger side wins about 85% of the time */
 const battleOdds = r => { const q = Math.pow(Math.max(.01, r), 2.5); return q / (1 + q); };
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
   const m = TIERS[s.t].def + fb(d, "def") + (builtAt(s, "palisade") ? .35 : builtAt(s, "ditch") ? .15 : 0) + .25 * bigF(s) + (builtAt(s, "watch") ? .05 : 0) + (builtAt(s, "rampart") ? .5 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
-  return { units, power: (numStr(units) * unitPower(d) * m * 1.1 + numStr(U(s.pop) * .3) * ERA_POW[d.era] * m) * defMult(d) * garrisonMult(d) }; /* defenders fight a little harder for their homes */ // claimed land left unguarded is easier to break into
+  const mil = U(s.pop) * .3, qg = unitPower(d) * m * 1.1, qm = gearOf(d) * fedOf(d) * m * 1.1, k = defMult(d) * garrisonMult(d); /* warriors and the village's own people, fighting for their homes behind whatever walls they have */
+  return { units, mil, q: (units * qg + mil * qm) * k / Math.max(1e-9, units + mil), power: (units * qg + mil * qm) * k }; /* claimed land left unguarded is easier to break into */ // claimed land left unguarded is easier to break into
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
-function winChance(n, s, units) { return battleOdds(numStr(units) * unitPower(n) * attackMult(n) / Math.max(1e-9, defenseOf(s).power)); }
+/* power = warriors x level; odds follow the power ratio; a mob more than 5 times larger always keeps at least a 1 in 5 chance */
+function battleP(A, qa, D, qd) { let P = battleOdds(A * qa / Math.max(1e-9, D * qd)); if (A > 5 * D) P = Math.max(P, .2); if (D > 5 * A) P = Math.min(P, .8); return P; }
+function winChance(n, s, units) { const D = defenseOf(s); return battleP(units, unitPower(n) * attackMult(n), D.units + D.mil, D.q); }
 function attack(n, s, units) {
   const dn = G.nations[s.o], D = defenseOf(s), ri = s.r;
-  const att = numStr(units) * unitPower(n) * attackMult(n), def = D.power, win = rnd() < battleOdds(att / Math.max(1e-9, def));
-  { const c = n.chief || (n.chief = newChief(n)), cd = dn.chief || (dn.chief = newChief(dn)); if (win) { c.w = (c.w || 0) + 1; cd.l = (cd.l || 0) + 1; } else { c.l = (c.l || 0) + 1; cd.w = (cd.w || 0) + 1; } } /* records, for later */
-  const aLoss = Math.min(units, Math.round(units * clamp(win ? def / att * .45 : .35 + def / att * .2, .05, .9)));
-  loseUnits(n, aLoss); n.used += units;
-  const dLoss = Math.min(forces(dn), Math.round(D.units * clamp(att / def * .5, .1, 1) + (win ? .5 : 0))); loseUnits(dn, dLoss);
-  const res = { win, aLoss, dLoss, name: s.name, def: dn };
+  const qa = unitPower(n) * attackMult(n), Dn = D.units + D.mil, P = battleP(units, qa, Dn, D.q), ca = chiefOf(n), cd = chiefOf(dn);
+  let win = false, aLost = 0, dLost = 0, early = false;
+  if (P + (rnd() - .5) * 2 * ca.err < ca.nerve) { /* the chief reads the fight as lost and pulls back after the first clash, rightly or not */
+    early = true; aLost = units * .1; dLost = aLost * qa / D.q * (.5 + rnd() * .5); }
+  else { win = rnd() < P;
+    if (win) { const lf = cd.hold * (.7 + rnd() * .4); dLost = Dn * lf; aLost = dLost * D.q / qa * (.5 + rnd() * .5); } /* each of theirs who falls costs you their worth in your own */
+    else { const lf = ca.hold * (.7 + rnd() * .4); aLost = units * lf; dLost = aLost * qa / D.q * (.5 + rnd() * .5); } }
+  if (win) { ca.w++; cd.l++; } else if (!early) { ca.l++; cd.w++; } /* records, for later */
+  const aLoss = Math.min(units, Math.round(aLost)), gShare = D.units / Math.max(1e-9, Dn), dLoss = Math.min(forces(dn), Math.round(dLost * gShare));
+  loseUnits(n, aLoss); n.used += units; loseUnits(dn, dLoss); s.pop = Math.max(2, s.pop - dLost * (1 - gShare) * .5); /* villagers who fought fall too */
+  const res = { win, aLoss, dLoss, name: s.name, def: dn, early };
   if (win && (s.hp == null ? HP[s.t] : s.hp) > 1) {
     // push their border back; the settlement holds out a little longer
     s.hp = (s.hp == null ? HP[s.t] : s.hp) - 1; s.hit = G.tt; s.pop *= .92; s.u = Math.min(100, s.u + 15);
@@ -2483,6 +2504,7 @@ function attack(n, s, units) {
   const involved = n.id === G.player || dn.id === G.player;
   if (res.push && involved) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} pushed back the border around ${s.name}. ${res.left} more victor${res.left === 1 ? "y" : "ies"} to take it.`, n.id === G.player ? "⚔️" : "🔥");
   else if (win && !res.push && (involved || dip(dn.id, G.player).met)) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} captured the ${TIERS[s.t].name.toLowerCase()} of ${s.name} in ${W.regions[ri].n}${dn.id === G.player ? " from you" : n.id === G.player ? "" : " from the " + nm(dn)}!`, n.id === G.player ? "🚩" : dn.id === G.player ? "🔥" : "⚔️", involved ? null : -1);
+  else if (!win && early && involved) log(n.id === G.player ? `Your war chief ${chiefOf(n).name} judged the fight for ${s.name} lost and pulled back after the first clash (${aLoss} lost, ${dLoss} of theirs).` : `The ${nm(n)} probed ${s.name} but pulled back after the first clash.`, "🏃");
   else if (!win && involved) log(`${n.id === G.player ? "Your attack on" : "The " + nm(n) + " attacked"} ${s.name}, but ${n.id === G.player ? "was" : "they were"} driven back. (${aLoss} attacker${aLoss === 1 ? "" : "s"} lost)`, "🛡️");
   return res;
 }
@@ -2547,6 +2569,7 @@ function bestVillageSpot(n, fromRi) {
 }
 function aiTurn(n) {
   if (!n.alive) return;
+  if (n.aiSkill == null) n.aiSkill = rnd() < .25 ? .25 + rnd() * .3 : .75 + rnd() * .25; /* hidden: how wisely this people is led */
   const E = econ(n), sets = setsOf(n);
   const wars = G.nations.filter(o => atWar(n.id, o.id));
   // laws & government
@@ -2559,7 +2582,7 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const P0 = prodState(n);
-    for (const x of setsOf(n)) { sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 1.2); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
+    if (rnd() < n.aiSkill) for (const x of setsOf(n)) { sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 1.2 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
      for (let tries = 0; tries < 12 && qd < cap; tries++) { let best = null, bs = 0;
       for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = (1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d) * (STRUCTS[k].opt ? .35 : 1); if (sh > bs) { bs = sh; best = k; } } /* needs before nice-to-haves */
       if (best) { x.pq.push(best); qd += STRUCTS[best].hours; } else break; }
@@ -2571,6 +2594,9 @@ function aiTurn(n) {
     const fsh = fishable(n), fw = Math.ceil(firewoodNeed(n) * 100 / 5) * 5;
     const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: crewFor(n).wood + (n.pers === "builder" ? 2 : 0), build: crewFor(n).build + (n.pers === "builder" ? 4 : 0), elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4, tools: pct5(toolNeed(n)), healer: has(n, "mysticism") ? pct5(healNeed(n)) : 0 };
     if (n.retired && n.retired.food) { want.farm += want.food + want.forage; want.food = 0; want.forage = 0; }
+    { const sk = n.aiSkill; if (sk < .7) { /* poorly led: water, fire and tools neglected, hunger noticed late, too many warriors */
+      want.water = Math.round(want.water * sk); want.firewood = Math.round(want.firewood * sk); want.tools = Math.round(want.tools * sk); want.build = Math.round(want.build * (.5 + .5 * sk));
+      if (E.surplus < 0 && rnd() > sk) { want.food *= .7; want.forage *= .7; } want.warrior += Math.round((1 - sk) * 12); } }
     const sum = Object.values(want).reduce((a, v) => a + v, 0); for (const k in want) t[k] = Math.round(want[k] * 100 / sum); }
   { const B0 = bud(n), g = Math.max(1, E.gross), want = { aggressive: 1.35, zealot: 1.2, builder: 1.05, trader: 1 }[n.pers] || 1.1;
     const ratioA = ({ aggressive: 1.3, builder: .7, trader: .6, zealot: .9 }[n.pers] || .8) * (wars.length ? 1.6 : 1), wantA = Math.min(maxArmy(n), Math.ceil(sizeOf(n) * ratioA + 1));
@@ -2690,7 +2716,7 @@ function aiTurn(n) {
       const targets = setsOf(o).filter(s => touchesSet(n, s));
       if (!targets.length) break;
       let best = null, bp = 0, bu = 0;
-      for (const s of targets) { const D = defenseOf(s).power; const need = Math.ceil(unitsFor(D * 1.35 / unitPower(n))); if (need <= avail * .75) { const u = Math.max(1, Math.min(avail, need)); const p = winChance(n, s, u); const val = p + s.t * .08; if (val > bp) { bp = val; best = s; bu = u; } } }
+      for (const s of targets) { const D = defenseOf(s).power; const need = Math.ceil(D * 1.35 / (unitPower(n) * attackMult(n))); if (need <= avail * .75) { const u = Math.max(1, Math.min(avail, need)); const p = winChance(n, s, u); const val = p + s.t * .08; if (val > bp) { bp = val; best = s; bu = u; } } }
       if (best && bp > (n.pers === "aggressive" ? .5 : .62)) attack(n, best, bu); else break;
     }
   }

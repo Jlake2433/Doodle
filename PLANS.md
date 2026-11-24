@@ -41,8 +41,12 @@ Decisions we've agreed on but haven't built yet. We're finishing the Stone Age f
 **The rule for the whole game: you can't be great at everything.** A war-focused people can terrorize a region for generations, but it pays in growth, knowledge and economy. Eventually it stagnates and crumbles.
 
 Built (Stone Age):
-- Strength = numbers × quality. Numbers have diminishing returns (strength grows as units^0.6, so 10× the warriors ≈ 4× the strength).
-- The odds follow the strength ratio, so upsets happen: at 2:1 the stronger side wins about 85% of the time, at 3:1 94%, at 4:1 97%.
+- Power = warriors × warrior level. The level is an exchange rate: a level-9 warrior is worth 9 level-1 hunters, and dies taking them down. Base levels: fields 0.8, hunters 1, trained 2, warrior upbringing 3. Later: professionals 4–5, Spartan training about 6.
+- Level multipliers: gear (stone 1, spears and bows up to 1.2, then each age's arms), fed (hungry 0.6 to well fed 1.1), training grounds (up to 1.2), martial spirit (0.9–1.2), war weariness, the chief's skill.
+- Odds follow the power ratio: equal is 50/50, 2:1 about 85%. Outnumbering more than 5:1 always keeps at least a 20% chance.
+- Losses follow the exchange rate: the winner loses roughly the fallen enemy's power ÷ the winner's level, rolled between half and all of it.
+- The commander decides retreats. Each chief rolls nerve (how readily he pulls back), hold (how long he fights on when losing) and judgment (how well he reads the odds). He may pull back after the first clash even when he could have won.
+- Wars become possible once hunting lands meet (claimed land plus scout range), not only borders.
 - Quality comes from:
   - how warriors are raised (a custom): hunters' skills, every hand in the fields, trained warriors, a warrior upbringing
   - being fed: hungry ×0.7, well fed ×1.05
