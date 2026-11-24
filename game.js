@@ -2071,7 +2071,7 @@ function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
   workProjects(n);
-  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); famous(n, "founder", "Founder", "led the tribe as it became a nation", "🏛️"); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
+  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
   n.gold += E.goldNet * TD; n.mat += E.mat * TD;
@@ -2162,7 +2162,7 @@ function processNation(n) {
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   if (tribal(n)) retireRoles(n, E);
   stepThinkers(n);
-  if (rankOf(n) >= 3 && !n.empireSeen) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}`, "👑"); }
+  if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
   stepTraits(n, E, H); stepPeoples(n);
   for (const s of sets) {
@@ -2448,9 +2448,9 @@ function attack(n, s, units) {
     chip(n.id, s);
     n.conq = (n.conq || 0) + 1;
     if (s.id === dn.cap) whist("🏰", `The ${nm(n)} took ${s.name}, capital of the ${nm(dn)}.`, "war", [n.id, dn.id]);
-    { const c = warlord(n); c.count++; c.until = G.year;
-      if (s.id === dn.cap) { c.did.push(`took ${s.name}, capital of the ${nm(dn)}`); fame(c, n, `took ${s.name}, capital of the ${nm(dn)}`); }
-      if (c.count === 8 || c.count === 20 || c.count === 50) { c.did.push(`took ${c.count} settlements`); fame(c, n, `has taken ${c.count} settlements`); } }
+    { const c = warlord(n); c.count++; c.until = G.year; if (c.land0 == null) c.land0 = Math.max(1, setsOf(n).length - 1);
+      if (s.id === dn.cap && !(c.beat || (c.beat = [])).includes(dn.id)) { c.beat.push(dn.id); c.did.push(`took ${s.name}, capital of the ${nm(dn)}`); }
+      legend(c, n); }
     if (n.id === G.player) hist(n, "🏳️", `We took ${s.name} from the ${nm(dn)}.`); else if (dn.id === G.player) hist(dn, "🏴", `The ${nm(n)} took ${s.name} from us.`);
     s.pop *= .85; convertSet(n, dn, s); s.o = n.id; s.focus = null; recalcShares(n); recalcShares(dn); s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
@@ -2468,9 +2468,14 @@ function attack(n, s, units) {
 /* the war leader of a campaign: someone the world only hears of if the campaign is great */
 function warlord(n) { const W0 = G.wpeople || (G.wpeople = []); let c = W0.find(p => p.kind === "conq" && p.n === n.id && G.year - p.until < 25);
   if (!c) { c = { kind: "conq", name: nameFor(n, "person"), title: n.era < 2 ? "Warlord" : n.era < 5 ? "Conqueror" : "General", n: n.id, born: G.year, until: G.year, count: 0, did: [], notable: false, from: nm(n) }; W0.push(c); } return c; }
+/* only a legend is remembered: within one lifetime, three peoples broken, their land tripled, and the greatest realm in the known world */
+function legend(c, n) { if (c.notable) { if (c.did.length > (c.told || 0)) { whist("⚔️", `${c.name} of the ${nm(n)} ${c.did[c.did.length - 1]}.`, "people", [n.id]); c.told = c.did.length; } return; }
+  const big = G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length);
+  if ((c.beat || []).length >= 3 && setsOf(n).length >= 3 * c.land0 && big && G.year - c.born <= 40) { c.notable = true; c.told = c.did.length;
+    whist("👑", `${c.name}, ${c.title.toLowerCase()} of the ${nm(n)}, conquered ${c.beat.length} peoples and built the greatest realm in the known world.`, "people", [n.id]); } }
 function fame(c, n, deed) { whist(c.notable ? "⚔️" : "👑", `${c.name}, ${c.title.toLowerCase()} of the ${nm(n)}, ${deed}.`, "people", [n.id]); c.notable = true; }
 function eliminate(dn, by) {
-  if (by) { const c = warlord(by); c.did.push(`destroyed the ${nm(dn)}`); fame(c, by, `destroyed the ${nm(dn)}`); }
+  if (by) { const c = warlord(by); if (!(c.beat || (c.beat = [])).includes(dn.id)) c.beat.push(dn.id); c.did.push(`destroyed the ${nm(dn)}`); legend(c, by); }
   dn.alive = false; dn.army = 0; whist("💀", `The ${nm(dn)} are no more${by ? `, destroyed by the ${nm(by)}` : ""}.`, "fall", [dn.id].concat(by ? [by.id] : []));
   G.sv++;
   for (const o of G.nations) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
@@ -3541,7 +3546,7 @@ function panelHistory() {
   h += `<div class="seg">${[["ours", `The ${esc(demonym(n))}`], ["world", "The world"]].map(([k, v]) => `<button class="${histScope === k ? "on" : ""}" data-act="hscope" data-k="${k}">${v}</button>`).join("")}</div>`;
   h += `<div class="ptabs2">${Object.entries(HIST_TABS).map(([k, v]) => `<button class="${k === histTab ? "on" : ""}" data-act="htab" data-k="${k}">${v}</button>`).join("")}</div>`;
   if (histTab === "people") {
-    if (!fam.length) return h + `<p class="note">No great minds yet. Big villages, past about 50 families, sometimes raise one.</p>`;
+    if (!fam.length) return h + `<p class="note">No great people yet.</p>`;
     h += `<div class="card">${fam.slice().reverse().map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b><br><small class="muted">${esc(t.title)} of ${esc(t.from)} · +5% ${DOMAINS[t.d].out}${t.did && t.did.length ? ` · ${t.did.map(esc).join(", ")}` : ""}</small></span><b>${t.dead ? `<small>${yearTxt(t.born)}–${yearTxt(t.until)}</small>` : '<span class="good">Living</span>'}</b></div>`).join("")}</div>`;
     const ev = H.filter(e => HIST_CAT(e) === "people" || /, the .* of /.test(e.t)); if (!ev.length) return h;
     histTab = "people"; return h + histList(ev); }
@@ -3735,7 +3740,8 @@ const FAITH_FOUNDERS = { judaism: ["Moses", "semitic", "led his people out of bo
 function faithFounders() { const F = G.faithSeen || (G.faithSeen = {});
   for (const k in FAITH_FOUNDERS) { if (F[k] || !relOpen(k)) continue; F[k] = 1; const [who, lg, deed] = FAITH_FOUNDERS[k], o = G.nations.find(x => x.alive && langOf(x) === lg) || G.nations.find(x => x.alive && LANG_FAM[langOf(x)] === LANG_FAM[lg]);
     const p = famous(o || null, "founder", `Founder of ${RELIGIONS[k].name}`, deed, RELIGIONS[k].icon, "people", who); p.among = true; } }
-function stepThinkers(n) { const T = n.thinkers || (n.thinkers = []);
+const GREAT_MINDS = false; /* parked until the early game is built out (see PLANS.md) */
+function stepThinkers(n) { if (!GREAT_MINDS) return; const T = n.thinkers || (n.thinkers = []);
   for (const t of T) if (!t.dead && G.year >= t.until) { t.dead = true; if (!n.ai) { log(`${t.name}, ${t.title.toLowerCase()} of ${t.from}, has died.`, "🕯️"); hist(n, "🕯️", `${t.name}, ${t.title.toLowerCase()} of ${t.from}, died.`); } }
   if (aliveThinkers(n).length >= 2 + Math.floor(n.era / 2)) return;
   for (const x of setsOf(n)) { const big = x.t > 0 ? .4 + .3 * x.t : bigF(x); if (big <= 0) continue;
@@ -3784,11 +3790,11 @@ function panelProduction(n) {
   /* great minds of this nation */
   { const T = aliveThinkers(n);
     if (T.length) h += `<h5 class="psec">🌟 Great minds</h5><div class="card">${T.map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b> <small class="muted">${esc(t.title)} of ${esc(t.from)}</small></span><small>+5% ${DOMAINS[t.d].out}</small></div>`).join("")}<p class="small muted">Each lifts your people's ${T.length === 1 ? "work in their field" : "work in their fields"} a little, and research in their field goes faster while they live.</p></div>`;
-    else if (x.t === 0 && x.pop >= 40) h += `<p class="small muted">🌟 Big villages, past about 50 families, sometimes raise a great mind: a master tracker, builder, healer or war leader.</p>`; }
+    else if (GREAT_MINDS && x.t === 0 && x.pop >= 40) h += `<p class="small muted">🌟 Big villages, past about 50 families, sometimes raise a great mind: a master tracker, builder, healer or war leader.</p>`; }
   /* founding villages */
   { const c = villageCost(n), can = x.pop >= MOVERS + 10 && n.gold >= c.g && n.mat >= c.m;
     h += `<div class="row wrap" style="margin:10px 0 0"><button class="btn small" data-act="pfound" ${can ? "" : "disabled"}>🛖 Found a new village from ${esc(x.name)}</button><span class="small muted">${MOVERS} families move · ${costTxt(c)}${x.pop < MOVERS + 10 ? " · needs more families here" : ""}</span></div>
-      <p class="small muted">Small villages raise more children. Big ones need more food but defend better and raise great minds.</p>`; }
+      <p class="small muted">Small villages raise more children. Big ones need more food but defend better.</p>`; }
   /* what to build next */
   const all = [...Object.keys(STRUCTS).map(itemOf), ...GREAT].filter(it => itemOpenAt(n, x, it));
   const info = it => { if (!it.repeat) return null; const dem = needAt(n, x, it.id), have = builtAt(x, it.id), q = x.pq.filter(z => z === it.id).length; return { dem, have, q, short: Math.max(0, dem - have - q) }; };
