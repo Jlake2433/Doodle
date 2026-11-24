@@ -1480,6 +1480,7 @@ function elderTalks(n) {
       break; }
     const t = curTalk(n); if (!t || n.sciPts < t.cost) break;
     n.sciPts -= t.cost; n.techs.push(t.id); n.talk = null;
+    { const g = creditMind(n, t); if (g && ["agriculture", "husbandry", "pottery", "mining", "mysticism", "tribal", "bow", "boats", "counting", "nation"].includes(t.id)) whist(DOMAINS[g.d].icon, `${g.name}, ${g.title.toLowerCase()} of the ${nm(n)}, led the elders to ${t.name.toLowerCase()}.`, "people", [n.id]); }
     if (!n.ai) { log(`The elders have spoken: ${t.name}. ${stoneDesc(t)}`, "🔥"); if (["agriculture", "husbandry", "pottery", "mining", "mysticism", "tribal", "nation", "fire", "bow", "boats"].includes(t.id)) hist(n, "🔥", `The elders settled: ${t.name}.`); } }
 }
 // ---- Stone Age projects: things your builders work on together, one at a time ----
@@ -2227,7 +2228,9 @@ function processNation(n) {
       continue;
     }
     const t = it.t; n.techs.push(t.id);
-    if (!G.nations.some(o => o !== n && o.techs.includes(t.id))) { const st = discoveryStory(n, t); whist("💡", `First in the world: ${t.name}, by the ${nm(n)}. ${st}`, "first", [n.id]); }
+    { const first = !G.nations.some(o => o !== n && o.techs.includes(t.id)), st = discoveryStory(n, t), g = creditMind(n, t);
+      if (first) whist("💡", `First in the world: ${t.name}, by the ${nm(n)}. ${st}`, "first", [n.id]);
+      else if (g) whist(DOMAINS[g.d].icon, `${g.name}, ${g.title.toLowerCase()} of the ${nm(n)}, discovered ${t.name.toLowerCase()} for their people.`, "people", [n.id]); }
     if (!n.ai) { const st = discoveryStory(n, t); log(`Discovered ${t.name}! ${t.desc}`, "💡"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "💡", title: t.name, text: `${st} ${t.desc}` }); hist(n, "💡", st); }
     if (t.id === "mars") victory(n, "science");
     n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
@@ -3517,10 +3520,10 @@ function panelWorldHistory() { const n = P();
   h += `<div class="seg">${[["ours", `The ${esc(demonym(n))}`], ["world", "The world"]].map(([k, v]) => `<button class="${histScope === k ? "on" : ""}" data-act="hscope" data-k="${k}">${v}</button>`).join("")}</div>`;
   h += `<div class="ptabs2">${Object.entries(WHIST_TABS).map(([k, v]) => `<button class="${k === wTab ? "on" : ""}" data-act="wtab" data-k="${k}">${v}</button>`).join("")}</div>`;
   const vis = e => !e.w || !e.w.length || e.w.some(known);
-  if (wTab === "people") { const P0 = (G.wpeople || []).filter(p => known(p.n)).slice().reverse();
-    if (!P0.length) return h + `<p class="note">No great people known yet. You'll hear of them as you meet other peoples.</p>`;
+  if (wTab === "people") { const P0 = (G.wpeople || []).filter(p => known(p.n) && (p.kind === "conq" || (p.did && p.did.length))).slice().reverse();
+    if (!P0.length) return h + `<p class="note">No one known for great deeds yet. When a great mind makes a discovery, or a warlord conquers, you'll hear of them, as long as you've met their people.</p>`;
     return h + `<div class="card">${P0.map(p => { const dead = p.kind === "mind" ? G.year >= p.until : G.year - p.until > 25, o = G.nations[p.n];
-      return `<div class="ln"><span>${p.kind === "conq" ? "👑" : DOMAINS[p.d].icon} <b>${esc(p.name)}</b><br><small class="muted">${esc(p.title)} of the ${esc(o ? nm(o) : p.from)}${p.kind === "conq" ? ` · took ${p.count} settlements` : ""}${p.n === G.player ? " · yours" : ""}</small></span><b>${dead ? `<small>${yearTxt(p.born)}${p.until !== p.born ? `–${yearTxt(p.until)}` : ""}</small>` : '<span class="good">Living</span>'}</b></div>`; }).join("")}</div>`; }
+      return `<div class="ln"><span>${p.kind === "conq" ? "👑" : DOMAINS[p.d].icon} <b>${esc(p.name)}</b><br><small class="muted">${esc(p.title)} of the ${esc(o ? nm(o) : p.from)}${p.kind === "conq" ? ` · took ${p.count} settlements` : ` · ${p.did.map(esc).join(", ")}`}${p.n === G.player ? " · yours" : ""}</small></span><b>${dead ? `<small>${yearTxt(p.born)}${p.until !== p.born ? `–${yearTxt(p.until)}` : ""}</small>` : '<span class="good">Living</span>'}</b></div>`; }).join("")}</div>`; }
   const ev = (G.whist || []).filter(e => vis(e) && (wTab === "all" || e.c === wTab)).slice().reverse();
   if (!ev.length) return h + `<p class="note">Nothing known yet. As you meet other peoples, you'll hear of their great people, conquests and turning points.</p>`;
   return h + histList(ev); }
@@ -3532,7 +3535,7 @@ function panelHistory() {
   h += `<div class="ptabs2">${Object.entries(HIST_TABS).map(([k, v]) => `<button class="${k === histTab ? "on" : ""}" data-act="htab" data-k="${k}">${v}</button>`).join("")}</div>`;
   if (histTab === "people") {
     if (!fam.length) return h + `<p class="note">No great minds yet. Big villages, past about 50 families, sometimes raise one.</p>`;
-    h += `<div class="card">${fam.slice().reverse().map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b><br><small class="muted">${esc(t.title)} of ${esc(t.from)} · +5% ${DOMAINS[t.d].out}</small></span><b>${t.dead ? `<small>${yearTxt(t.born)}–${yearTxt(t.until)}</small>` : '<span class="good">Living</span>'}</b></div>`).join("")}</div>`;
+    h += `<div class="card">${fam.slice().reverse().map(t => `<div class="ln"><span>${DOMAINS[t.d].icon} <b>${esc(t.name)}</b><br><small class="muted">${esc(t.title)} of ${esc(t.from)} · +5% ${DOMAINS[t.d].out}${t.did && t.did.length ? ` · ${t.did.map(esc).join(", ")}` : ""}</small></span><b>${t.dead ? `<small>${yearTxt(t.born)}–${yearTxt(t.until)}</small>` : '<span class="good">Living</span>'}</b></div>`).join("")}</div>`;
     const ev = H.filter(e => HIST_CAT(e) === "people" || /, the .* of /.test(e.t)); if (!ev.length) return h;
     histTab = "people"; return h + histList(ev); }
   const ev = histTab === "all" ? H : H.filter(e => HIST_CAT(e) === histTab);
@@ -3688,7 +3691,9 @@ const TECH_STORY = {
   globalization: ["the shipping and trade houses", "tied the whole world's markets into one."],
   rocketry: ["the rocket scientists", "built engines strong enough to escape the sky."],
   mars: ["the space agency", "landed people on another world."] };
-function discoveryStory(n, t) { const [grp, what] = TECH_STORY[t.id] || ["your scholars", `discovered ${t.name.toLowerCase()}.`], d = TECH_DOM[t.id], g = aliveThinkers(n).find(z => z.d === d), place = (capSet(n) || {}).name || "your lands";
+/* a great mind in the right field gets the credit for a discovery */
+function creditMind(n, t) { const g = aliveThinkers(n).find(z => z.d === TECH_DOM[t.id]); if (!g) return null; (g.did || (g.did = [])).push(t.name); return g; }
+function discoveryStory(n, t) { const [grp, what] = TECH_STORY[t.id] || (t.era === 0 ? ["the elders", `worked out ${t.name.toLowerCase()}.`] : ["the scholars", `discovered ${t.name.toLowerCase()}.`]), d = TECH_DOM[t.id], g = aliveThinkers(n).find(z => z.d === d), place = (capSet(n) || {}).name || "your lands";
   return g ? `${g.name}, the ${g.title.toLowerCase()} of ${g.from}, ${what}` : `In ${place}, ${grp} ${what}`; }
 /* great minds: rare people from big villages and towns, each excelling at one kind of work */
 const DOMAINS = { food: { icon: "🏹", out: "food" }, build: { icon: "🔨", out: "building" }, war: { icon: "⚔️", out: "warfare" }, health: { icon: "🌿", out: "health" }, lore: { icon: "📜", out: "learning" }, crafts: { icon: "🪓", out: "materials" }, trade: { icon: "⚖️", out: "trade" } };
@@ -3718,7 +3723,7 @@ function stepThinkers(n) { const T = n.thinkers || (n.thinkers = []);
     const sh = k => tribal(n) ? timeShare(n, k) : .1, w = { food: sh("food") + sh("forage") + sh("farm") + sh("fish"), build: sh("build") + .05, war: sh("warrior") + (G.nations.some(o => atWar(n.id, o.id)) ? .3 : 0), health: sh("healer") + .05, lore: sh("elder") + .08, crafts: sh("tools") + sh("wood"), trade: .04 + .05 * tradePartners(n).length };
     let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), d = "lore"; for (const k in w) { r -= w[k]; if (r <= 0) { d = k; break; } }
     const t = { name: nameFor(n, "person"), d, title: THINKER_TITLES[Math.min(7, n.era)][d], from: x.name, born: G.year, until: G.year + 18 + Math.floor(rnd() * 18) }; T.push(t);
-    whist(DOMAINS[d].icon, `${t.name} of ${x.name} became known as a ${t.title.toLowerCase()} of the ${nm(n)}.`, "people", [n.id]); (G.wpeople || (G.wpeople = [])).push({ ...t, n: n.id, kind: "mind" });
+    t.n = n.id; t.kind = "mind"; t.did = []; (G.wpeople || (G.wpeople = [])).push(t); /* the world only hears of them if they achieve something */
     if (!n.ai) { (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: DOMAINS[d].icon, title: `A great mind: ${t.name}`, text: `In ${x.name}, ${t.name} has become known as a ${t.title.toLowerCase()}. While they live, your people's ${DOMAINS[d].out} does a little better, and research in their field goes faster. See them in Production.` });
       hist(n, DOMAINS[d].icon, `${t.name} of ${x.name} became known as a ${t.title.toLowerCase()}.`); }
     break; } }
