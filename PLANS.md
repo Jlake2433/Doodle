@@ -35,3 +35,36 @@ Decisions we've agreed on but haven't built yet. We're finishing the Stone Age f
 | Muhammad | Islam | Prophet and war leader | **huge military boost**; faith spreads with conquest |
 | Guru Nanak | Sikhism | Teacher of equality | +commoners; +martial spirit |
 | Martin Luther | Protestantism | Reformer | +research (printing, literacy); church upheaval |
+
+## Military (Stone Age core built; the rest later)
+
+**The rule for the whole game: you can't be great at everything.** A war-focused people can terrorize a region for generations, but it pays in growth, knowledge and economy. Eventually it stagnates and crumbles.
+
+Built (Stone Age):
+- Strength = numbers × quality. Numbers have diminishing returns (strength grows as units^0.6, so 10× the warriors ≈ 4× the strength).
+- The odds follow the strength ratio, so upsets happen: at 2:1 the stronger side wins about 85% of the time, at 3:1 94%, at 4:1 97%.
+- Quality comes from:
+  - how warriors are raised (a custom): hunters' skills, every hand in the fields, trained warriors, a warrior upbringing
+  - being fed: hungry ×0.7, well fed ×1.05
+  - martial spirit
+  - training grounds
+  - war weariness
+  - the war chief (ordinary in the Stone Age: ±15%)
+  - plus the existing government, culture, tools, funding and stability
+- War-focus costs:
+  - how warriors are raised changes growth and research: a warrior upbringing gives ×0.82 growth and ×0.88 research
+  - a warrior share above 15% also cuts growth and research
+- Battles per quarter: campaign seasons (winter rarely, summer up to 3 per war); a band is ready again after a season or two.
+- War chiefs keep a win/loss record for later.
+
+To do (later ages):
+- Expand the strength ratio (agreed to revisit).
+- Legendary figures: generals and rulers roll attributes (tactics, ferocity, logistics, charisma; administration, diplomacy, ambition). The rare brilliant roll becomes a terror. They're remembered only by record:
+  - undefeated in the field: 10+ wins at a 75%+ rate
+  - giant-slayer: 3+ wins against an army twice their size or the greatest realm
+  - scourge: 5+ settlements sacked or raided, or great tribute taken, from much bigger peoples
+  - defender: threw back a much larger invader
+  - conqueror: the Alexander-level bar
+- When they die, their people's power drops.
+- Organized armies and military buildings (barracks, armories) in later ages.
+- Expand the customs that shape a military.

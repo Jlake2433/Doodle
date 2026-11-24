@@ -614,11 +614,17 @@ const CUSTOMS = {
     scribes: { name: "Scribes and schools", tech: "writing", d: "Scribes record what is known, and schools teach the few who can read." },
     debate: { name: "Debate and reason", tech: "philosophy", d: "Ideas are argued in the open, and the best argument wins.", lean: "open worldly" },
     inquiry: { name: "Inquiry and experiment", tech: "enlightenment", d: "Nothing is true until it is tested.", lean: "open worldly" } } },
+  raise:   { name: "How warriors are raised", icon: "🛡️", opts: {
+    hunters: { name: "Hunters' skills", d: "Warriors are simply the best hunters: no special training, and the tribe grows freely." },
+    fields:  { name: "Every hand in the fields", tech: "agriculture", d: "Fighting is a last resort; everyone works and raises families. The tribe grows fast but fights poorly.", lean: "peaceable" },
+    trained: { name: "Trained warriors", tech: "spear", d: "Young men train with spear and shield. Stronger warriors, a little slower growth and less time for lore.", lean: "warlike" },
+    spartan: { name: "A warrior upbringing", tech: "tribal", d: "Boys are taken from their mothers to train for war from childhood. Fearsome warriors, but far fewer children and little time for learning.", lean: "warlike hardy" } } },
   youth:   { name: "Coming of age", icon: "🏹", opts: {
     trial:  { name: "Trials of courage", d: "The young prove themselves through pain and danger.", lean: "hardy warlike" },
     rite:   { name: "Initiation rites", d: "The young are taught the sacred secrets of the people.", lean: "devout" },
     virtue: { name: "Training in virtue", tech: "philosophy", d: "The young are raised to be wise, brave and just, not only strong.", lean: "content" },
     school: { name: "Schooling", tech: "printing", d: "The young learn letters and numbers.", lean: "industrious" } } } };
+const RAISE = { hunters: { q: 1, g: 1, r: 1 }, fields: { q: .88, g: 1.1, r: 1.02 }, trained: { q: 1.15, g: .94, r: .96 }, spartan: { q: 1.4, g: .82, r: .88 } }; /* fighting quality, growth, research */
 const LEAN = { hardy: { res: 5 }, warlike: { mar: 6 }, peaceable: { mar: -6 }, devout: { pie: 5 }, worldly: { pie: -5 }, open: { open: 6 }, insular: { open: -6 }, content: { con: 4 }, restless: { con: -4 }, industrious: { ind: 6 } };
 const cusOpen = (n, o) => !o.tech || has(n, o.tech);
 const cusEra = o => o.tech ? TECH[o.tech].era : -1; /* -1: the primal, survival-born ways */
@@ -932,6 +938,9 @@ function getLandPath() {
 }
 /* small villages raise more children; big ones eat more, defend better and raise great minds */
 const bigF = s => s.t > 0 ? 1 : clamp((s.pop - 50) / 100, 0, 1);
+/* a people built for war pays for it: fewer children, and less time and respect for lore */
+const warGrowth = n => (RAISE[(n.cus || {}).raise] || RAISE.hunters).g * (1 - .8 * Math.max(0, timeShare(n, "warrior") - .15));
+const warLore = n => (RAISE[(n.cus || {}).raise] || RAISE.hunters).r * (1 - .6 * Math.max(0, timeShare(n, "warrior") - .15));
 const birthF = s => s.t > 0 ? 1 : 1.25 - .45 * clamp((s.pop - 25) / 125, 0, 1);
 function hOf(s) { const n = G.nations[s.o]; const apc = APC[s.t] / (1 + .05 * (n ? n.era : 0)); return Math.max(.05, Math.sqrt(s.pop * apc) / 48 * 1.13); }
 function growBorders() {
@@ -1370,6 +1379,16 @@ function adminCap(n) {
   a += fb(n, "admin");
   return Math.floor(a);
 }
+/* what makes a fighting force menacing beyond its numbers */
+function newChief(n) { return { name: nameFor(n, "person"), skill: clamp(1 + (rnd() + rnd() - 1) * .12, .85, 1.15), w: 0, l: 0, born: G.year }; } /* Stone Age war chiefs are ordinary men */
+function battleQuality(n) { let q = 1; const E = n._fedE;
+  q *= E == null ? 1 : E < 0 ? .7 : E > .2 ? 1.05 : 1; /* hungry warriors fight badly */
+  q *= .9 + .2 * trv(n, "mar") / 100; /* martial spirit */
+  const R = RAISE[(n.cus || {}).raise]; if (R) q *= R.q; /* how warriors are raised */
+  if (tribal(n)) q *= 1 + .1 * structCov(n, "drill"); /* training grounds */
+  q *= 1 - Math.min(.3, (n.ww || 0) * .01); /* war weariness */
+  if (!n.chief || G.year - n.chief.born > 30) n.chief = newChief(n); q *= n.chief.skill;
+  return q; }
 function unitPower(n) {
   let m = 1 + (GOVS[n.gov].pow || 0), bp = 0;
   m += fb(n, "pow");
@@ -1382,6 +1401,7 @@ function unitPower(n) {
   m += officerBonus(n) + (cmd(n).pow || 0) + supremeMult(n);
   for (const s of stratStatus(n)) { if (s.bonus && s.st !== "missing") m += s.bonus; if (s.pen && s.st === "missing") m -= s.pen; }
   m *= 0.8 + 0.4 * n.stab / 100;
+  m *= battleQuality(n);
   m *= milMult(n.milFund == null ? 1 : n.milFund) * qualMult(n.milQual || 0);
   if (has(n, "combustion") && secUnlocked(n, "oil")) m *= .85 + .15 * Math.min(1, secF(n, "oil"));
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
@@ -1489,7 +1509,7 @@ function elderTalks(n) {
 // (every family needs a hut), and you assign which needs the builders work on. Each population unit is a family ----
 const BUILDER_HOURS = 25; // days of building a builder family puts in each season
 /* how many builder-days each thing takes: small things take a day or two, great works take years */
-const WORK_DAYS = { rack: 2, traps: 1, hearth: 1, hides: 2, refuse: 2, circle: 8, bath: 5, art: 4, burial: 6, loom: 4, smoke: 6, pens: 6, weir: 8, field: 5, pit: 5, canoe: 8, knap: 6, hut: 10, lodge: 10, cistern: 12, watch: 12, kiln: 15, shrine: 25, water: 30, post: 30, shop: 20, ditch: 40, palisade: 120,
+const WORK_DAYS = { drill: 20, rack: 2, traps: 1, hearth: 1, hides: 2, refuse: 2, circle: 8, bath: 5, art: 4, burial: 6, loom: 4, smoke: 6, pens: 6, weir: 8, field: 5, pit: 5, canoe: 8, knap: 6, hut: 10, lodge: 10, cistern: 12, watch: 12, kiln: 15, shrine: 25, water: 30, post: 30, shop: 20, ditch: 40, palisade: 120,
   hall: 150, granary: 120, market: 120, rampart: 300, temple: 600, aqueduct: 800, trails: 200, longhouse: 600, mound: 1500, stones: 2000 };
 const STRUCTS = {
   hut:      { tab: "housing", name: "Huts", one: "hut", icon: "🛖", hours: 2400, d: "Every family needs a home. Families without one have fewer children and grow restless." },
@@ -1522,6 +1542,7 @@ const STRUCTS = {
   bath:     { tab: "amen", opt: true, name: "Bathing place", one: "bathing place", icon: "🛁", hours: 1500, d: "One in every settlement. A cleared spot on the water for washing: healthier families." },
   art:      { tab: "spirit", opt: true, tech: "stories", name: "Painted rocks", one: "painted rock", icon: "🎨", hours: 1200, d: "One in every settlement. Hunts, spirits and ancestors painted on stone: families gather here, and the stories live on." },
   burial:   { tab: "spirit", opt: true, name: "Burial ground", one: "burial ground", icon: "🪦", hours: 2000, d: "One in every settlement. A resting place for the dead: the elders and the families are comforted." },
+  drill:    { tab: "defense", opt: true, tech: "spear", name: "Training ground", one: "training ground", icon: "🎯", hours: 20, d: "One in every settlement. A place to drill with spear and shield: up to 10% stronger warriors." },
   ditch:    { tab: "defense", opt: true, tile: "Ditches", name: "Ditch and stakes", one: "ditch and stakes", icon: "🔱", hours: 9000, d: "One around every settlement. Cheaper than a palisade: a little harder to raid." },
   watch:    { tab: "defense", opt: true, name: "Lookout post", one: "lookout post", icon: "🗼", hours: 2500, d: "One in every settlement. Raiders are seen coming, and your scouts see further from here." },
   post:     { tab: "travel", opt: true, when: n => metCount(n) > 0, tech: "trade", name: "Trading post", one: "trading post", icon: "🛖", hours: 6000, d: "Your main settlement only. A place where strangers can come to swap goods: other peoples trust you sooner and trade more willingly." },
@@ -1565,7 +1586,7 @@ function needAt(n, x, k) {
     case "pens": return Math.ceil(fam * sh("farm") / 6);
     case "loom": return Math.ceil(fam / 10);
     case "post": return x.id === n.cap ? 1 : 0;
-    case "knap": case "kiln": case "bath": case "art": case "burial": case "ditch": case "watch": return 1;
+    case "drill": case "knap": case "kiln": case "bath": case "art": case "burial": case "ditch": case "watch": return 1;
     case "hearth": return Math.ceil(fam / 5);
     case "hides": { const c = coldOf(x); return c < .15 ? 0 : Math.ceil(fam * c / 8); }
     case "refuse": return Math.ceil(fam / 10);
@@ -1778,7 +1799,7 @@ function econ(n) {
       const hT = 1.1 * hunt * game * (season + winterEase) * (1 + .25 * structCov(n, "traps")) * (1 + (has(n, "spear") ? .05 : 0) + (has(n, "bow") ? .1 : 0) + (has(n, "dogs") ? .05 : 0) + (has(n, "burning") ? .03 : 0)), gT = 1.0 * fo * plants * pRoom * cal * (1 + (has(n, "burning") ? .05 : 0) + (has(n, "grinding") ? .05 : 0)), sT = .95 * fi * Math.min(1, fishable(n) * 1.2) * (1 + .3 * structCov(n, "canoe")) * (1 + .3 * structCov(n, "weir")) * (has(n, "fishing") ? 1.15 : 1) * (q === 0 ? 1 - .25 * cN + winterEase : 1);
       const fT = .75 * farm * (structCov(n, "field") + .3 * (1 - structCov(n, "field"))) * (has(n, "husbandry") ? 1.15 : 1) * (1 + .2 * structCov(n, "pens")) * cal; /* farmers without plots scratch out small gardens; herds add meat and milk */
       const tf = toolF(n); n._noHuntR = (.6 + (fT + sT) * tf) / (.6 + (hT + gT + fT + sT) * tf); food *= (.6 + (hT + gT + fT + sT) * tf) * (has(n, "salt") ? 1.03 : 1); } /* better tools, better hauls */
-    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1) * (has(n, "stars") ? 1.05 : 1); } // who does what in the tribe
+    mat *= (.9 + .2 * trv(n, "ind") / 100) * (.02 + 9.8 * timeShare(n, "wood")) * toolF(n, .25) * clamp(.75 + .25 * room, .75, 1.25); /* with more land, builders don't wait for the trees to grow back */ sci *= (.85 + 1.5 * timeShare(n, "elder")) * (projDone(n, "stones") ? 1.2 : 1) * (has(n, "stars") ? 1.05 : 1) * warLore(n); } // who does what in the tribe
   if (tribal(n)) { food *= (1 + .1 * structCov(n, "rack")) * (coastal(n) ? 1 + .1 * structCov(n, "canoe") : 1); mat *= (1 + .2 * structCov(n, "shop")) * (1 + .1 * structCov(n, "knap")) * (1 + .1 * (has(n, "pottery") ? structCov(n, "kiln") : 0)); sci *= 1 + .1 * structCov(n, "shrine"); }
   const surplus = food - need;
   const foodGold = surplus > 0 ? Math.min(surplus * .02, 1 + n.era * 3) : 0;
@@ -2163,14 +2184,14 @@ function processNation(n) {
   if (tribal(n)) retireRoles(n, E);
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
-  n.hungry = sr < 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
+  n.hungry = sr < 0; n._fedE = sr; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
   stepTraits(n, E, H); stepPeoples(n);
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
     if (sr >= 0) {
       const free = Math.max(0, 1 - s.pop / cap);
       const r = (T.r + (n.laws.focus === "grow" ? .05 : 0) + .1 * Math.max(0, Math.min(2, sr))) * FERT.mult + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .006 * bud(n).health + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0);
-      const g = (s.pop * r * (tribal(n) ? .4 * birthF(s) : 1) + T.flat * (tribal(n) ? .5 : 1)) * free * TD; /* hunter-gatherer and early farming peoples grew slowly */
+      const g = (s.pop * r * (tribal(n) ? .4 * birthF(s) * warGrowth(n) : 1) + T.flat * (tribal(n) ? .5 : 1)) * free * TD; /* hunter-gatherer and early farming peoples grew slowly */
       s.pop += g; s.g = g;
     } else { s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); s.g = 0; }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
@@ -2277,7 +2298,7 @@ function processNation(n) {
       n.generals.push(g); if (!n.ai) log(`General ${g.name} (${"★".repeat(skill)}) graduated from the military academy in ${a.name}.`, "🎖️");
     } }
   n.warmonger = Math.max(0, n.warmonger - TD);
-  n.used = Math.max(0, (n.used || 0) - forces(n) * TD); // regiments rest and regroup after fighting
+  n.used = Math.max(0, (n.used || 0) - forces(n) * .5); /* bands rest and regroup: ready again after a season or two */
   if (n.mercs && n.mercs.length) { for (const m of n.mercs) { m.left--; const o = G.nations[m.from]; if (!o || !o.alive) m.left = 0; else if (dip(n.id, o.id).war || dip(n.id, o.id).rel < 0) { m.left = 0; m.broke = true; } }
     const done = n.mercs.filter(m => m.left <= 0); n.mercs = n.mercs.filter(m => m.left > 0);
     for (const m of done) { const o = G.nations[m.from]; if (o && o.alive && !dip(n.id, o.id).war) o.army += m.k;
@@ -2417,22 +2438,22 @@ function upheaval(n) {
 }
 
 // ================= WAR =================
+/* numbers count with diminishing returns: ten times the warriors is about four times the strength */
+const NUM_EXP = .6, numStr = u => Math.pow(Math.max(0, u), NUM_EXP), unitsFor = str => Math.pow(Math.max(0, str), 1 / NUM_EXP);
+/* odds follow the strength ratio: at 2 to 1 the stronger side wins about 85% of the time */
+const battleOdds = r => { const q = Math.pow(Math.max(.01, r), 2.5); return q / (1 + q); };
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
   const m = TIERS[s.t].def + fb(d, "def") + (builtAt(s, "palisade") ? .35 : builtAt(s, "ditch") ? .15 : 0) + .25 * bigF(s) + (builtAt(s, "watch") ? .05 : 0) + (builtAt(s, "rampart") ? .5 : 0) + (R.t === "mountain" ? .3 : 0) + (R.t === "forest" || R.t === "jungle" ? .1 : 0) + (s.id === d.cap ? .3 : 0);
-  return { units, power: (units * unitPower(d) * m + U(s.pop) * .3 * ERA_POW[d.era] * m) * defMult(d) * garrisonMult(d) }; // claimed land left unguarded is easier to break into
+  return { units, power: (numStr(units) * unitPower(d) * m * 1.1 + numStr(U(s.pop) * .3) * ERA_POW[d.era] * m) * defMult(d) * garrisonMult(d) }; /* defenders fight a little harder for their homes */ // claimed land left unguarded is easier to break into
 }
 function worldEra() { const al = G.nations.filter(n => n.alive); return Math.round(al.reduce((a, n) => a + n.era, 0) / al.length); }
-function winChance(n, s, units) {
-  const att = units * unitPower(n) * attackMult(n), def = defenseOf(s).power; let w = 0;
-  for (let i = 0; i < 300; i++) if (att * (.75 + rnd() * .5) > def * (.8 + rnd() * .4)) w++;
-  return w / 300;
-}
+function winChance(n, s, units) { return battleOdds(numStr(units) * unitPower(n) * attackMult(n) / Math.max(1e-9, defenseOf(s).power)); }
 function attack(n, s, units) {
   const dn = G.nations[s.o], D = defenseOf(s), ri = s.r;
-  const att = units * unitPower(n) * attackMult(n) * (.75 + rnd() * .5), def = D.power * (.8 + rnd() * .4);
-  const win = att > def;
+  const att = numStr(units) * unitPower(n) * attackMult(n), def = D.power, win = rnd() < battleOdds(att / Math.max(1e-9, def));
+  { const c = n.chief || (n.chief = newChief(n)), cd = dn.chief || (dn.chief = newChief(dn)); if (win) { c.w = (c.w || 0) + 1; cd.l = (cd.l || 0) + 1; } else { c.l = (c.l || 0) + 1; cd.w = (cd.w || 0) + 1; } } /* records, for later */
   const aLoss = Math.min(units, Math.round(units * clamp(win ? def / att * .45 : .35 + def / att * .2, .05, .9)));
   loseUnits(n, aLoss); n.used += units;
   const dLoss = Math.min(forces(dn), Math.round(D.units * clamp(att / def * .5, .1, 1) + (win ? .5 : 0))); loseUnits(dn, dLoss);
@@ -2663,13 +2684,13 @@ function aiTurn(n) {
   // attack
   for (const o of G.nations.filter(o => atWar(n.id, o.id))) {
     if (G.tt - dip(n.id, o.id).wt < TD * .5) continue;
-    let tries = o.id === G.player ? (n.era < 4 ? 1 : 2) : 1 + Math.floor(n.era / 3);
+    let tries = [rnd() < .3 ? 1 : 0, 2, 3, 2][Math.floor((G.month || 0) / 3)]; /* campaign season: most fighting in summer, little in winter */
     while (tries-- > 0) {
       const avail = forces(n) - n.used; if (avail < 1) break;
       const targets = setsOf(o).filter(s => touchesSet(n, s));
       if (!targets.length) break;
       let best = null, bp = 0, bu = 0;
-      for (const s of targets) { const D = defenseOf(s).power; const need = Math.ceil(D * 1.35 / unitPower(n)); if (need <= avail * .75) { const u = Math.max(1, Math.min(avail, need)); const p = winChance(n, s, u); const val = p + s.t * .08; if (val > bp) { bp = val; best = s; bu = u; } } }
+      for (const s of targets) { const D = defenseOf(s).power; const need = Math.ceil(unitsFor(D * 1.35 / unitPower(n))); if (need <= avail * .75) { const u = Math.max(1, Math.min(avail, need)); const p = winChance(n, s, u); const val = p + s.t * .08; if (val > bp) { bp = val; best = s; bu = u; } } }
       if (best && bp > (n.pers === "aggressive" ? .5 : .62)) attack(n, best, bu); else break;
     }
   }
@@ -3758,7 +3779,7 @@ const PWHY = { hut: "families without homes put up shacks, have fewer children a
   refuse: "without them, sickness spreads", circle: "families have nowhere to gather and grow unhappy", lodge: "healing heat keeps sickness down", field: "farmers without a plot barely grow anything", cistern: "families are short of water", water: "families are short of water", aqueduct: "families are short of water",
   rack: "dried meat and fish: more food", canoe: "more fish, and boats to cross narrow water", traps: "hunters bring in up to 25% more", weir: "fishers bring in up to 30% more", smoke: "lean winters become much less lean", pens: "farmers and herders bring in up to 20% more",
   knap: "+10% materials and faster builders here", kiln: "+10% materials", loom: "warmer, prouder families", bath: "healthier families", art: "families gather here and are happier", burial: "the elders and families are comforted",
-  ditch: "a little harder to raid", watch: "raiders are seen coming, and scouts see further", palisade: "much harder to raid or conquer", post: "other peoples trust you sooner and trade more willingly", shrine: "the elders are pleased and lore grows", pit: "famine kills far fewer", shop: "toolmakers work faster: more materials" };
+  drill: "stronger warriors in battle", ditch: "a little harder to raid", watch: "raiders are seen coming, and scouts see further", palisade: "much harder to raid or conquer", post: "other peoples trust you sooner and trade more willingly", shrine: "the elders are pleased and lore grows", pit: "famine kills far fewer", shop: "toolmakers work faster: more materials" };
 function panelProduction(n) {
   const P0 = prodState(n), sets = setsOf(n).slice().sort((a, b) => b.t - a.t || b.pop - a.pop);
   let x = setById(prodSet); if (!x || x.o !== n.id) { x = setById(n.cap) || sets[0]; prodSet = x ? x.id : null; }
@@ -4611,7 +4632,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
