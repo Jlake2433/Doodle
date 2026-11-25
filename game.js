@@ -252,8 +252,8 @@ const milAcadCost = n => { const m = Math.pow(1.5, n.era); return { g: Math.roun
 const milAcadLimit = n => 1 + Math.floor(sizeOf(n) / 6);
 const milAcadCount = n => setsOf(n).filter(s => s.mil).length;
 // academies graduate scientists, military academies graduate officers; a few retire every turn
-function sciGradRate(n) { let t = 0; for (const x of G.sets) if (x.o === n.id) { if (x.acad === 1) t += .6 + x.pop / 30000; else if (x.acad === 2) t += 2 + x.pop / 10000; } return t * (n.cul === "scholarly" ? 1.3 : 1); }
-function offGradRate(n) { let t = 0; for (const x of G.sets) if (x.o === n.id && x.mil) t += .8 + x.pop / 30000; return t * (n.cul === "martial" ? 1.3 : 1); }
+function sciGradRate(n) { let t = 0; for (const x of setsOf(n)) { if (x.acad === 1) t += .6 + x.pop / 30000; else if (x.acad === 2) t += 2 + x.pop / 10000; } return t * (n.cul === "scholarly" ? 1.3 : 1); }
+function offGradRate(n) { let t = 0; for (const x of setsOf(n)) if (x.mil) t += .8 + x.pop / 30000; return t * (n.cul === "martial" ? 1.3 : 1); }
 const sciSalary = n => .3 * Math.pow(1.4, n.era) * (G && G.nations ? wageOf(n) : 1), offSalary = n => .35 * Math.pow(1.4, n.era) * (G && G.nations ? wageOf(n) : 1); // public employees are paid the going wage
 const perScientist = n => n.cul === "scholarly" ? .015 : .01;
 const scientistBoost = n => (n.scientists || 0) * perScientist(n);
@@ -288,7 +288,7 @@ let emphCache = new Map();
 function emph(n, ck) { // how strongly a field is emphasized: { cities, cap }
   const key = G.sv + ":" + G.turn + ":" + (G.fv || 0);
   let c = emphCache.get(n.id);
-  if (!c || c.key !== key) { c = { key, m: {} }; for (const s of G.sets) if (s.o === n.id && s.focus && canEmph(n, s)) { const e = c.m[s.focus] || (c.m[s.focus] = { cities: 0, cap: false }); if (s.id === n.cap) e.cap = true; else e.cities++; } emphCache.set(n.id, c); }
+  if (!c || c.key !== key) { c = { key, m: {} }; for (const s of setsOf(n)) if (s.focus && canEmph(n, s)) { const e = c.m[s.focus] || (c.m[s.focus] = { cities: 0, cap: false }); if (s.id === n.cap) e.cap = true; else e.cities++; } emphCache.set(n.id, c); }
   return c.m[ck] || { cities: 0, cap: false };
 }
 const emphMult = (n, ck) => { const e = emph(n, ck); return 1 + .015 * e.cities + (e.cap ? .15 : 0); };
@@ -305,7 +305,7 @@ function knowledgeLinks(n) {
   if (diffKey !== key) { diffKey = key; diffLinks = new Map(); }
   let l = diffLinks.get(n.id); if (l) return l;
   const myPop = popOf(n); l = [];
-  for (const o of G.nations) { if (!o.alive || o.id === n.id) continue; const d = dip(n.id, o.id);
+  for (const o of dealt(n)) { const d = dip(n.id, o.id);
     if (d.ally || d.trade || bordersTouch(n, o)) l.push({ o, w: popOf(o) > myPop ? 1 : .5 }); }
   diffLinks.set(n.id, l); return l;
 }
@@ -407,7 +407,7 @@ const FACTIONS = {
   workers: { name: () => "Workers", icon: "🔧", from: 5 },
 };
 const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f", "#1fb5b0", "#e45aa0", "#8a5a33", "#5b6ee1", "#a5c234", "#c0392b", "#16a085", "#d35400", "#7d3c98", "#34495e", "#ff8fab", "#00a8e8", "#6c5ce7", "#00b894", "#e1a10b", "#e17055", "#0984e3", "#b33771", "#3b3b98", "#58b19f", "#cd6133", "#4b4b7a", "#ff9f43", "#218c74", "#82589f", "#8e7d5b", "#d63031", "#2d98da"];
-const TRIBES = 80; /* peoples in the world at the start */
+const TRIBES = 2000, TRIBE_GAP = 5; /* peoples in the world at the start; the closest two can start (map units) */
 const CRADLES = ["Lower Egypt", "Mesopotamia", "Indus", "North China Plain", "Jiangnan", "Punjab", "Anatolia", "Greece", "Southern Italy", "Central Mexico", "Peru", "Mali", "Ethiopia", "Northern Gaul", "England", "Persia", "Japan", "Muscovy", "Midwest", "Java", "Eastern Mongolia", "Castile", "Bengal", "Zimbabwe", "Korea", "Rhineland", "Gold Coast", "Southern Plains", "Pampas", "New South Wales", "Great Lakes Africa", "Yucatan"];
 const SYL = ["ka", "ra", "tal", "mor", "eth", "vin", "sul", "dor", "ash", "ul", "ren", "bar", "kesh", "an", "ith", "or", "zan", "lo", "mir", "gal", "hun", "tep", "yar", "ob", "nek", "sa", "tor", "al", "qua", "ri", "ven", "ito", "ba", "du", "shen", "ko", "zi", "mar", "el", "ost", "ta", "ny", "vel", "kor", "ae", "bri", "hal", "wen"];
 // ---- languages: every people names its land, towns and leaders in the style of the place it comes from ----
@@ -499,7 +499,7 @@ function nameFor(n, kind) {
   const list = n && (kind === "person" ? n.personNames : n.cityNames);
   if (list && list.length) {
     if (kind === "person") return pick(list);
-    const used = new Set(G.sets.filter(x => x.o === n.id).map(x => x.name)), free = list.filter(x => !used.has(x));
+    const used = new Set(setsOf(n).map(x => x.name)), free = list.filter(x => !used.has(x));
     if (free.length) return free[0]; // your own city names are used first, in order
   }
   return kind === "person" ? personName(n && n.plang || langOf(n)) : placeName(langOf(n));
@@ -714,7 +714,7 @@ function diasporaOf(n, g) { const base = g.base || g.name, same = demonym(n) ===
   return long ? { k: `${g.k}~${n.id}`, base, name: `${adjOf(n)} ${base}`, lang: g.lang, lang2: langOf(n), cul: n.cul, relig: g.relig, cus: g.cus, via: [...(g.via || []), demonym(n)], long }
     : { k: g.k, base: g.base, name: g.name, lang: g.lang, lang2: g.lang2, cul: g.cul, relig: g.relig, cus: g.cus, via: g.via, long: false }; }
 function pickHome(n, g) { const c0 = capSet(n), home = g.k.split("~")[0];
-  const opts = G.nations.filter(o => o.alive && o.id !== n.id && setsOf(o).length && (dip(n.id, o.id).met || String(o.id) === home)).map(o => { const c = capSet(o) || setsOf(o)[0];
+  const opts = G.nations.filter(o => o.alive && o.id !== n.id && setsOf(o).length && (dipR(n.id, o.id).met || String(o.id) === home)).map(o => { const c = capSet(o) || setsOf(o)[0];
     return { o, sc: trv(o, "open") + (String(o.id) === home ? 15 : 0) + 25 * rnd() - (c0 && c ? Math.hypot(c.x - c0.x, c.y - c0.y) * .6 : 0) - (dip(n.id, o.id).war ? 30 : 0) }; }).sort((a, b) => b.sc - a.sc);
   return opts.length ? opts[0].o : null; }
 function arrive(n, to, d, fam, text) { if (!to) return null;
@@ -728,7 +728,7 @@ function expelGroup(n, i) { const E = ethOf(n), g = E[i]; if (!g) return; let fa
   if (/^\d+$/.test(g.k) && G.nations[g.k] && G.nations[g.k].alive) { const dd = dip(n.id, +g.k); dd.rel = Math.max(-100, dd.rel - 15); }
   const where = to ? `the ${nm(to)}` : "the wilds";
   if (to) { arrive(n, to, d, fam, `${Math.max(1, Math.round(fam))} famil${Math.round(fam) === 1 ? "y" : "ies"} of the ${d.name} arrive, driven out by the ${nm(n)}. ${d.long ? `After ${Math.round(yrsAmong(g))} years there, they carry ${demonym(n)} ways as well as their own: a people of two roots.` : ""} The People tab shows how they're received.`);
-    if (n.id !== G.player && to.id !== G.player && P() && dip(G.player, n.id).met) log(`The ${nm(n)} drove out the ${g.name}. They have gone to ${where}${d.long ? ` and are now known as the ${d.name}` : ""}.`, "🚶"); }
+    if (n.id !== G.player && to.id !== G.player && P() && dipR(G.player, n.id).met) log(`The ${nm(n)} drove out the ${g.name}. They have gone to ${where}${d.long ? ` and are now known as the ${d.name}` : ""}.`, "🚶"); }
   if (n.id === G.player) hist(n, "🚶", `The ${g.name} were driven out${to ? ` to the ${nm(to)}` : ""}.`);
   if (n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🚶", title: `The ${g.name} are driven out`, text: `${Math.max(1, Math.round(fam))} families leave for ${where}.${d.long ? ` After ${Math.round(yrsAmong(g))} years among you, they take your ways with them: there they will be known as the ${d.name}.` : ""}` });
   G.sv++; }
@@ -771,7 +771,7 @@ const TRAITS = {
   pie:  { name: "Piety", lo: "Worldly", hi: "Devout", icon: "🕯️", d: "Grows with elders, shrines and temples. Devout people follow the elders." },
   open: { name: "Openness", lo: "Insular", hi: "Open", icon: "🧭", d: "Grows with contact, trade and newcomers living among you. Open people accept newcomers more easily." },
   con:  { name: "Temper", lo: "Restless", hi: "Content", icon: "🙂", d: "Follows the people's mood over the years. Content people keep trusting their leaders; restless ones lose trust faster." } };
-function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(n, k) : 0, wars = G.nations.filter(o => o.alive && atWar(n.id, o.id)).length;
+function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(n, k) : 0, wars = warsOf(n).length;
   const ks = Object.keys(FACTIONS).filter(k => facActive(n, k)), mood = ks.length ? ks.reduce((a, k) => a + n.fac[k], 0) / ks.length : 50;
   const minor = (n.eth || []).reduce((a, g) => a + g.share, 0), tp = setsOf(n).filter(x => builtAt(x, "temple")).length, cu = n.cul;
   return {
@@ -818,19 +818,33 @@ let G = null;
 const P = () => G.nations[G.player];
 const has = (n, t) => n.techs.includes(t);
 const pk = (a, b) => a < b ? a + "-" + b : b + "-" + a;
-function dip(a, b) { const k = pk(a, b); return G.dip[k] || (G.dip[k] = { rel: 0, trade: false, ally: false, war: false, ws: 0, wt: 0, met: false, truce: 0 }); }
-const atWar = (a, b) => a !== b && a >= 0 && b >= 0 && dip(a, b).war;
-const wscore = (a, b) => a < b ? dip(a, b).ws : -dip(a, b).ws;
+function dip(a, b) { const m = relIndex().get(a); let d = m && m.get(b); if (d) return d; const k = pk(a, b); d = G.dip[k]; if (!d) d = G.dip[k] = { rel: 0, trade: false, ally: false, war: false, ws: 0, wt: 0, met: false, truce: 0 }; ixAdd(a, b, d); return d; }
+/* only pairs of peoples that have dealt with each other keep a record; each people keeps a list of them */
+const NODIP = Object.freeze({ rel: 0, trade: false, ally: false, war: false, ws: 0, wt: 0, met: false, truce: 0 });
+const dipR = (a, b) => { const m = relIndex().get(a); return (m && m.get(b)) || NODIP; }; /* look without creating */
+let relIx = null;
+function ixAdd(a, b, d) { let x = relIx.get(a); if (!x) relIx.set(a, x = new Map()); x.set(b, d); let y = relIx.get(b); if (!y) relIx.set(b, y = new Map()); y.set(a, d); }
+function relIndex() { if (!relIx || relIx.G !== G) { relIx = new Map(); relIx.G = G; for (const k in G.dip) { const i = k.indexOf("-"); ixAdd(+k.slice(0, i), +k.slice(i + 1), G.dip[k]); } } return relIx; }
+const EMPTY_SET = new Map();
+/* the living peoples this one has any dealings with */
+function dealt(n, f) { const m = relIndex().get(n.id) || EMPTY_SET, out = []; for (const [i, d] of m) { if (f && !d[f]) continue; const o = G.nations[i]; if (o && o.alive) out.push(o); } return out; }
+const metOf = n => dealt(n, "met");
+const warsOf = n => dealt(n, "war");
+const dealtAll = n => [...(relIndex().get(n.id) || EMPTY_SET).keys()].map(i => G.nations[i]).filter(Boolean); /* including fallen peoples */
+const atWar = (a, b) => a !== b && a >= 0 && b >= 0 && dipR(a, b).war;
+const wscore = (a, b) => a < b ? dipR(a, b).ws : -dipR(a, b).ws;
 function addWs(a, b, v) { const d = dip(a, b); d.ws += a < b ? v : -v; }
 function log(text, icon = "•", who = null) { G.news.push({ t: AW(text), i: icon, p: who === null || who === G.player }); }
 
 // settlements & territories
-const setsOf = n => G.sets.filter(s => s.o === n.id);
+let sIx = null, sIxK = null;
+const setsOf = n => { const k = G.sv + ":" + G.sets.length; if (sIxK !== k || !sIx || sIx.G !== G) { sIx = new Map(); sIx.G = G; sIxK = k; for (const s of G.sets) { let a = sIx.get(s.o); if (!a) sIx.set(s.o, a = []); a.push(s); } } const a = sIx.get(n.id); return a ? a.slice() : []; };
 const setsIn = ri => G.sets.filter(s => s.r === ri);
-const setById = id => G.sets.find(s => s.id === id);
+let byIdM = null, byIdK = null;
+const setById = id => { const k = G.sv + ":" + G.sets.length; if (byIdK !== k || !byIdM || byIdM.G !== G) { byIdM = new Map(); byIdM.G = G; byIdK = k; for (const s of G.sets) byIdM.set(s.id, s); } return byIdM.get(id); };
 const capSet = n => setById(n.cap);
 const popOf = n => setsOf(n).reduce((a, s) => a + s.pop, 0);
-function pres(n) { const p = new Set(); for (const s of G.sets) if (s.o === n.id) p.add(s.r); return p; }
+function pres(n) { const p = new Set(); for (const s of setsOf(n)) p.add(s.r); return p; }
 const terrCount = n => G.regions.reduce((a, r) => a + (r.ctrl === n.id ? 1 : 0), 0);
 const territories = n => G.regions.filter(r => r.ctrl === n.id);
 const rankOf = n => rankIdx(terrCount(n));
@@ -840,7 +854,7 @@ const townsOf = n => setsOf(n).filter(s => s.t >= 1).length;
 function B(nid, ri) { const r = G.bld[ri] || (G.bld[ri] = {}); return r[nid] || (r[nid] = {}); }
 function consOf(nid, ri) { const c = G.cons[ri]; return c ? c[nid] || null : null; }
 function setCons(nid, ri, k) { const c = G.cons[ri] || (G.cons[ri] = {}); if (k) c[nid] = k; else delete c[nid]; }
-function bldSlots(n, ri) { let s = 1; for (const x of G.sets) if (x.o === n.id && x.r === ri) s += x.t === 1 ? 1 : x.t === 2 ? 2 : 0; return s; }
+function bldSlots(n, ri) { let s = 1; for (const x of setsOf(n)) if (x.r === ri) s += x.t === 1 ? 1 : x.t === 2 ? 2 : 0; return s; }
 const bldUsed = (n, ri) => Object.keys(B(n.id, ri)).length + (consOf(n.id, ri) ? 1 : 0);
 
 // reachability: regions a nation can settle or strike, cached until settlements change
@@ -1004,17 +1018,17 @@ function recomputeControl(ri) {
   if (nc >= 0) {
     const n = G.nations[nc];
     if (nc === G.player) log(`${W.regions[ri].n} is now your territory!`, "🚩");
-    else if (dip(nc, G.player).met) log(`The ${nm(n)} now controls ${W.regions[ri].n}.`, "🏳️", -1);
+    else if (dipR(nc, G.player).met) log(`The ${nm(n)} now controls ${W.regions[ri].n}.`, "🏳️", -1);
   }
   if (cur === G.player && nc !== G.player) log(`You lost control of ${W.regions[ri].n}.`, "🏚️");
   for (const [id, rk] of before) { const n = G.nations[id], nr = rankOf(n);
     if (nr !== rk && n.alive) {
       if (id === G.player) log(nr > rk ? `Your people are now the ${nm(n)}! A ${RANKS[nr].name} can manage more settlements.` : `You fell to a ${RANKS[nr].name}: the ${nm(n)}.`, nr > rk ? "👑" : "🏚️");
-      else if (nr > rk && nr >= 2 && dip(id, G.player).met) log(`The ${n.name} have risen to become the ${nm(n)}.`, "👑", -1);
+      else if (nr > rk && nr >= 2 && dipR(id, G.player).met) log(`The ${n.name} have risen to become the ${nm(n)}.`, "👑", -1);
     } }
 }
 
-function newNation(name, color, ri, ai, pers, culture) {
+function newNation(name, color, ri, ai, pers, culture, at) {
   const id = G.nations.length;
   const n = { id, name, color, ai, lang: ri >= 0 ? langOfRegion(ri) : null, pers: pers || "builder", cul: culture || "mixed", culCool: 0, alive: true, gov: "tribe", govCool: 0, anarchy: 0, opposition: 0,
     laws: { tax: "normal", cons: "levy", rel: "faith", trade: "bal", labor: null, press: null, migr: "free", rp: "std", focus: "bal" },
@@ -1022,7 +1036,7 @@ function newNation(name, color, ri, ai, pers, culture) {
     fac: {}, facMods: [], stab: 55, ww: 0, cap: -1, lastElect: 0, warmonger: 0, autoResearch: true, fullSeen: 0, fields: {} };
   for (const k in FACTIONS) n.fac[k] = 55;
   G.nations.push(n);
-  if (ri >= 0) { const s = addSettlement(id, ri, START_POP, null, name); n.cap = s.id; }
+  if (ri >= 0) { const s = addSettlement(id, ri, START_POP, null, name, 0, false, at); n.cap = s.id; }
   return n;
 }
 function newGame(opts) {
@@ -1032,7 +1046,7 @@ function newGame(opts) {
   const start = RID[opts.start];
   newNation(opts.name, opts.color, start, false, "builder", opts.cul || "mixed");
   const used = [start], colors = COLORS.filter(c => c !== opts.color);
-  const addTribe = r => { used.push(r); const n = newNation(placeName(langOfRegion(r)), colors.shift() || `hsl(${Math.floor(rnd() * 360)},60%,52%)`, r, true, pick(Object.keys(PERS))); { const r0 = rnd(); n.cul = r0 < .1 ? "scholarly" : r0 < .2 ? "mixed" : ({ aggressive: "martial", zealot: rnd() < .5 ? "martial" : "agrarian", builder: rnd() < .5 ? "industrious" : rnd() < .5 ? "agrarian" : "martial", trader: rnd() < .7 ? "mercantile" : "martial" })[n.pers]; }
+  const addTribe = (r, at) => { used.push(r); const n = newNation(placeName(langOfRegion(r)), colors.shift() || `hsl(${Math.floor(rnd() * 360)},${50 + Math.floor(rnd() * 25)}%,${42 + Math.floor(rnd() * 20)}%)`, r, true, pick(Object.keys(PERS)), null, at); { const r0 = rnd(); n.cul = r0 < .1 ? "scholarly" : r0 < .2 ? "mixed" : ({ aggressive: "martial", zealot: rnd() < .5 ? "martial" : "agrarian", builder: rnd() < .5 ? "industrious" : rnd() < .5 ? "agrarian" : "martial", trader: rnd() < .7 ? "mercantile" : "martial" })[n.pers]; }
     n.laws.rp = n.cul === "scholarly" ? "high" : rnd() < .12 ? "high" : (n.pers === "aggressive" || n.pers === "zealot" || rnd() < .4) ? "low" : "std"; n.laws.cons = n.pers === "aggressive" ? "levy" : "vol"; };
   const livable = r => TER[W.regions[r].t].food >= .9;
   // two neighboring tribes a day or two's walk away (about 100-220 km)
@@ -1047,13 +1061,18 @@ function newGame(opts) {
     }
     for (const sp of spots) { addTribe(sp.r); const t = G.sets[G.sets.length - 1]; t.x = sp.x; t.y = sp.y; t.r = sp.r; }
   }
-  // the rest of the world: mostly coastal peoples, a few inland river valleys
-  const pool = W.regions.map(r => r.i).filter(r => !used.includes(r) && (livable(r) || CRADLES.includes(W.regions[r].n))).sort(() => rnd() - .5);
-  for (const r of pool) {
-    if (G.nations.length >= TRIBES) break;
-    if (!W.regions[r].c && !CRADLES.includes(W.regions[r].n) && rnd() > .5) continue;
-    if (used.some(u => gdist(u, r) < 5)) continue;
-    addTribe(r);
+  // the rest of the world: thousands of peoples, thickest on rich land, thin in deserts, tundra and mountains
+  { const pts = G.sets.map(s => [s.x, s.y]), cell = 6, occ = new Map(), key = (x, y) => (x / cell | 0) + "," + (y / cell | 0);
+    for (const q of pts) (occ.get(key(q[0], q[1])) || occ.set(key(q[0], q[1]), []).get(key(q[0], q[1]))).push(q);
+    const near = (x, y) => { const gx = x / cell | 0, gy = y / cell | 0; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const q of occ.get((gx + i) + "," + (gy + j)) || []) if (Math.hypot(q[0] - x, q[1] - y) < TRIBE_GAP) return true; return false; };
+    for (let tries = 0; tries < TRIBES * 400 && G.nations.length < TRIBES; tries++) {
+      const x = rnd() * W.w, y = rnd() * W.h;
+      const reg = W.regions.find(S => x > S.bb[0] && x < S.bb[2] && y > S.bb[1] && y < S.bb[3] && sampler.isPointInPath(S.path, x, y, "evenodd"));
+      if (!reg) continue;
+      const f = TER[reg.t].food / 1.5; if (rnd() > f * f) continue;
+      if (near(x, y)) continue;
+      addTribe(reg.i, { x, y }); const q = [x, y]; (occ.get(key(x, y)) || occ.set(key(x, y), []).get(key(x, y))).push(q);
+    }
   }
   G.exp = new Array(NR).fill(0); G.fog = [];
   for (let i = 0; i < 4; i++) growBorders();
@@ -1127,7 +1146,7 @@ const urbanIn = ri => G.sets.reduce((a, x) => a + (x.r === ri && x.t >= 1 ? 1 : 
 // the 3 closest villages (same territory or a bordering one) that would merge with s into a town
 function mergeMates(n, s) {
   const adj = W.regions[s.r].adj;
-  return G.sets.filter(x => x.o === n.id && x.t === 0 && x !== s && (x.r === s.r || adj.includes(x.r)))
+  return setsOf(n).filter(x => x.t === 0 && x !== s && (x.r === s.r || adj.includes(x.r)))
     .sort((a, b) => (a.r !== s.r) - (b.r !== s.r) || Math.hypot(a.x - s.x, a.y - s.y) - Math.hypot(b.x - s.x, b.y - s.y))
     .slice(0, VILLAGES_FOR_TOWN - 1);
 }
@@ -1206,7 +1225,7 @@ function checkFaiths(n) {
         : { icon: "🎎", title: `${TECH[t].name} opens new ways of living`, text: `${L.map(([k, O]) => `${CUSTOMS[k].name}: ${O.name}`).join(". ")}. Your people could take them up (Laws › Customs).` }); } }
   if (!n.relig) n.relig = n.laws && n.laws.rel === "sec" && relOpen("secular") ? "secular" : "animism";
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
-  if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dip(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
+  if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dipR(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
   const seen = G.relSeen || (G.relSeen = {});
   for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue; whist(R.icon, `A new faith arose: ${R.name}.`, "first", []);
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d} You can make it your national religion in the Laws tab.` }); }
@@ -1228,7 +1247,7 @@ function checkUnlocks(n) {
 function showUnlocks(next) {
   const u = G && G.pendingUnlocks && G.pendingUnlocks.shift();
   if (!u) return next && next();
-  showModal(`<div class="mi">${u.icon}</div><h2>${esc(u.title)}</h2><p>${esc(u.text)}</p><div class="row"><button class="btn" data-m="ok">Got it</button></div>`, () => { save(); showUnlocks(next); });
+  showModal(`<div class="mi">${u.icon}</div><h2>${esc(u.title)}</h2><p>${esc(u.text)}</p><div class="row"><button class="btn" data-m="ok">Got it</button></div>`, () => { saveSoon(); showUnlocks(next); });
 }
 // how far trade reaches: neighbors at first, then across short seas, then the whole known world
 function tradeReach(n, o) {
@@ -1239,10 +1258,13 @@ function tradeReach(n, o) {
   return d < (sea ? 80 : 40) + (has(n, "wheel") ? 10 : 0);
 }
 const reachTxt = n => has(n, "navigation") ? "the whole known world" : has(n, "sailing") ? "your region and across short seas" : "your near neighbors";
-function tradePartners(n) { return G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).trade && !dip(n.id, o.id).emb && tradeReach(n, o) && dip(n.id, o.id).rel >= Math.max(tradeTrust(n), tradeTrust(o)) - 20 && !atWar(n.id, o.id)); }
+function tradePartners(n) { const m = relIndex().get(n.id) || EMPTY_SET, out = []; /* same tests as before, read straight off each record */
+  for (const [i, d] of m) { if (!d.trade || d.emb || d.war) continue; const o = G.nations[i]; if (!o || !o.alive) continue;
+    if (tradeReach(n, o) && d.rel >= Math.max(tradeTrust(n), tradeTrust(o)) - 20) out.push(o); }
+  return out; }
 // early peoples are wary of strangers: they trade only with those they trust, and they open up as they meet more of the world
 let metKey = null, metMap = new Map();
-function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; for (const x of G.nations) if (x.alive && x.id !== o.id && dip(o.id, x.id).met) c++; metMap.set(o.id, c); } return c; }
+function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; c = metOf(o).length; metMap.set(o.id, c); } return c; }
 const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0) - (turnCache("po" + o.id, () => setsOf(o).some(x => builtAt(x, "post"))) ? 8 : 0)); // relations a people needs before trading with you
 const relOK = (n, o) => { const d = dip(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
 const canTradeWith = (n, o) => { if (!o.alive || o.id === n.id) return false; const d = dip(n.id, o.id); return d.met && !d.emb && !d.war && tradeOpen(o) && tradeReach(n, o) && relOK(n, o); }; /* cheap checks first */
@@ -1330,7 +1352,7 @@ const phList = n => { const out = []; for (const [id, list] of cityInds(n).bySet
 const phBonus = n => !eco(n, "brands") ? 0 : Math.min(.5, phList(n).reduce((a, p) => a + (.12 - .02 * (p.r - 1)) * clamp((p.b.rep - .3) / .4, 0, 1), 0)); // famous premium city brands lift wages; famous cheap ones don't
 const cheapFlood = (o, k) => (cityInds(o).byK[k] || []).some(c => { const x = setById(c.s); return isPH(x, k) && cityBrand(x, k).rep <= .35; });
 // workers' wages: not paid by you, but set by how productive your economy is compared with the rest of the world, plus world-famous city industries
-function wageOf(n) { if (!eco(n, "wages")) return 1; let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return clamp((c && n.prodPU > 0 ? n.prodPU / (sum / c) : 1) * (1 + phBonus(n)) * (1 - immOpinion(n).wageCut), .3, 2.5); } /* newcomers work for less */
+function wageOf(n) { if (!eco(n, "wages")) return 1; const [sum, c] = turnCache("wageAvg", () => { let sum = 0, c = 0; for (const o of G.nations) if (o.alive && o.prodPU > 0) { sum += o.prodPU; c++; } return [sum, c]; }); return clamp((c && n.prodPU > 0 ? n.prodPU / (sum / c) : 1) * (1 + phBonus(n)) * (1 - immOpinion(n).wageCut), .3, 2.5); } /* newcomers work for less */
 const spendMult = n => !eco(n, "wages") ? 1 : clamp(.75 + .25 * wageOf(n), .6, 1.4); // well-paid workers spend more, and their spending is taxed
 // a world-famous industry comes to dominate its city: rich taxes, but it crowds out everything else there
 let hubKey = null, hubCache = new Map();
@@ -1503,7 +1525,7 @@ function elderTalks(n) {
       n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
       hist(n, "🌅", `Your people entered the ${ERAS[1]}.`); firstAge(n);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
-      else if (G.player != null && dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
+      else if (G.player != null && dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
       break; }
     const t = curTalk(n); if (!t || n.sciPts < t.cost) break;
     n.sciPts -= t.cost; n.techs.push(t.id); n.talk = null;
@@ -1690,8 +1712,8 @@ const mercWord = n => n.era <= 1 ? "warriors for hire" : n.era <= 3 ? "sellsword
 // you ask a friendly people for military assistance and they send their own troops, for a fee paid to them
 const MERC_REL = 30;
 const mercSpare = o => Math.max(0, Math.floor(o.army * .35));
-function mercSuppliers(n) { return G.nations.filter(o => { if (!o.alive || o.id === n.id) return false; const d = dip(n.id, o.id);
-  return d.met && !d.war && d.rel >= MERC_REL && mercSpare(o) > 0 && (tradeReach(n, o) || bordersTouch(n, o)) && !G.nations.some(e => atWar(n.id, e.id) && (dip(o.id, e.id).ally)); }); } // they won't fight their own allies
+function mercSuppliers(n) { return metOf(n).filter(o => { const d = dip(n.id, o.id);
+  return d.met && !d.war && d.rel >= MERC_REL && mercSpare(o) > 0 && (tradeReach(n, o) || bordersTouch(n, o)) && !warsOf(n).some(e => dipR(o.id, e.id).ally); }); } // they won't fight their own allies
 const mercFee = (o, k, deal) => Math.round(unitCost(o).g * 1.6 * k * deal.mult);
 function hireMercs(n, o, k, deal) { const f = mercFee(o, k, deal); n.gold -= f; o.gold += f; o.army -= k; dip(n.id, o.id).rel += 4;
   (n.mercs || (n.mercs = [])).push({ k, left: deal.years * TPY, from: o.id, name: o.name }); }
@@ -1742,7 +1764,7 @@ const subFoodOf = n => .8 * Math.pow(bud(n).sub / 100, .7);
 const subGrowOf = n => .04 * Math.sqrt(bud(n).sub / 100);
 const travelQ = n => 3 * Math.sqrt(bud(n).travel / 100); // how far abroad your people get: better odds of great characters
 // education: the more educated your people, the more welfare they expect from the state
-function eduOf(n) { let ac = 0; for (const x of G.sets) if (x.o === n.id && x.acad) ac += x.acad; return clamp(n.era * 10 + chainLevels(n, "sci") * 1.2 + Math.min(20, ac * 3), 0, 100); }
+function eduOf(n) { let ac = 0; for (const x of setsOf(n)) if (x.acad) ac += x.acad; return clamp(n.era * 10 + chainLevels(n, "sci") * 1.2 + Math.min(20, ac * 3), 0, 100); }
 const propSway = n => 3 * Math.sqrt((bud(n).prop || 0) / 100) * 25 / (25 + eduOf(n)); // welfare levels of demand talked away; worth less as people learn
 const welfareExpect = (n, k) => Math.min(welfareMax(n, k), Math.max(0, (eduOf(n) - 8) / 22));
 const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propSway(n));
@@ -1782,13 +1804,13 @@ function econ0(n) {
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
-  let acadUp = 0; for (const x of G.sets) if (x.o === n.id) acadUp += ((x.acad === 1 ? 2 : x.acad === 2 ? 6 : 0) + (x.mil ? 4 : 0)) * Math.pow(1.4, n.era);
+  let acadUp = 0; for (const x of setsOf(n)) acadUp += ((x.acad === 1 ? 2 : x.acad === 2 ? 6 : 0) + (x.mil ? 4 : 0)) * Math.pow(1.4, n.era);
   const sciPay = (n.scientists || 0) * sciSalary(n), offPay = (n.officers || 0) * offSalary(n);
   const talent = n.scientists || 0; sci *= 1 + scientistBoost(n);
   const partners = tradePartners(n);
-  const peaceful = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)).length;
+  const peaceful = metOf(n).filter(o => !atWar(n.id, o.id)).length;
   const tradeLawM = (1 + (C0.trade || 0)) * { prot: .7, bal: 1, free: 1.3 }[L.trade] * (has(n, "globalization") ? 1.4 : 1) * (1 + fb(n, "trade"));
-  let tariffedBy = 0; for (const o of G.nations) if (o.alive && o.id !== n.id && o.tariffOn && o.tariffOn[n.id] && !atWar(n.id, o.id)) tariffedBy++;
+  let tariffedBy = 0; for (const o of turnCache("tariffers", () => G.nations.filter(o => o.alive && o.tariffOn))) if (o.id !== n.id && o.tariffOn[n.id] && !atWar(n.id, o.id)) tariffedBy++;
   const routeGold = (trade + tierTrade + (has(n, "agriculture") ? 1 : .3)) * (1 + .15 * partners.length + .04 * peaceful) * tradeLawM * (1 + .2 * n.era) * stabM
     * secMult(n, "infra") * secMult(n, "ships") * Math.max(.6, 1 - .04 * tariffedBy);
   const luxCount = {};
@@ -1890,7 +1912,7 @@ function facTargets(n, E) {
   const add = (k, v, why) => { if (!out[k]) out[k] = { v: 50, why: [] }; if (v) { out[k].v += v; out[k].why.push([why, v]); } };
   const cnt = () => 0;
   const rn = Math.max(1, P0.length);
-  const wars = G.nations.filter(o => atWar(n.id, o.id));
+  const wars = warsOf(n);
   const warBal = wars.reduce((a, o) => a + wscore(n.id, o.id), 0);
   const crowded = setsOf(n).filter(s => s.crowd).length;
   add("commoners", { low: 12, normal: 0, high: -12, extort: -28 }[L.tax], "Taxes");
@@ -1958,7 +1980,7 @@ function facTargets(n, E) {
     if (tribal(n)) { add("elders", Math.round(40 * (timeShare(n, "elder") - .1)), "Elders & shamans"); add("warriors", Math.round(60 * (timeShare(n, "warrior") - .2)), "Share of warriors"); }
     { const w = wageOf(n); add("commoners", Math.round(clamp((w - 1) * 10, -8, 8)), "Wages"); }
     { let nat = 0, tar = 0, sub = 0; for (const k in n.sec || {}) { if (!secUnlocked(n, k)) continue; const st = n.sec[k]; if (st.nat) nat++; if (st.tar && tradeOpen(n)) tar += st.tar; if (st.sub && !st.nat) sub += st.sub; }
-      let emb = 0; for (const o of G.nations) if (o.alive && o.id !== n.id && dip(n.id, o.id).emb) emb++;
+      const emb = dealt(n, "emb").length;
       add("merchants", -Math.min(20, 6 * nat + 2 * tar + 3 * emb), "Nationalized sectors, tariffs & embargoes");
       // ordinary people love cheap goods: taxing them away hurts, while cheap imports please them
       let cheapTax = 0, cheapIn = 0;
@@ -2023,7 +2045,7 @@ function updateExplore() {
     while (sets.length && n.scoutAcc >= 1) { n.scoutAcc--;
       const from = pick(sets), a = rnd() * Math.PI * 2, d = (from.h || .1) + rnd() * walk, x = from.x + Math.cos(a) * d, y = from.y + Math.sin(a) * d;
       if (sampler.isPointInPath(lp, x, y, "evenodd") || has(n, "sailing") || setsOf(n).some(x => builtAt(x, "canoe") > 0)) addDisc(x, y, .7); } }
-  for (const o of G.nations) { if (!o.alive || o.id === n.id || !dip(n.id, o.id).met) continue;
+  for (const o of metOf(n)) {
     const c = capSet(o); if (c) addDisc(c.x, c.y, .5);
     if (dip(n.id, o.id).trade || dip(n.id, o.id).ally) for (const s of setsOf(o)) if (s.t >= 1) addDisc(s.x, s.y, s.h * 2 + .3); }
 }
@@ -2033,12 +2055,17 @@ const fogged = ri => G.exp && !G.setup && !G.demo && !G.exp[ri];
 function updateContacts() {
   const PR = new Map(); for (const s of G.sets) { let p = PR.get(s.o); if (!p) PR.set(s.o, p = new Set()); p.add(s.r); }
   const presOf = n => PR.get(n.id) || new Set();
+  /* a people meets those living within its reach (and the far-sailing ages meet each other), so look only there */
+  const byReg = new Map(); for (const [o, rs] of PR) for (const ri of rs) { let a = byReg.get(ri); if (!a) byReg.set(ri, a = []); a.push(o); }
+  const lateL = G.nations.filter(a => a.alive && (has(a, "navigation") || a.era >= 6));
   for (const a of G.nations) { if (!a.alive) continue;
-    for (const b of G.nations) { if (!b.alive || b.id <= a.id) continue;
-      const d = dip(a.id, b.id); if (d.met) continue;
+    const cand = new Set(); for (const ri of reachSet(a)) for (const o of byReg.get(ri) || []) cand.add(o);
+    if (has(a, "navigation") || a.era >= 6) for (const o of lateL) cand.add(o.id);
+    for (const bi of cand) { const b = G.nations[bi]; if (!b || !b.alive || b.id === a.id) continue;
+      if (dipR(a.id, b.id).met) continue;
       const late = (has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6);
       const ra = reachSet(a), rb = reachSet(b);
-      if (late || [...presOf(a)].some(ri => rb.has(ri)) || [...presOf(b)].some(ri => ra.has(ri))) {
+      if (late || [...presOf(a)].some(ri => rb.has(ri)) || [...presOf(b)].some(ri => ra.has(ri))) { const d = dip(a.id, b.id);
         if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
         d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
         if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝");
@@ -2079,7 +2106,7 @@ function firstAge(n) { const e = n.era; if (G.nations.some(o => o !== n && o.era
 function hist(n, icon, text) { if (!n || n.ai || n.id !== G.player) return; (G.hist || (G.hist = [])).push({ y: G.year, q: Math.floor((G.month || 0) / 3), i: icon, t: text }); if (G.hist.length > 400) G.hist.splice(0, G.hist.length - 400); }
 /* the world's chronicle: notable events among all peoples. You only read about peoples you've met */
 function whist(icon, text, cat, ids) { (G.whist || (G.whist = [])).push({ y: G.year, i: icon, t: text, c: cat, w: ids }); if (G.whist.length > 600) G.whist.splice(0, G.whist.length - 600); }
-const known = id => id === G.player || (G.nations[id] && dip(G.player, id).met);
+const known = id => id === G.player || (G.nations[id] && dipR(G.player, id).met);
 function alertLoss(n, lost, icon, title, text) {
   if (lost / Math.max(1, popOf(n)) >= .05) hist(n, icon, `${title}: ${text.split(". ")[0]}.`);
   const at = n.alertT || (n.alertT = {}); /* one popup of each kind a year at most; the rest go to the log */
@@ -2119,12 +2146,12 @@ function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
   if (--n.hard.left <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
 function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
-  const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dip(n.id, o.id);
+  const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dipR(n.id, o.id);
     return { o, d, sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 60).sort((a, b) => a.sc - b.sc), to = cand.length ? cand[0].o : null;
   const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
   whist("🍂", to ? `The ${nm(n)} faded away; its last families joined the ${nm(to)}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to ? [to.id] : []));
   if (to) { const tc = capSet(to) || setsOf(to)[0], f = fam * .7; tc.pop += f; addPeople(to, n, f, 0, tc); }
-  n.alive = false; n.army = 0; for (const o of G.nations) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; } G.sv++; }
+  n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; } G.sv++; }
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
@@ -2224,7 +2251,7 @@ function processNation(n) {
     if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
-  n.hungry = sr < 0; n._fedE = sr; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
+  n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + 1 : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
   stepTraits(n, E, H); stepPeoples(n);
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
@@ -2301,20 +2328,20 @@ function processNation(n) {
     if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length) {
       n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
       if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
-      else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
+      else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
     }
   }
   if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length) {
     n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
     if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
-    else if (dip(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
+    else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
   }
   // politics
   n.facMods.forEach(m => m.t -= TD); n.facMods = n.facMods.filter(m => m.t > 0);
   const tg = facTargets(n, E), fk = pr(.35);
   for (const k in FACTIONS) { const t = tg[k] ? tg[k].v : 50; n.fac[k] += (t - n.fac[k]) * fk; }
   n.stab = stabilityOf(n, n.fac);
-  const wars = G.nations.filter(o => atWar(n.id, o.id)).length;
+  const wars = warsOf(n).length;
   n.ww = wars ? n.ww + 1.5 * (GOVS[n.gov].ww || 1) * wars * TD : Math.max(0, n.ww - 3 * TD);
   n.ww = Math.min(n.ww, 35);
   n.anarchy = dec(n.anarchy); n.govCool = dec(n.govCool); n.opposition = dec(n.opposition); n.culCool = dec(n.culCool); n.culShift = dec(n.culShift);
@@ -2406,7 +2433,7 @@ function revolt(n, s) {
     n.army = Math.max(0, n.army - Math.round(n.army * .1));
     const d = dip(n.id, rb.id); d.met = true; d.war = true; d.rel = -60; d.wt = G.tt;
     if (n.id === G.player) log(`${s.name} revolted and declared independence!`, "🔥");
-    else if (dip(n.id, G.player).met) log(`${s.name} broke away from the ${nm(n)}.`, "🔥", -1);
+    else if (dipR(n.id, G.player).met) log(`${s.name} broke away from the ${nm(n)}.`, "🔥", -1);
   }
   for (const k in B(n.id, ri)) if (!setsOf(n).some(x => x.r === ri)) { delete G.bld[ri][n.id]; break; }
   recomputeControl(ri);
@@ -2455,15 +2482,15 @@ function civilWar(n) {
   rb.officers = (n.officers || 0) * share; n.officers = (n.officers || 0) - rb.officers;
   rb.generals = (n.generals || []).filter(() => rnd() < share); n.generals = (n.generals || []).filter(g => !rb.generals.includes(g));
   rb.gold = 0; rb.mat = n.mat * share; n.mat -= rb.mat; rb.trust = 70; rb.stab = 55; rb.cmd = n.cmd === "supreme" ? "chiefs" : n.cmd;
-  for (const x of rebelsS) { x.o = rb.id; x.focus = null; x.u = 20; }
+  for (const x of rebelsS) { x.o = rb.id; x.focus = null; x.u = 20; } G.sv++;
   rb.cap = rebelsS.slice().sort((a, b) => b.pop - a.pop)[0].id;
   n.trust = 45; n.trustWarned = false;
   const d = dip(n.id, rb.id); d.met = true; d.war = true; d.wt = G.tt; d.rel = -80; d.ws = 0;
-  for (const o of G.nations) if (o.alive && o.id !== n.id && o.id !== rb.id && dip(o.id, n.id).met) { const d2 = dip(o.id, rb.id); d2.met = true; d2.rel = dip(o.id, n.id).rel; d2.trade = false; }
+  for (const o of metOf(n)) if (o.id !== rb.id) { const d2 = dip(o.id, rb.id); d2.met = true; d2.rel = dip(o.id, n.id).rel; d2.trade = false; }
   for (const ri of new Set(rebelsS.map(x => x.r))) recomputeControl(ri);
   G.sv++; reachCache.clear();
   if (n.id === G.player) { G.pendingCivil = { a: n.id, b: rb.id }; log("CIVIL WAR! The people have lost all trust in the treasury, and the nation has split in two.", "🔥"); }
-  else if (dip(n.id, G.player).met) log(`Civil war has split the ${nm(n)}: the ${nm(rb)} has risen in revolt.`, "🔥", -1);
+  else if (dipR(n.id, G.player).met) log(`Civil war has split the ${nm(n)}: the ${nm(rb)} has risen in revolt.`, "🔥", -1);
   return rb;
 }
 function upheaval(n) {
@@ -2474,7 +2501,7 @@ function upheaval(n) {
   if (!to) return;
   const old = GOVS[n.gov].name; n.gov = to; n.anarchy = 2; n.govCool = 8; n.army = Math.round(n.army * .75);
   for (const k in n.fac) n.fac[k] = 50;
-  if (n.id === G.player || dip(n.id, G.player).met) log(`${why} overthrew the ${old} of ${n.name}. It is now a ${GOVS[to].name}.`, "💥", n.id === G.player ? null : -1);
+  if (n.id === G.player || dipR(n.id, G.player).met) log(`${why} overthrew the ${old} of ${n.name}. It is now a ${GOVS[to].name}.`, "💥", n.id === G.player ? null : -1);
 }
 
 // ================= WAR =================
@@ -2529,7 +2556,7 @@ function attack(n, s, units) {
   } else addWs(n.id, dn.id, -3);
   const involved = n.id === G.player || dn.id === G.player;
   if (res.push && involved) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} pushed back the border around ${s.name}. ${res.left} more victor${res.left === 1 ? "y" : "ies"} to take it.`, n.id === G.player ? "⚔️" : "🔥");
-  else if (win && !res.push && (involved || dip(dn.id, G.player).met)) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} captured the ${TIERS[s.t].name.toLowerCase()} of ${s.name} in ${W.regions[ri].n}${dn.id === G.player ? " from you" : n.id === G.player ? "" : " from the " + nm(dn)}!`, n.id === G.player ? "🚩" : dn.id === G.player ? "🔥" : "⚔️", involved ? null : -1);
+  else if (win && !res.push && (involved || dipR(dn.id, G.player).met)) log(`${n.id === G.player ? "Your army" : "The " + nm(n)} captured the ${TIERS[s.t].name.toLowerCase()} of ${s.name} in ${W.regions[ri].n}${dn.id === G.player ? " from you" : n.id === G.player ? "" : " from the " + nm(dn)}!`, n.id === G.player ? "🚩" : dn.id === G.player ? "🔥" : "⚔️", involved ? null : -1);
   else if (!win && early && involved) log(n.id === G.player ? `Your war chief ${chiefOf(n).name} judged the fight for ${s.name} lost and pulled back after the first clash (${aLoss} lost, ${dLoss} of theirs).` : `The ${nm(n)} probed ${s.name} but pulled back after the first clash.`, "🏃");
   else if (!win && involved) log(`${n.id === G.player ? "Your attack on" : "The " + nm(n) + " attacked"} ${s.name}, but ${n.id === G.player ? "was" : "they were"} driven back. (${aLoss} attacker${aLoss === 1 ? "" : "s"} lost)`, "🛡️");
   return res;
@@ -2547,24 +2574,58 @@ function eliminate(dn, by) {
   if (by) { const c = warlord(by); if (!(c.beat || (c.beat = [])).includes(dn.id)) c.beat.push(dn.id); c.did.push(`destroyed the ${nm(dn)}`); legend(c, by); }
   dn.alive = false; dn.army = 0; whist("💀", `The ${nm(dn)} are no more${by ? `, destroyed by the ${nm(by)}` : ""}.`, "fall", [dn.id].concat(by ? [by.id] : []));
   G.sv++;
-  for (const o of G.nations) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
+  for (const o of dealtAll(dn)) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   if (dn.id === G.player) { log("Your last settlement has fallen.", "☠️"); defeat(); }
-  else if (dip(dn.id, G.player).met) log(`The ${nm(dn)} has been wiped from the map by the ${nm(by)}.`, "☠️", -1);
+  else if (dipR(dn.id, G.player).met) log(`The ${nm(dn)} has been wiped from the map by the ${nm(by)}.`, "☠️", -1);
 }
-function declareWar(a, b) {
+/* how short a people is of land and food (0-1), and why: crowding, hunger, a drought or the game gone */
+function scarcity(n) { return turnCache("sc" + n.id, () => {
+  const room = roomOf(n), crowd = room < 1 ? Math.min(1, (1 - room) * 1.6) : 0, hunger = n.hungry ? Math.min(1, .4 + 2 * -(n._fedE || 0)) : 0;
+  const lean = n.hard && (n.hard.k === "drought" || n.hard.k === "hunt") ? .35 : 0, v = clamp(Math.max(crowd, hunger) + lean, 0, 1);
+  const why = hunger >= crowd && hunger > 0 ? "Their people are hungry and want your food and hunting grounds." : crowd > 0 ? "Their land is crowded and they want yours." : lean ? (n.hard.k === "drought" ? "Drought has dried up their land and they want yours." : "The game has left their lands and they want your hunting grounds.") : null;
+  return { v, why }; }); }
+/* a small people that is failing asks a friendly neighbor to take it in. Only they can ask; the other side accepts or refuses */
+const MERGE_SMALL = 40, MERGE_REL = 20, MERGE_NEAR = 15; /* good relations: "Warm" or better */
+function mergeWoes(n) { const p = popOf(n); return p < .75 * (n.peak || p) || (n.hungryT || 0) >= TPY || warsOf(n).some(o => wscore(n.id, o.id) < -8); } /* real trouble: dwindling, hungry for a year, or losing a war */
+function seekMerge(n) {
+  if (!n.ai || !n.alive || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
+  if (n.mergeAsk != null && G.year - n.mergeAsk < 10) return false; /* asking again so soon would shame them */
+  if (rnd() > .3 * YEARS_PER_TURN[calEra(G.year)] / TPY) return false; /* about a 30% chance a year while they struggle */
+  const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return false;
+  const cand = metOf(n).filter(o => { const d = dipR(n.id, o.id), c = capSet(o) || setsOf(o)[0];
+    return c && !d.war && d.rel >= MERGE_REL && popOf(o) > popOf(n) && Math.hypot(c.x - c0.x, c.y - c0.y) < MERGE_NEAR && (o.id === G.player || !mergeWoes(o)); })
+    .sort((a, b) => dipR(n.id, b.id).rel - dipR(n.id, a.id).rel);
+  const o = cand[0]; if (!o) return false;
+  n.mergeAsk = G.year;
+  if (o.id === G.player && !o.ai) { if (!G.pendingMerge) G.pendingMerge = { from: n.id }; return false; }
+  if (rnd() < .4 + dipR(n.id, o.id).rel / 150) { mergeInto(n, o); return true; }
+  return false;
+}
+/* they defer: their villages become the other's, and their families live on as a people among them */
+function mergeInto(n, to) {
+  const fam = Math.round(popOf(n)), ss = setsOf(n), regs = new Set(ss.map(x => x.r));
+  for (const x of ss) { convertSet(to, n, x); x.o = to.id; x.focus = null; x.pq = []; x.qp = 0; }
+  G.sv++; recalcShares(to);
+  for (const ri of regs) { if (G.bld[ri]) delete G.bld[ri][n.id]; setCons(n.id, ri, null); recomputeControl(ri); }
+  n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; }
+  whist("🤝", `The ${nm(n)} asked to join the ${nm(to)}, and became one of its peoples.`, "fall", [n.id, to.id]);
+  if (to.id === G.player) { hist(to, "🤝", `The ${nm(n)} joined us: ${fam} famil${fam === 1 ? "y" : "ies"} in ${ss.length} ${ss.length === 1 ? "village" : "villages"}.`); log(`The ${nm(n)} have joined your people.`, "🤝"); }
+  else if (dipR(to.id, G.player).met) log(`The ${nm(n)} joined the ${nm(to)}.`, "🤝", -1);
+}
+function declareWar(a, b, why) {
   if (a.id === G.player) hist(a, "⚔️", `War declared on the ${nm(b)}.`); else if (b.id === G.player) hist(b, "⚔️", `The ${nm(a)} declared war on us.`);
   const d = dip(a.id, b.id); d.war = true; d.trade = false; d.ally = false; d.ws = 0; d.wt = G.tt;
   if (d.rel > -60) a.warmonger += 12;
   d.rel = Math.min(d.rel, -50);
-  for (const o of G.nations) if (o.alive && o.id !== a.id && o.id !== b.id && dip(o.id, a.id).met) dip(o.id, a.id).rel -= dip(o.id, b.id).rel < -40 ? 2 : 10;
-  if (a.id === G.player || b.id === G.player) log(a.id === G.player ? `You declared war on the ${nm(b)}!` : `The ${nm(a)} declared war on you!`, "⚔️");
-  else if (dip(a.id, G.player).met || dip(b.id, G.player).met) log(`The ${nm(a)} declared war on the ${nm(b)}.`, "⚔️", -1);
-  for (const o of G.nations) {
-    if (!o.alive || o.id === a.id || o.id === b.id) continue;
+  for (const o of metOf(a)) if (o.id !== b.id) dip(o.id, a.id).rel -= dip(o.id, b.id).rel < -40 ? 2 : 10;
+  if (a.id === G.player || b.id === G.player) log(a.id === G.player ? `You declared war on the ${nm(b)}!` : `The ${nm(a)} declared war on you!${why ? " " + why : ""}`, "⚔️");
+  else if (dipR(a.id, G.player).met || dipR(b.id, G.player).met) log(`The ${nm(a)} declared war on the ${nm(b)}.`, "⚔️", -1);
+  for (const o of dealt(b)) {
+    if (o.id === a.id) continue;
     if (dip(o.id, b.id).ally && !dip(o.id, a.id).war && !dip(o.id, a.id).ally) {
       if (o.id === G.player) log(`Your ally the ${nm(b)} was attacked by the ${nm(a)}. They expect your help (check World).`, "📯");
       else if (rnd() < .8) { const d2 = dip(o.id, a.id); d2.war = true; d2.trade = false; d2.ws = 0; d2.wt = G.tt; d2.rel = Math.min(d2.rel, -40);
-        if (a.id === G.player || dip(o.id, G.player).met) log(`The ${nm(o)} joined the war to defend their ally.`, "🛡️", a.id === G.player ? null : -1); }
+        if (a.id === G.player || dipR(o.id, G.player).met) log(`The ${nm(o)} joined the war to defend their ally.`, "🛡️", a.id === G.player ? null : -1); }
     }
   }
 }
@@ -2573,7 +2634,7 @@ function makePeace(a, b, tribute = 0, payer = null) {
   const d = dip(a.id, b.id); d.war = false; d.ws = 0; d.truce = 10; d.rel = Math.max(d.rel, -30);
   if (payer && tribute) { payer.gold -= tribute; (payer === a ? b : a).gold += tribute; }
   if (a.id === G.player || b.id === G.player) log(`Peace signed with the ${nm(a.id === G.player ? b : a)}${tribute ? ` (${fmt(tribute)} gold paid by ${payer.id === G.player ? "you" : "them"})` : ""}.`, "🕊️");
-  else if (dip(a.id, G.player).met) log(`The ${nm(a)} and the ${nm(b)} made peace.`, "🕊️", -1);
+  else if (dipR(a.id, G.player).met) log(`The ${nm(a)} and the ${nm(b)} made peace.`, "🕊️", -1);
 }
 
 // ================= AI =================
@@ -2597,7 +2658,8 @@ function aiTurn(n) {
   if (!n.alive) return;
   if (n.aiSkill == null) n.aiSkill = rnd() < .3 ? .25 + rnd() * .3 : .75 + rnd() * .25; /* hidden: how wisely this people is led */
   const E = econ(n), sets = setsOf(n);
-  const wars = G.nations.filter(o => atWar(n.id, o.id));
+  const wars = warsOf(n), short = scarcity(n);
+  if (seekMerge(n)) return;
   // laws & government
   if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
   if (has(n, "currency") && n.pers === "trader") n.laws.trade = "free";
@@ -2677,7 +2739,7 @@ function aiTurn(n) {
     st.nat = false; st.sub = x.su < .75 && n.gold > 0 ? 1 : 0;
     st.tar = tradeOpen(n) && eco(n, "tariffs") && x.comp > x.suE * 1.15 && (n.laws.trade === "prot" || n.pers === "zealot" || x.base < .65) ? (x.base < .5 ? 2 : 1) : 0;
     st.inv = x.f < .8 && !x.M && n.gold > 0 ? 3 : 0; }
-  if (tradeOpen(n) && eco(n, "tariffs")) for (const o of G.nations) { if (!o.alive || o.id === n.id) continue; const d = dip(n.id, o.id); if (!d.met || d.war || !tradeReach(n, o)) continue;
+  if (tradeOpen(n) && eco(n, "tariffs")) for (const o of metOf(n)) { const d = dip(n.id, o.id); if (!d.met || d.war || !tradeReach(n, o)) continue;
     if (!d.emb && d.rel < -70 && rnd() < pr(.05)) { d.emb = n.id; d.trade = false; d.offer = null; tradeNote(n, o, `The ${nm(n)} placed an embargo on your goods. All trade between you has stopped.`, "🚫"); }
     else if (d.emb === n.id && d.rel > -30 && rnd() < pr(.2)) { d.emb = null; tradeNote(n, o, `The ${nm(n)} lifted their embargo on you. Trade can resume.`, "🔓"); }
     if (d.emb) continue;
@@ -2706,9 +2768,8 @@ function aiTurn(n) {
     if (n.gold > c.g + reserve && n.mat > c.m && E.goldNet - fieldUp(f) > -1) { expandField(n, f); builds++; } else break;
   }
   // diplomacy
-  for (const o of G.nations) {
-    if (!o.alive || o.id === n.id) continue;
-    const d = dip(n.id, o.id); if (!d.met) continue;
+  for (const o of metOf(n)) {
+    const d = dip(n.id, o.id);
     if (o.ai && o.id > n.id) {
       if (!d.war && !d.trade && !d.emb && tradeOpen(n) && tradeOpen(o) && tradeReach(n, o) && d.rel >= Math.max(tradeTrust(n), tradeTrust(o)) && rnd() < pr(.15) && (n.ai || aiAccept(o, "trade", n))) d.trade = true;
       if (!d.war && !d.ally && d.rel > 60 && rnd() < pr(.08) && (n.ai || aiAccept(o, "ally", n))) d.ally = true;
@@ -2727,15 +2788,16 @@ function aiTurn(n) {
       }
     } else if (!d.ally && !(d.truce > 0) && wars.length === 0 && !(n.anarchy > 0)) {
       const ratioP = power(n) / Math.max(1, power(o));
-      const hostile = d.rel < (n.pers === "aggressive" ? 0 : -25);
+      const need = short.v; /* short of land or food: the neighbors' land and game start to look worth fighting for */
+      const hostile = d.rel < (n.pers === "aggressive" ? 0 : -25) + 45 * need;
       const border = bordersTouch(n, o);
-      const chance = { aggressive: .22, zealot: .12, builder: .06, trader: .05 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1);
+      const chance = { aggressive: .22, zealot: .12, builder: .06, trader: .05 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1) * (1 + 3 * need);
       const grace = (o.id === G.player && G.tt < [60, 35, 20][G.diff]) || G.tt < 12;
-      if (!n.noWar && !grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) && rnd() < pr(chance)) declareWar(n, o);
+      if (!n.noWar && !grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) - .5 * need && rnd() < pr(chance)) declareWar(n, o, need > .25 ? short.why : null);
     }
   }
   // attack
-  for (const o of G.nations.filter(o => atWar(n.id, o.id))) {
+  for (const o of warsOf(n)) {
     if (G.tt - dip(n.id, o.id).wt < TD * .5) continue;
     let tries = [rnd() < .3 ? 1 : 0, 2, 3, 2][Math.floor((G.month || 0) / 3)]; /* campaign season: most fighting in summer, little in winter */
     while (tries-- > 0) {
@@ -2751,12 +2813,12 @@ function aiTurn(n) {
 function driftRelations() {
   const al = G.nations.filter(n => n.alive);
   const T = new Map(al.map(n => [n.id, terrCount(n)]));
-  for (const a of al) for (const b of al) {
-    if (b.id <= a.id) continue; const d = dip(a.id, b.id); if (!d.met) continue;
+  for (const a of al) for (const b of metOf(a)) {
+    if (b.id <= a.id) continue; const d = dip(a.id, b.id);
     let v = 0;
     if (d.trade) v += 1.5; if (d.ally) v += 2; if (d.war) v -= 2;
     if (a.gov === b.gov) v += .5;
-    if (bordersTouch(a, b) && !d.ally) v -= 1.3 * Math.max(.4, 1 - .12 * (a.era + b.era) / 2); // shared borders breed friction, less so as peoples mature
+    if (bordersTouch(a, b) && !d.ally) v -= 1.3 * Math.max(.4, 1 - .12 * (a.era + b.era) / 2) + 2 * Math.max(scarcity(a).v, scarcity(b).v); /* hungry or crowded neighbors compete for the same land */ // shared borders breed friction, less so as peoples mature
     if (d.emb) v -= .6;
     for (const [x, y] of [[a, b], [b, a]]) if (y.era > x.era || (y.era === x.era && wageOf(y) > wageOf(x) * 1.2)) for (const k in SECTORS) if (secUnlocked(y, k) && tradeOpen(y) && cheapFlood(x, k)) { v -= .3; break; } // richer nations resent being flooded with cheap goods if ((a.tariffOn && a.tariffOn[b.id]) || (b.tariffOn && b.tariffOn[a.id])) v -= .2;
     if (a.pers === "aggressive" || b.pers === "aggressive") v -= .3;
@@ -2889,12 +2951,12 @@ const EVENTS = [
     text: n => `The ground shook violently in ${W.regions[n._r = randRegion(n)].n}.`,
     ch: [{ t: "Rebuild quickly", d: n => `−${fmt(12 * eraScale(n))} gold, −${fmt(10 * eraScale(n))} materials`, f: n => { fx.gold(n, -12 * eraScale(n)); fx.mat(n, -10 * eraScale(n)); } },
          { t: "Leave the ruins", d: () => "A building in the region may be lost", f: n => { const ri = n._r >= 0 ? n._r : randRegion(n); const b = B(n.id, ri); const ks = Object.keys(b); if (ks.length) delete b[pick(ks)]; setsOf(n).filter(s => s.r === ri).forEach(s => s.pop *= .9); } }] },
-  { id: "envoy", title: "A Foreign Envoy", era: [1, 7], icon: "📜", cond: n => G.nations.some(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)),
-    text: n => { const o = pick(G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id))); n._o = o.id; return `An envoy from the ${nm(o)} arrives bearing gifts and asks for friendship.`; },
+  { id: "envoy", title: "A Foreign Envoy", era: [1, 7], icon: "📜", cond: n => metOf(n).some(o => !atWar(n.id, o.id)),
+    text: n => { const o = pick(metOf(n).filter(o => !atWar(n.id, o.id))); n._o = o.id; return `An envoy from the ${nm(o)} arrives bearing gifts and asks for friendship.`; },
     ch: [{ t: "Host a grand reception", d: n => `−${fmt(8 * eraScale(n))} gold, much better relations`, f: n => { fx.gold(n, -8 * eraScale(n)); dip(n.id, n._o).rel += 25; } },
          { t: "Receive them politely", d: () => "Slightly better relations", f: n => { dip(n.id, n._o).rel += 8; } }] },
-  { id: "skirmish", title: "Border Skirmish", era: [0, 6], icon: "⚔️", cond: n => G.nations.some(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id)),
-    text: n => { const o = pick(G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && !atWar(n.id, o.id))); n._o = o.id; return `Soldiers from the ${nm(o)} clashed with your border guards.`; },
+  { id: "skirmish", title: "Border Skirmish", era: [0, 6], icon: "⚔️", cond: n => metOf(n).some(o => !atWar(n.id, o.id)),
+    text: n => { const o = pick(metOf(n).filter(o => !atWar(n.id, o.id))); n._o = o.id; return `Soldiers from the ${nm(o)} clashed with your border guards.`; },
     ch: [{ t: "Demand an apology", d: () => "Military pleased, worse relations", f: n => { fx.fac(n, "warriors", 8); dip(n.id, n._o).rel -= 20; } },
          { t: "Let it go", d: () => "Military annoyed", f: n => fx.fac(n, "warriors", -6) }] },
   { id: "peasants", title: "Peasants Grumble", era: [0, 7], icon: "😠", cond: n => n.fac.commoners < 40,
@@ -3012,18 +3074,41 @@ function defeat() { G.fogAll = true; G.over = true; G.outcome = { win: false, wh
 
 // ================= SAVE =================
 const SAVE_KEY = "cradle-cosmos-save-v2";
-function save() { try { delete G.cells; localStorage.setItem(SAVE_KEY, JSON.stringify(G)); lastSave = Date.now(); } catch (e) {} }
+/* a world of thousands of peoples is far bigger than the browser's small storage, so the game is kept in IndexedDB (compressed when it can be);
+   a tiny note in localStorage says what's saved, for the title screen */
+const META_KEY = SAVE_KEY + "-meta";
+let idbP = null;
+function idb() { if (!idbP) idbP = new Promise((ok, no) => { try { const r = indexedDB.open("cradle-cosmos", 1); r.onupgradeneeded = () => r.result.createObjectStore("save"); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); } catch (e) { no(e); } }); return idbP; }
+let idbDB = null; idb().then(d => idbDB = d, () => {});
+function idbPut(v) { return new Promise((ok, no) => { const t = idbDB.transaction("save", "readwrite"); t.objectStore("save").put(v, "g"); t.oncomplete = ok; t.onerror = () => no(t.error); }); }
+async function gz(str) { if (typeof CompressionStream === "undefined") return str; return await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream("gzip"))).blob(); }
+async function ungz(v) { if (typeof v === "string") return v; return await new Response(v.stream().pipeThrough(new DecompressionStream("gzip"))).text(); }
+let saveSeq = 0;
+function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify({ name: G.nations[G.player].name, year: G.year })); localStorage.removeItem(SAVE_KEY); } catch (e) {} }
+function save(now) {
+  if (!G || G.demo) return; delete G.cells; lastSave = Date.now();
+  let str; try { str = JSON.stringify(G); } catch (e) { return; }
+  const seq = ++saveSeq; saveMeta();
+  if (!idbDB) { idb().then(() => seq === saveSeq && idbPut(str)).catch(() => {}); return; }
+  if (now) { try { idbPut(str); } catch (e) {} return; } /* leaving the page: write at once, no time to compress */
+  gz(str).then(v => seq === saveSeq ? idbPut(v) : null).catch(() => { try { idbPut(str); } catch (e) {} });
+}
+function clearSave() { saveSeq++; try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(META_KEY); } catch (e) {} idb().then(d => { const t = d.transaction("save", "readwrite"); t.objectStore("save").delete("g"); }).catch(() => {}); }
+function saveMetaRead() { try { const m = localStorage.getItem(META_KEY); if (m) return JSON.parse(m); const old = localStorage.getItem(SAVE_KEY); if (old) { const g = JSON.parse(old); return g && g.v === 2 ? { name: g.nations[g.player].name, year: g.year } : null; } } catch (e) {} return null; }
 /* saving a big world every turn is slow: save at most every few seconds, and always when you leave */
 let lastSave = 0, saveT = null;
 function saveSoon() { if (Date.now() - lastSave > 4000) { clearTimeout(saveT); saveT = null; save(); } else if (!saveT) saveT = setTimeout(() => { saveT = null; save(); }, 4000); }
-addEventListener("pagehide", () => { if (G && !G.demo) save(); }); document.addEventListener("visibilitychange", () => { if (document.hidden && G && !G.demo) save(); });
+addEventListener("pagehide", () => { if (G && !G.demo) save(true); }); document.addEventListener("visibilitychange", () => { if (document.hidden && G && !G.demo) save(true); });
 function restoreCells() {
   delete G.cells;
   for (const n of G.nations) if (!n.fields) n.fields = {};
   if (G.sets.some(x => x.h == null)) { for (const x of G.sets) x.h = hOf(x) * .5; for (let i = 0; i < 6; i++) growBorders(); }
   if (!G.fog) { G.fog = []; updateExplore(); }
 }
-function loadSave() { try { const s = localStorage.getItem(SAVE_KEY); const g = s ? JSON.parse(s) : null; return g && g.v === 2 ? g : null; } catch (e) { return null; } }
+async function loadSave() {
+  try { const old = localStorage.getItem(SAVE_KEY); if (old) { const g = JSON.parse(old); if (g && g.v === 2) return g; } } catch (e) {} /* saves from before the move to IndexedDB */
+  try { const d = await idb(); const v = await new Promise((ok, no) => { const r = d.transaction("save").objectStore("save").get("g"); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+    if (v == null) return null; const g = JSON.parse(await ungz(v)); return g && g.v === 2 ? g : null; } catch (e) { return null; } }
 
 // ================= MAP RENDERING =================
 const cv = $("map"), ctx = cv.getContext("2d");
@@ -3083,7 +3168,7 @@ function linkOk(a, b, hw) {
 const corrCache = new Map();
 function corridors(n, key = G.sv + ":" + G.turn) {
   const c = corrCache.get(n.id); if (c && c.key === key) return c.list;
-  const S = G.sets.filter(s => s.o === n.id), N = S.length, list = [];
+  const S = setsOf(n), N = S.length, list = [];
   if (N > 1) {
     // candidate links: each settlement to its 6 nearest, then Kruskal so the network is as short as possible
     const edges = [];
@@ -3375,7 +3460,7 @@ function hud() {
   $("cFood").innerHTML = `<span class="ci">🌾</span><b>${sgn(E.surplus)}</b><i>${E.surplus >= 0 ? "Fed" : "Famine"}</i>`;
   $("cFood").className = "chip " + (E.surplus >= 0 ? "" : "bad");
   $("cArmy").innerHTML = `<span class="ci">⚔️</span><b>${n.army}${mercUnits(n) ? `+${mercUnits(n)}` : ""}</b><i>Power ${fmt(power(n))}</i>`;
-  const wars = G.nations.filter(o => atWar(n.id, o.id)).length;
+  const wars = warsOf(n).length;
   $("tabWorld").classList.toggle("alert", wars > 0 || !!G.pendingPeace);
 }
 function costTxt(c) { return `${c.g ? `<span class="cg">🪙${fmt(c.g)}</span>` : ""} ${c.m ? `<span class="cm">🪵${fmt(c.m)}</span>` : ""}`; }
@@ -3448,7 +3533,7 @@ sheet.addEventListener("click", e => {
   const ri = +sheet.dataset.ri, n = P(), a = b.dataset.act;
   const keep = sheet.scrollTop;
   if (a === "close") return closeSheet();
-  if (a === "renameCity") { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, r => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (r === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; openRegion(ri); toast(`Renamed to ${x.name}`); } }); return; }
+  if (a === "renameCity") { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, r => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (r === "ok" && v) { x.name = v.slice(0, 18); G.sv++; saveSoon(); dirty = true; openRegion(ri); toast(`Renamed to ${x.name}`); } }); return; }
   if (a === "build") { startBuild(n, ri, BK[b.dataset.k]); toast(`${BK[b.dataset.k].name} under construction`); }
   else if (a === "found") { const fc = foundCheck(n, ri); if (fc.ok) { const s = foundVillage(n, ri, fc.donor); G.news = []; toast(s ? `Founded ${s.name}` : "No free land there: it's all inside other peoples' borders"); updateContacts(); updateExplore(); G.news = []; } }
   else if (a === "town" || a === "city") { const s = setById(+b.dataset.s); const c = a === "town" ? townCheck(n, s) : cityCheck(n, s); if (c.ok) { upgrade(n, s); toast(`${s.name} is now a ${TIERS[s.t].name.toLowerCase()}!`); const msgs = G.news.filter(x => /territory|now the/.test(x.t)); G.news = []; if (msgs.length) setTimeout(() => showModal(`<div class="mi">🚩</div><h2>${esc(W.regions[ri].n)}</h2>${msgs.map(m => `<p>${esc(m.t)}</p>`).join("")}<div class="row"><button class="btn" data-m="ok">Hooray!</button></div>`), 50); } }
@@ -3556,7 +3641,7 @@ function timeFill(root) {
 }
 function openTime(yearly) {
   const n = P();
-  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
+  showModal(`<div class="mi">⏳</div><h2>${yearly ? `The tribe's year: ${yearTxt(G.year)}` : "Who does what"}</h2><p class="small">Decide what your people do this year.</p>${timeHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "So be it" : "Done"}</button></div>`, () => { saveSoon(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
   timeFill(modal.querySelector(".timeal"));
 }
 function applyNames(root) {
@@ -3570,7 +3655,7 @@ function applyNames(root) {
   if (chk("nmRenamePeople")) { for (const g of n.generals || []) g.name = personName(n.plang || n.lang); if (n.commander) n.commander.name = personName(n.plang || n.lang); for (const x of setsOf(n)) if (x.lead) x.lead.name = personName(n.plang || n.lang); }
   const cl = v("nmCities"); if (cl != null) n.cityNames = cl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
   const pl = v("nmPersons"); if (pl != null) n.personNames = pl.split(/[,\n]/).map(x => x.trim()).filter(Boolean).slice(0, 60);
-  save(); hud(); dirty = true; if (curPanel) refresh();
+  saveSoon(); hud(); dirty = true; if (curPanel) refresh();
 }
 function openNaming() {
   const n = P();
@@ -3587,7 +3672,7 @@ function openNaming() {
 }
 function openBudget(yearly) {
   const n = P();
-  showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { save(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
+  showModal(`<div class="mi">📒</div><h2>${yearly ? `Budget for ${yearTxt(G.year)}` : "Budget"}</h2><p class="small">Decide where ${yearly ? "this year's" : "your"} money goes.${yearly ? " You can also change it any time from the Nation or Army tab." : ""}</p>${budgetHTML(n)}<label class="askrow"><input type="checkbox" id="budAsk" ${n.budNoAsk ? "" : "checked"}> Ask me every year</label><div class="row"><button class="btn" data-m="ok">${yearly ? "Approve budget" : "Done"}</button></div>`, () => { saveSoon(); hud(); if (curPanel) refresh(); if (yearly) finishFlow(); });
   budgetFill(modal.querySelector(".budget"));
 }
 function secInput(e) { const t = e.target; if (!t.dataset || t.dataset.sinv == null || !G) return; const n = P(), k = t.dataset.sinv; secOf(n, k).inv = +t.value; const lab = panel.querySelector(`[data-sv="${k}"]`); if (lab) lab.textContent = `${t.value}% · ${fmt(econM(n).raw.sectors[k].ig * TD)} 🪙`; hud(); }
@@ -3596,8 +3681,8 @@ panel.addEventListener("toggle", e => { const d = e.target; if (d && d.dataset &
 panel.addEventListener("change", e => { if (e.target.id === "prodSet") { prodSet = +e.target.value; refresh(); } });
 [panel, modal].forEach(el => el.addEventListener("input", e => { if (e.target.dataset && e.target.dataset.time && G) { const t = timeOf(P()), k = e.target.dataset.time; let others = 0; for (const x in TIME) if (x !== k) others += t[x] || 0;
     const v = Math.min(+e.target.value, 100 - others); if (+e.target.value !== v) e.target.value = v; t[k] = v; /* only what's left unassigned can be given */ timeFill(e.target.closest(".timeal")); hud(); } }));
-[panel, modal].forEach(el => el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.time) save(); }));
-panel.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.sinv != null) { save(); refresh(); } });
+[panel, modal].forEach(el => el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.time) saveSoon(); }));
+panel.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.sinv != null) { saveSoon(); refresh(); } });
 function budgetInput(e) { const t = e.target; if (!t.dataset || t.dataset.bud == null || !G) return; bud(P())[t.dataset.bud] = +t.value; budgetFill(t.closest(".budget")); hud(); }
 function welfareClick(e) { const b = e.target.closest("[data-wel]"); if (!b || b.disabled || !G) return; e.stopPropagation(); bud(P())[b.dataset.wel] = +b.dataset.l; const box = b.closest(".budget"); box.querySelectorAll(`[data-wel="${b.dataset.wel}"]`).forEach(x => x.classList.toggle("on", x === b)); budgetFill(box); hud(); }
 let histTab = "all";
@@ -4024,10 +4109,10 @@ const recHTML = r => r ? `<p class="rec">💡 <b>Suggested:</b> ${r[0]}<br><smal
 function recBudget(n, E) { // E per quarter (econM)
   const B0 = bud(n), R = {}, g = Math.max(1e-9, E.gross);
   const needMil = Math.ceil(E.armyUp / (g * (1 - B0.qual / 100)) * 100); // regiments are paid from the quantity share
-  const threats = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && (atWar(n.id, o.id) || (dip(n.id, o.id).rel < -30 && bordersTouch(n, o))) && power(o) > power(n) * .8);
+  const threats = metOf(n).filter(o => (atWar(n.id, o.id) || (dip(n.id, o.id).rel < -30 && bordersTouch(n, o))) && power(o) > power(n) * .8);
   R.mil = threats.length ? [`About ${needMil + 8}% or more.`, `${threats.map(o => o.name).slice(0, 2).join(" and ")} ${threats.length > 1 ? "are" : "is"} hostile and about as strong as you or stronger. A bigger, better army keeps them from taking your land.`]
     : [`About ${Math.max(needMil, 5)}%.`, `That pays for the army you have. You're not facing a strong threat right now, so extra gold may do more good in research or your economy.`];
-  const best = Math.max(0, ...G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met).map(o => o.techs.length)), behind = best - n.techs.length;
+  const best = Math.max(0, ...metOf(n).map(o => o.techs.length)), behind = best - n.techs.length;
   const rBase = n.cul === "scholarly" ? 25 : n.cul === "martial" ? 10 : 15;
   R.res = behind >= 3 ? [`About ${rBase + 10}%.`, `Your neighbors know ${behind} more technologies than you. Falling further behind means weaker armies and fields; spending more on research helps you catch up.`] : [`About ${rBase}%.`, `That keeps you learning at a steady pace for your culture. Go higher if you want to race ahead, at the cost of army and economy.`];
   R.prod = n.mat < 20 * Math.pow(1.5, n.era) ? ["About 5–10%.", "You're low on materials, which you need for fields, academies and new regiments. Production spending raises how much your workshops and mines make."] : ["0–5%.", "You have materials to spare, so gold may be better used elsewhere."];
@@ -4054,11 +4139,11 @@ function panelTrade() {
   const n = P(), E = econM(n), X = E.raw.sectors, open = tradeOpen(n), parts = E.partners, q = v => fmt(v * TD);
   let h = ph("Trade", open ? `${parts.length} trade agreement${parts.length === 1 ? "" : "s"} · net ${sgn(E.secNet - E.secInv)} a quarter` : "Markets not open yet");
   if (!eco(n, "markets")) {
-    h += `<div class="card"><h4>🤝 Barter</h4><p class="small">Your people don't have markets or industries yet. They simply swap food, tools and furs with ${reachTxt(n)}, and that brings in a little trade income on its own.</p>${line("Trading with", parts.length ? parts.map(o => esc(o.name)).join(", ") : open ? "Nobody yet" : "Nobody: establish Barter Markets in Develop")}${line("Trade reaches", reachTxt(n))}${(() => { const wary = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && tradeReach(n, o) && !relOK(n, o)); return wary.length ? line("Too wary to trade with you", wary.map(o => esc(o.name)).join(", "), "bad") : ""; })()}
+    h += `<div class="card"><h4>🤝 Barter</h4><p class="small">Your people don't have markets or industries yet. They simply swap food, tools and furs with ${reachTxt(n)}, and that brings in a little trade income on its own.</p>${line("Trading with", parts.length ? parts.map(o => esc(o.name)).join(", ") : open ? "Nobody yet" : "Nobody: establish Barter Markets in Develop")}${line("Trade reaches", reachTxt(n))}${(() => { const wary = metOf(n).filter(o => tradeReach(n, o) && !relOK(n, o)); return wary.length ? line("Too wary to trade with you", wary.map(o => esc(o.name)).join(", "), "bad") : ""; })()}
       </div>`;
     return h; }
   if (!open) h += `<p class="note warn">Establish <b>Barter Markets</b> (the first Trade field, in Develop) to open your markets. Until then you can't import, export, sign trade agreements, set tariffs or embargo anyone, and every sector must make do with what your own land produces.</p>`;
-  { const wary = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met && tradeReach(n, o) && !relOK(n, o));
+  { const wary = metOf(n).filter(o => tradeReach(n, o) && !relOK(n, o));
     h += `<p class="small muted">Trade reaches ${reachTxt(n)}.${wary.length ? ` ${wary.map(o => esc(o.name)).join(", ")} ${wary.length > 1 ? "don't" : "doesn't"} trust you enough to trade yet; better relations will change that.` : ""}</p>`; }
   if (eco(n, "cityPolicy")) { const dir = n.tradeDir || "bal", cities = setsOf(n).filter(x => x.t >= 1);
     h += `<div class="card"><h4>🏙️ City trade policy</h4><p class="small muted">Your cities set their own local trade policies so you don't have to: export drives, quality pushes or buy-local programs for their industries. They follow your direction, your tariffs and your national policy, but each leader only gets it right as often as their trade skill allows.</p>
@@ -4066,7 +4151,7 @@ function panelTrade() {
       ${cities.length ? cities.slice(0, 12).map(x => { const L = ensureLeader(x, n), pol = Object.entries((L && L.pol) || {}).filter(([, v]) => v !== "none");
         return line(`${x.t === 2 ? "🏙️" : "🏘️"} ${esc(x.name)} <small class="muted">${esc(L.name)} ${"★".repeat(L.trade)}${"☆".repeat(5 - L.trade)}</small>${L.loop && L.loopKnown ? ` <span class="bad" title="Dodging your tariff">🕳️</span>` : ""}`, pol.length ? pol.map(([k, v]) => `${SECTORS[k].icon}${CPOL[v].icon}`).join(" · ") : '<span class="muted">Hands off</span>'); }).join("") + (cities.length > 12 ? `<p class="small muted">…and ${cities.length - 12} more.</p>` : "") : `<p class="small muted">You have no towns or cities yet. Villages don't set trade policy.</p>`}
       <p class="small muted">📣 Export drive spreads a city's name abroad · 💎 Quality push improves its goods · 🛒 Buy local favors local producers but raises prices for ordinary people. Each costs a little of the city's taxes. Leaders review their policies every Q1, and each serves a few decades.</p></div>`; }
-  const emb = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).emb), tar = G.nations.filter(o => o.alive && n.tariffOn && n.tariffOn[o.id]);
+  const emb = dealt(n, "emb"), tar = G.nations.filter(o => o.alive && n.tariffOn && n.tariffOn[o.id]);
   if (eco(n, "wages")) { const w = E.wage;
     const known = phList(n), pb = phBonus(n);
     h += `<div class="card"><h4>👷 Workers' wages <span class="pill ${w < .8 ? "bad" : w >= 1.2 ? "good" : ""}">${wageWord(w)}</span></h4>${line("Compared with the world", `${Math.round(w * 100)}%`)}${pb ? line("From world-famous industries", `+${Math.round(pb * 100)}%`, "good") : ""}${line("Consumer spending → taxes", `${E.spendM >= 1 ? "+" : "−"}${Math.round(Math.abs(E.spendM - 1) * 100)}%`, E.spendM >= 1 ? "good" : "bad")}
@@ -4076,7 +4161,7 @@ function panelTrade() {
   h += `<div class="card"><h4>Balance of trade <span class="muted">per quarter</span></h4>${line("Exports", sgn(E.secExp), "good")}${line("Imports", sgn(-E.secImp), E.secImp ? "bad" : "")}${line("Tariff revenue", sgn(E.secTar))}${E.secSub ? line("Subsidies", sgn(-E.secSub)) : ""}${E.secState ? line("State-run sectors", sgn(E.secState), E.secState < 0 ? "bad" : "good") : ""}${line("Public investment", sgn(-E.secInv))}${line("Net", sgn(E.secNet - E.secInv), E.secNet - E.secInv < 0 ? "bad total" : "good total")}${E.drag ? line("Tariffs raise your production costs", `+${(E.drag * 100).toFixed(1)}%`, "bad") : ""}
     ${line("Trade agreements", parts.length ? parts.map(o => esc(o.name)).join(", ") : "None")}${emb.length ? line("Embargoes", emb.map(o => `${esc(o.name)}${dip(n.id, o.id).emb === n.id ? "" : " (theirs)"}`).join(", "), "bad") : ""}${tar.length ? line("Your tariffs on", tar.map(o => esc(o.name)).join(", ")) : ""}${E.tariffedBy ? line("Peoples taxing your goods", E.tariffedBy, "bad") : ""}
     <p class="small muted">Sign trade agreements, set tariffs on a people's goods, or embargo them from the World tab. Imports are cheaper with more trade agreements, and they let you export more.</p></div>`;
-  { const offers = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).offer === o.id && !dip(n.id, o.id).trade);
+  { const offers = dealt(n).filter(o => dip(n.id, o.id).offer === o.id && !dip(n.id, o.id).trade);
     if (offers.length) h += `<p class="note">📦 Trade agreement offered by ${offers.map(o => `<a href="#" data-act="nat" data-id="${o.id}">${esc(o.name)}</a>`).join(", ")}. Open them in World to accept.</p>`;
     const tl = (n.tradeLog || []).slice(0, 8);
     if (tl.length) h += `<details class="card"><summary><b>Recent trade moves toward you</b></summary>${tl.map(e => `<div class="nw"><span>${e.i}</span><p><small class="muted">${esc(e.when)}</small> ${esc(e.t)}</p></div>`).join("")}<p class="small muted">You're notified only about peoples that matter to you: neighbors, partners, allies and serious competitors or suppliers. Everything else is kept here.</p></details>`; }
@@ -4229,7 +4314,7 @@ function panelWorld() {
   if (G.pendingPeace) { const o = G.nations[G.pendingPeace.from]; if (o && o.alive && atWar(n.id, o.id)) {
     const pp = G.pendingPeace; h += `<div class="card offer"><h4>🕊️ Peace offer from the ${esc(nm(o))}</h4><p>${pp.tribute ? (pp.payer === n.id ? `They demand ${fmt(pp.tribute)} gold from you.` : `They will pay you ${fmt(pp.tribute)} gold.`) : "They offer an even peace."}</p><div class="row"><button class="btn ghost small" data-act="peaceNo">Refuse</button><button class="btn small" data-act="peaceYes" ${pp.payer === n.id && n.gold < pp.tribute ? "disabled" : ""}>Accept</button></div></div>`;
   } else G.pendingPeace = null; }
-  const met = G.nations.filter(o => o.alive && o.id !== n.id && dip(n.id, o.id).met).sort((a, b) => score(b) - score(a));
+  const met = metOf(n).sort((a, b) => score(b) - score(a));
   if (!met.length) h += `<p class="note">You haven't met anyone yet. Spread your villages or research Sailing to find your neighbors.</p>`;
   for (const o of met) { const d = dip(n.id, o.id);
     h += `<button class="nat" data-act="nat" data-id="${o.id}"><span class="sw big" style="background:${o.color}"></span><span class="nt"><b>${esc(nm(o))}</b><small>${ERAS[o.era]} · ${fmtP(popOf(o))} people · ${terrCount(o)} territor${terrCount(o) === 1 ? "y" : "ies"} · ${PERS[o.pers]}</small></span><span class="ns">${d.war ? '<span class="pill bad">War</span>' : d.ally ? '<span class="pill good">Ally</span>' : d.trade ? '<span class="pill">Trade</span>' : ""}<small>${relWord(d.rel)}</small></span></button>`; }
@@ -4309,17 +4394,17 @@ panel.addEventListener("click", e => {
     case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
     case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
     case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
-    case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; save(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
+    case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; saveSoon(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
     case "timeal": openTime(false); break;
     case "merc": { const k = +b.dataset.k, dl = MERC_DEALS.find(x => x.id === b.dataset.d); if (!o || n.gold < mercFee(o, k, dl) || mercSpare(o) < k) break; hireMercs(n, o, k, dl); toast(`The ${o.name} are sending ${k} regiment${k === 1 ? "" : "s"} for ${dl.years} years`); refresh(); break; }
     case "crack": { const x = setById(+b.dataset.s), L = x.lead; confirmModal(`Crack down on ${L.name}?`, `The loophole in ${x.name} closes and your tariff works again there. The city's poor will be angry, and ${L.name} will resent it.`, () => {
         L.loop = null; L.loopKnown = false; L.crack = G.tt + 2; L.loyal = Math.max(1, L.loyal - 1); x.u = Math.min(100, x.u + 12); n.facMods.push({ k: "commoners", v: -4, why: `Crackdown in ${x.name}`, t: 1.5 }); toast("Loophole closed"); hud(); closeSheet(); }); break; }
-    case "tdir": n.tradeDir = b.dataset.v; for (const x of setsOf(n)) if (x.lead) { const list = cityInds(n).bySet.get(x.id) || []; x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); } save(); refresh(); break;
+    case "tdir": n.tradeDir = b.dataset.v; for (const x of setsOf(n)) if (x.lead) { const list = cityInds(n).bySet.get(x.id) || []; x.lead.pol = {}; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); } saveSoon(); refresh(); break;
     case "newLead": { const x = setById(+b.dataset.s), c = Math.round(30 * Math.pow(1.5, n.era)); if (n.gold < c) { toast("Not enough gold"); break; }
       confirmModal(`Replace ${x.lead.name}?`, `Costs ${c} gold and stirs unrest in ${x.name}. The new leader's skill is a gamble.`, () => { n.gold -= c; x.u = Math.min(100, x.u + 12); x.lead.left = 0; ensureLeader(x, n); x.lead.cool = G.tt + 4; const list = cityInds(n).bySet.get(x.id) || []; for (const it of list) x.lead.pol[it.k] = cityPolicyPick(n, x, it, econ(n)); toast(`${x.lead.name} takes over (${"★".repeat(x.lead.trade)})`); hud(); closeSheet(); }); break; }
     case "dOfferYes": { const d = dip(n.id, id); d.trade = true; d.offer = null; d.rel += 3; toast("Trade agreement signed!"); hud(); openNationDetail(id); break; }
     case "dOfferNo": { const d = dip(n.id, id); d.offer = null; d.rel -= 3; hud(); openNationDetail(id); break; }
-    case "secset": { const st = secOf(n, b.dataset.k), f = b.dataset.f, v = +b.dataset.v; if (f === "nat") st.nat = !!v; else st[f] = v; save(); refresh(); break; }
+    case "secset": { const st = secOf(n, b.dataset.k), f = b.dataset.f, v = +b.dataset.v; if (f === "nat") st.nat = !!v; else st[f] = v; saveSoon(); refresh(); break; }
     case "dEmb": confirmModal(`Embargo the ${nm(o)}?`, "All trade between you stops, and any trade agreement ends. Relations will suffer.", () => { const d = dip(n.id, id); d.emb = n.id; d.trade = false; d.rel -= 20; hud(); openNationDetail(id); }); break;
     case "dEmbEnd": { const d = dip(n.id, id); d.emb = null; d.rel += 5; toast("Embargo lifted"); hud(); openNationDetail(id); break; }
     case "dTar": { (n.tariffOn || (n.tariffOn = {}))[id] = true; dip(n.id, id).rel -= 6; toast(`Tariff placed on ${o.name} goods`); hud(); openNationDetail(id); break; }
@@ -4367,7 +4452,7 @@ panel.addEventListener("click", e => {
     case "world": openPanel("world"); break;
     case "army": openPanel("army"); break;
     case "help": showHelp(); break;
-    case "newgame": confirmModal("Start a new game?", "Your current people will be lost.", () => { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} G = null; closePanel(); showTitle(); }); break;
+    case "newgame": confirmModal("Start a new game?", "Your current people will be lost.", () => { clearSave(); G = null; closePanel(); showTitle(); }); break;
     case "peaceYes": { const pp = G.pendingPeace; makePeace(n, G.nations[pp.from], pp.tribute, G.nations[pp.payer] || null); G.pendingPeace = null; G.news = []; refresh(); break; }
     case "peaceNo": G.pendingPeace = null; refresh(); break;
     case "dMarry": { const d = dip(n.id, id); n.gold -= 3; d.rel = Math.min(100, d.rel + 18); const c = capSet(n); if (c) { const add = Math.min(Math.max(0, capOf(c, n) - c.pop), Math.max(2, popOf(o) * .03)); c.pop += add; addPeople(n, o, add, 30, c); } toast(`Marriages bind your people to the ${o.name}`); hud(); openNationDetail(id); break; }
@@ -4389,7 +4474,7 @@ panel.addEventListener("click", e => {
     case "dPeaceT": { const t = Math.round(20 * Math.pow(1.6, o.era)); if (aiAccept(o, "peace", n) || wscore(n.id, id) > 20) { makePeace(n, o, Math.min(t, Math.max(0, o.gold)), o); G.news = []; toast("Peace with tribute!"); } else toast("They refused"); refresh(); openNationDetail(id); break; }
   }
 });
-[panel, modal].forEach(el => { el.addEventListener("input", budgetInput); el.addEventListener("click", welfareClick, true); el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.bud != null) { save(); if (e.target.dataset.bud === "qual" && curPanel === "army") refresh(); } if (e.target.id === "budAsk") P().budNoAsk = !e.target.checked; }); });
+[panel, modal].forEach(el => { el.addEventListener("input", budgetInput); el.addEventListener("click", welfareClick, true); el.addEventListener("change", e => { if (e.target.dataset && e.target.dataset.bud != null) { saveSoon(); if (e.target.dataset.bud === "qual" && curPanel === "army") refresh(); } if (e.target.id === "budAsk") P().budNoAsk = !e.target.checked; }); });
 panel.addEventListener("change", e => { if (e.target.id === "autoR") { P().autoResearch = e.target.checked; if (e.target.checked && !P().research) P().research = chooseResearch(P()); refresh(); } });
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => { if (curPanel === t.dataset.p) closePanel(); else openPanel(t.dataset.p); });
 
@@ -4454,19 +4539,19 @@ function runSim(o, resume) {
     if (paused && !G.over && P().alive) { // pause: let the player answer, then carry on or stop
       G.simResume = { o, start, news, turns, prevAuto, go: true };
       G.lastReport = [{ i: "⏸️", t: `Simulation paused: ${stopped}`, p: true }];
-      save(); hud(); dirty = true; return afterTurnFlow(); }
+      saveSoon(); hud(); dirty = true; return afterTurnFlow(); }
     const n = P(); if (!prevAuto && n.id === n0.id) n.autoResearch = prevAuto || false;
-    save(); hud(); dirty = true;
+    saveSoon(); hud(); dirty = true;
     const d = (a, b, f = fmt) => { const x = b - a; return `${f(b)} <small class="${x >= 0 ? "good" : "bad"}">(${x >= 0 ? "+" : "−"}${f(Math.abs(x))})</small>`; };
     const keepNews = news.filter(x => x.p === true || x.p === null || x.p === undefined).slice(-40);
-    const pending = !!(G.pendingCivil || G.over);
+    const pending = !!(G.pendingCivil || G.pendingMerge || G.over);
     showModal(`<div class="mi">📜</div><h2>${start.date} → ${dateTxt()}</h2>${stopped ? `<p class="note warn">${esc(stopped)}</p>` : `<p class="small">Ten years have passed under your governor.</p>`}
       <div class="card">${line("People", d(start.pop, popOf(n), fmtP))}${line("Settlements", d(start.sets, setsOf(n).length, x => x))}${line("Territories", d(start.terr, terrCount(n), x => x))}${line("Technologies", d(start.techs, n.techs.length, x => x))}${line("Age", ERAS[n.era])}${line("Regiments", d(start.army, n.army, x => x))}${line("Gold", d(start.gold, n.gold))}${line("Public trust", d(start.trust, n.trust == null ? 100 : n.trust, x => Math.round(x)))}</div>
       ${keepNews.length ? `<details><summary class="small"><b>What happened (${keepNews.length})</b></summary><div class="news">${keepNews.map(x => `<div class="nw"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div></details>` : ""}
       <div class="row">${pending ? "" : `<button class="btn ghost" data-m="again">⏩ 10 more years</button>`}<button class="btn" data-m="ok">Continue</button></div>`, a => {
         if (curPanel) refresh();
         if (G.over) return showEnd();
-        if (G.pendingCivil || G.event || G.pendingNaming || (G.pendingUnlocks && G.pendingUnlocks.length)) { G.lastReport = []; return afterTurnFlow(); }
+        if (G.pendingCivil || G.pendingMerge || G.event || G.pendingNaming || (G.pendingUnlocks && G.pendingUnlocks.length)) { G.lastReport = []; return afterTurnFlow(); }
         if (G.pendingUnlocks && G.pendingUnlocks.length && a !== "again") return showUnlocks();
         if (a === "again") runSim(o);
       });
@@ -4478,13 +4563,13 @@ function runSim(o, resume) {
     const me = P();
     try {
       governTurn(me, o);
-      const before = new Set(G.nations.filter(x => x.alive && atWar(me.id, x.id)).map(x => x.id));
-      const metB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && dip(me.id, x.id).met).map(x => x.id));
+      const before = new Set(warsOf(me).map(x => x.id));
+      const metB = new Set(metOf(me).map(x => x.id));
       const touchB = new Set(G.nations.filter(x => x.alive && x.id !== me.id && bordersTouch(me, x)).map(x => x.id));
       const mineB = new Set(setsOf(me).map(x => x.id)), famB = !!me.famine, trustB = me.trust == null ? 100 : me.trust, techB = me.techs.length, talkB = 0, eraB = me.era;
       endTurn(); turns++;
       { const m2 = P();
-        const met = G.nations.find(x => x.alive && x.id !== m2.id && dip(m2.id, x.id).met && !metB.has(x.id));
+        const met = metOf(m2).find(x => !metB.has(x.id));
         const touch = G.nations.find(x => x.alive && x.id !== m2.id && !touchB.has(x.id) && bordersTouch(m2, x));
         const lost = [...mineB].map(id => setById(id)).find(x => x && x.o !== m2.id);
         const hit = setsOf(m2).find(x => x.hit != null && G.tt - x.hit <= TD * 1.01);
@@ -4504,6 +4589,7 @@ function runSim(o, resume) {
       if (G.event) { const e = EVENTS.find(x => x.id === G.event.id), i = Math.floor(rnd() * e.ch.length), c = e.ch[i]; G.news = []; c.f(P()); news.push({ i: e.icon, t: `${e.title}: your governor chose "${c.t}".`, p: true }); news.push(...G.news); G.news = []; G.event = null; P().stab = stabilityOf(P(), P().fac); }
       if (G.pendingPeace) { const pp = G.pendingPeace, f = G.nations[pp.from]; G.pendingPeace = null; if (f && f.alive && atWar(P().id, f.id)) { makePeace(P(), f, pp.tribute, G.nations[pp.payer] || null); news.push({ i: "🕊️", t: `Your governor accepted peace with the ${nm(f)}.`, p: true }); } }
       if (G.pendingCivil) { stopped = "Civil war broke out. You must choose a side."; paused = true; return finish(); }
+      if (G.pendingMerge) { const f = G.nations[G.pendingMerge.from]; stopped = `The ${f ? nm(f) : "neighbors"} ask to join your people. Your answer is needed.`; paused = true; return finish(); }
       const nw = G.nations.find(x => x.alive && atWar(P().id, x.id) && !before.has(x.id));
       if (nw && o.pauseWar) { stopped = `The ${nm(nw)} declared war on you.`; paused = true; return finish(); }
     } catch (err) { stopped = "The simulation hit a problem and stopped."; console.error(err); return finish(); }
@@ -4528,7 +4614,7 @@ function afterTurnFlow() {
       <button class="choice" data-m="b"><b><span class="sw" style="background:${Bn.color}"></span> Rebels: ${esc(nm(Bn))}</b><small>A fresh start with a clean treasury and a new government. ${sum(Bn)}</small></button></div>`, a => {
         G.pendingCivil = null;
         if (a === "b") { A.ai = true; Bn.ai = false; Bn.autoResearch = true; G.player = Bn.id; reachCache.clear(); log(`You now lead the ${nm(Bn)}.`, "🚩"); const c = capSet(Bn); if (c) centerOn(c.x, c.y, Math.max(view.k, 6)); }
-        save(); hud(); dirty = true; if (curPanel) refresh(); showEventAfterCivil(); });
+        saveSoon(); hud(); dirty = true; if (curPanel) refresh(); showEventAfterCivil(); });
     return true;
   };
   const askBudget = () => {
@@ -4546,11 +4632,25 @@ function afterTurnFlow() {
       ${dev.length ? `<h4>Toward the next age</h4><div class="choices">${dev.sort((a, b) => devSciCost(n, a) - devSciCost(n, b)).map(f => { const c = devSciCost(n, f); return `<button class="choice" data-m="d:${f.k}"><b>${f.chain.icon} Develop ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} · ${fmt(c)} 🔬 (${turns(c)}) · ${esc(f.chain.name)} ${chainHave(n, f.chain)}/${chainNeed(n, f.chain)}</small></button>`; }).join("")}</div>` : ""}
       ${opts.length ? `<h4>Mastery</h4><div class="choices">${opts.map(f => { const c = masteryCost(n, f); return `<button class="choice" data-m="m:${f.k}"><b>${f.chain.icon} Master ${esc(f.name)}</b><small>Level ${lv(n, f.k)} → ${lv(n, f.k) + 1} of ${MASTERY_MAX} · ${fmt(c)} 🔬 (${turns(c)})</small></button>`; }).join("")}</div>` : ""}
       <p class="small muted">Developing fields with research moves you toward the next age. Mastery deepens a field you've already fully expanded. When the next age arrives, research switches back to technology.</p>`, a => {
-        if (a && /^[md]:/.test(a)) { n.research = a; n.resManual = true; save(); hud(); toast(a[0] === "d" ? `Scholars are developing ${FIELDS[a.slice(2)].name}` : `Scholars are mastering ${FIELDS[a.slice(2)].name}`); if (curPanel) refresh(); }
+        if (a && /^[md]:/.test(a)) { n.research = a; n.resManual = true; saveSoon(); hud(); toast(a[0] === "d" ? `Scholars are developing ${FIELDS[a.slice(2)].name}` : `Scholars are mastering ${FIELDS[a.slice(2)].name}`); if (curPanel) refresh(); }
         askBudget() || finishFlow(); });
     return true;
   };
   const showEventAfterCivil = () => showEvent(true);
+  /* a struggling people asks to join yours; you take them in or refuse */
+  const askMerge = next => {
+    const pm = G.pendingMerge; if (!pm) return false; G.pendingMerge = null;
+    const o = G.nations[pm.from], me = P(); if (!o || !o.alive || !me.alive || atWar(me.id, o.id)) return false;
+    const ss = setsOf(o), fam = Math.round(popOf(o)), why = (o.hungryT || 0) >= TPY ? "They have gone hungry for a year" : warsOf(o).length ? "They are losing a war" : o.hard ? `${HARD[o.hard.k].name} has broken them` : "Their numbers are dwindling";
+    showModal(`<div class="mi">🤝</div><h2>The ${esc(nm(o))} ask to join you</h2><p>${why}, and they can't carry on alone. Their elders come to you and offer to follow you from now on.</p>
+      <div class="card">${line("Families", fam)}${line("Villages", ss.length)}${line("Their ways", `${esc(demonym(o))} · ${esc((RELIGIONS[o.relig] || {}).name || "Old spirits")}`)}</div>
+      <p class="small muted">If you take them in, their villages become yours and their families live among you as a people of their own.</p>
+      <div class="choices"><button class="choice" data-m="yes"><b>Take them in</b><small>${fam} families and ${ss.length} ${ss.length === 1 ? "village" : "villages"} join you.</small></button>
+      <button class="choice" data-m="no"><b>Refuse</b><small>They go on alone.</small></button></div>`, a => {
+        if (a === "yes" && o.alive) mergeInto(o, P()); else hist(P(), "🚪", `We turned away the ${nm(o)}, who asked to join us.`);
+        saveSoon(); hud(); dirty = true; if (curPanel) refresh(); next(); });
+    return true;
+  };
   const askNaming = () => {
     if (!G.pendingNaming) return false; G.pendingNaming = false;
     const n = P(), lg = langOf(n), sug = [placeName(lg), placeName(lg), placeName(lg)];
@@ -4562,10 +4662,11 @@ function afterTurnFlow() {
   };
   const showEvent = (skipCivil) => {
     if (skipCivil !== true && (askCivil() || askNaming())) return;
+    if (askMerge(() => showEvent(true))) return;
     if (!G.event) return askMastery() || askBudget() || finishFlow();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
-      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); save(); refresh(); askMastery() || askBudget() || finishFlow(); });
+      const c = e.ch[+a.slice(1)]; G.news = []; c.f(n); G.event = null; n.stab = stabilityOf(n, n.fac); saveSoon(); refresh(); askMastery() || askBudget() || finishFlow(); });
   };
   if (items.length) showModal(`<h2>${dateTxt()}</h2><div class="news">${items.map(x => `<div class="nw ${x.p === true || x.p === null ? "" : "far"}"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div><div class="row"><button class="btn" data-m="ok">Continue</button></div>`, () => showUnlocks(showEvent));
   else showUnlocks(showEvent);
@@ -4581,7 +4682,7 @@ $("endTurn").onclick = () => {
 function showEnd() {
   const o = G.outcome;
   showModal(`<div class="mi">${o.win ? "🏆" : "🏚️"}</div><h2>${o.win ? "Victory!" : "The End"}</h2><p>${esc(o.why)}</p><p class="muted">Final score ${score(P())} · ${dateTxt()}</p><div class="row"><button class="btn ghost" data-m="look">Look at the map</button><button class="btn" data-m="new">New game</button></div>`,
-    a => { if (a === "new") { try { localStorage.removeItem(SAVE_KEY); } catch (e) {} G = null; showTitle(); } });
+    a => { if (a === "new") { clearSave(); G = null; showTitle(); } });
 }
 function showHelp() {
   showModal(`<h2>How to play</h2><div class="help">
@@ -4625,13 +4726,13 @@ let setupState = null;
 function showTitle() {
   closePanel(); closeSheet();
   $("title").hidden = false; $("setup").hidden = true; $("game").classList.add("dim");
-  const s = loadSave();
+  const s = saveMetaRead();
   $("btnContinue").hidden = !s;
-  if (s) $("btnContinue").querySelector("small").textContent = `${s.nations[s.player].name} · ${s.year < 0 ? -s.year + " BCE" : s.year + " CE"}`;
+  if (s) $("btnContinue").querySelector("small").textContent = `${s.name} · ${s.year < 0 ? -s.year + " BCE" : s.year + " CE"}`;
   if (!G) G = { demo: true, turn: 0, year: -3600, player: 0, nations: [], regions: W.regions.map((s, i) => ({ i, ctrl: -1 })), sets: [], bld: {}, cons: {}, dip: {}, news: [], sv: 0 };
   view.k = minK(); clampView(); dirty = true;
 }
-$("btnContinue").onclick = () => { const s = loadSave(); if (!s) return; G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } restoreCells(); startPlaying(); };
+$("btnContinue").onclick = async () => { const s = await loadSave(); if (!s) { $("btnContinue").hidden = true; return; } G = s; reachCache.clear(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } restoreCells(); startPlaying(); };
 $("btnNew").onclick = () => openSetup();
 $("btnHelp").onclick = () => showHelp();
 function openSetup() {
@@ -4662,7 +4763,7 @@ $("sGo").onclick = () => {
   const st = setupState; const name = (st.name || "").trim() || placeName(langOfRegion(RID[st.start]));
   $("setup").hidden = true; G = null;
   newGame({ name: name.replace(/^\w/, c => c.toUpperCase()), color: st.color, start: st.start, diff: st.diff, cul: st.cul });
-  G.lastReport = []; save();
+  G.lastReport = []; saveSoon();
   startPlaying(true);
 };
 function startPlaying(fresh) {
@@ -4689,7 +4790,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();

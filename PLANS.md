@@ -76,7 +76,37 @@ To do (later ages):
 
 ## Survival period (built)
 
-- The first ~400 years are about surviving. 80 tribes start out (the nearest neighbor is about 49 map units away on average), so wars are rare until peoples grow toward each other.
+- The first ~400 years are about surviving. About 2,000 tribes start out, spread over all livable land: thickest on fertile lowlands and plains, thin in forest and steppe, rare in deserts, tundra and mountains. No two start closer than 5 map units.
 - Hard years (about 10% a year per tribe, 1–3 seasons): drought, brutal winters (cold lands), sickness (worst in big villages), failed hunts. Stores, warmth, health, healers, water and a food surplus soften them.
 - AI tribes roll a hidden competence; about 30% are poorly led and suffer far more in hard years.
-- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish. In testing, about 11 of 80 tribes (roughly 14%) collapse in the first 400 years, most of them early.
+- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish.
+
+## Scarcity wars (built)
+
+- A tribe short of land or food is more willing to fight its neighbors:
+  - crowded land (hemmed in by neighbors)
+  - hunger
+  - a drought, or the game leaving its lands
+- The shorter it is, the less hostile relations need to be, the worse odds it will accept, and the likelier it is to strike. It still needs its lands (or hunting grounds) to touch the target's.
+- Scarcity also sours relations between touching neighbors: they compete for the same land.
+- When a tribe attacks you out of need, the declaration says why.
+
+## Merge requests (built)
+
+- A small tribe (under 40 families) in real trouble can ask a nearby neighbor to take it in. Real trouble means it has shrunk below 75% of its peak, gone hungry for a year, or is losing a war.
+- It only asks:
+  - a people with "Warm" relations or better (above +20)
+  - within about 15 map units
+  - not at war with it
+  - bigger than itself
+  - not struggling too (the player is always a candidate)
+- Only the struggling tribe can ask. It asks about 30% of years while it struggles, and waits 10 years after asking.
+- AI peoples accept more readily the warmer their relations are. You get a popup and take them in or refuse.
+- On joining, its villages become the other people's and its families live on as a people of their own among them, under that nation's policy for minority peoples.
+- **Open question:** Stone Age relations barely move. Strangers start out wary (about −12), and after a century nearly every pair is still "Neutral". So in the survival period nobody is "Warm" yet, and merges don't happen. Waiting on a decision about how relations should work early on.
+
+## Engineering notes for a world of thousands
+
+- Diplomacy is kept only for pairs of peoples who have dealt with each other, and each people keeps a list of them. Loops run over a people's contacts, not the whole world.
+- Contacts are found through the regions each people can reach.
+- Saves go to IndexedDB, compressed. Browser local storage is too small for a world this size.
