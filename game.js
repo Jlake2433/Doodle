@@ -1222,7 +1222,7 @@ function checkGovMil(n, fresh, pend) {
 }
 function checkFaiths(n) {
   ensureCustoms(n);
-  if (n.ai) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
+  if (n.ai && !n.anc) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
   else { const seen = n.cusSeen || (n.cusSeen = {}), fresh = !n.cusSeen._init; seen._init = 1;
     const by = {};
     for (const k in CUSTOMS) for (const o in CUSTOMS[k].opts) { const O = CUSTOMS[k].opts[o], id = k + "." + o; if (seen[id] || !cusOpen(n, O)) continue; seen[id] = 1;
@@ -1232,7 +1232,7 @@ function checkFaiths(n) {
         : { icon: "🎎", title: `${TECH[t].name} opens new ways of living`, text: `${L.map(([k, O]) => `${CUSTOMS[k].name}: ${O.name}`).join(". ")}. Your people could take them up (Laws › Customs).` }); } }
   if (!n.relig) n.relig = n.laws && n.laws.rel === "sec" && relOpen("secular") ? "secular" : "animism";
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
-  if (n.ai) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dipR(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
+  if (n.ai && !n.anc) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dipR(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
   const seen = G.relSeen || (G.relSeen = {});
   for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue; whist(R.icon, `A new faith arose: ${R.name}.`, "first", []);
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d} You can make it your national religion in the Laws tab.` }); }
@@ -2174,9 +2174,9 @@ const ANCIENT = [
     note: "Herders of the Dnieper steppe, among the first anywhere to keep horses.",
     sites: [["Dereivka", 48.97, 33.83, 0], ["Sredny Stog", 47.85, 35.15, 0], ["Oleksandriya", 48.6, 36.6, 0]],
     stages: [{ y: -3500, k: "become", name: "Repin", title: "Repin culture", people: "Repin people", why: "New herding ways spread along the rivers of the steppe." },
-      { y: -3300, k: "become", name: "Yamnaya", title: "Yamnaya herders", people: "Yamnaya", free: true, war: true, pers: "aggressive", why: "Herders with ox wagons and horses take to the open steppe." },
+      { y: -3300, k: "become", name: "Yamnaya", title: "Yamnaya herders", people: "Yamnaya", free: true, war: true, pers: "aggressive", era: 1, why: "Herders with ox wagons and horses take to the open steppe." },
       { y: -3250, k: "spread", why: "Yamnaya herders spread west toward the Danube and east to the Volga.", to: [[47.0, 30.5, 5], [49.5, 46.0, 5], [46.5, 40.0, 4]] }] },
-  { k: "maykop", name: "Maykop", title: "Maykop culture", people: "Maykop people", lat: 44.4, lon: 40.3, R: 10, pop: [10000, 40000], color: "#a8844a", techs: ["bronze"],
+  { k: "maykop", name: "Maykop", title: "Maykop culture", people: "Maykop people", lat: 44.4, lon: 40.3, R: 10, pop: [10000, 40000], color: "#a8844a", techs: ["bronze"], era: 1,
     note: "Chiefs of the North Caucasus buried in great mounds with gold, silver and bronze, rich from trading metal with the south.",
     sites: [["Maykop", 44.61, 40.10, 1], ["Meshoko", 44.43, 40.08, 0], ["Klady", 44.35, 40.2, 0]],
     stages: [{ y: -3100, k: "strain", yrs: 150, loss: .35, why: "The metal trade with the south dries up as the Uruk world falls apart." },
@@ -2209,16 +2209,16 @@ const ANCIENT = [
     note: "Oasis farmers of the Kopet Dag foothills, with painted pottery, copper and mud-brick villages.",
     sites: [["Anau", 37.89, 58.53, 1], ["Namazga-Tepe", 37.45, 59.98, 1], ["Altyn-Depe", 37.0, 60.27, 0]],
     stages: [{ y: -3300, k: "become", name: "Namazga", title: "Namazga culture", people: "Namazga people", why: "The oasis villages grow into towns." },
-      { y: -2300, k: "become", name: "Oxus", title: "Oxus civilization", people: "Oxus people", free: true, rise: true, why: "Great walled oasis towns rise along the rivers of Central Asia." }] },
+      { y: -2300, k: "become", name: "Oxus", title: "Oxus civilization", people: "Oxus people", free: true, rise: true, era: 1, gov: "monarchy", why: "Great walled oasis towns rise along the rivers of Central Asia." }] },
   { k: "jomon", name: "Jōmon", title: "Jōmon culture", people: "Jōmon people", lat: 37.0, lon: 139.0, R: 30, pop: [50000, 150000], color: "#8f6c4e", forager: true,
     note: "Foragers of the Japanese islands who made some of the world's oldest pottery and lived in large villages without farming.",
     sites: [["Sannai-Maruyama", 40.81, 140.70, 1], ["Kasori", 35.62, 140.16, 1], ["Torihama", 35.55, 135.86, 0]],
     stages: [{ y: -2500, k: "strain", yrs: 1000, loss: .6, why: "The climate cools; nuts, fish and game grow scarce." },
-      { y: -900, k: "become", name: "Yayoi", title: "Yayoi culture", people: "Yayoi people", learn: ["agriculture"], why: "Rice farmers arrive from across the sea and mix with the old people of the islands." }] },
+      { y: -900, k: "become", name: "Yayoi", title: "Yayoi culture", people: "Yayoi people", learn: ["agriculture", "bronze"], era: 1, gov: "chiefdom", why: "Rice farmers arrive from across the sea and mix with the old people of the islands." }] },
   { k: "jeulmun", name: "Jeulmun", title: "Jeulmun culture", people: "Jeulmun people", lat: 36.6, lon: 127.6, R: 14, pop: [10000, 50000], color: "#7f7a5a", forager: true,
     note: "Foragers and early millet farmers of Korea, named for their comb-patterned pottery.",
     sites: [["Amsa-dong", 37.56, 127.13, 0], ["Osan-ri", 38.05, 128.65, 0], ["Dongsam-dong", 35.08, 129.07, 0]],
-    stages: [{ y: -1500, k: "become", name: "Mumun", title: "Mumun culture", people: "Mumun people", learn: ["agriculture"], why: "Farming villages with rice and millet fields take over the peninsula." }] },
+    stages: [{ y: -1500, k: "become", name: "Mumun", title: "Mumun culture", people: "Mumun people", learn: ["agriculture", "bronze"], era: 1, gov: "chiefdom", why: "Farming villages with rice and millet fields take over the peninsula." }] },
   { k: "chinchorro", name: "Chinchorro", title: "Chinchorro culture", people: "Chinchorro people", lat: -19.0, lon: -70.2, R: 6, pop: [2000, 10000], color: "#9a6f6f", forager: true, skip: ["pottery"],
     note: "Fishers of the Atacama coast, the driest desert on Earth, who made the world's oldest mummies.",
     sites: [["Arica", -18.48, -70.32, 0], ["Camarones", -19.2, -70.27, 0]],
@@ -2227,23 +2227,23 @@ const ANCIENT = [
     note: "Early farming villages on the coast of Ecuador, among the first in the Americas to make pottery.",
     sites: [["Real Alto", -2.38, -80.72, 0], ["Valdivia", -1.94, -80.78, 0], ["Loma Alta", -1.8, -80.5, 0]],
     stages: [{ y: -1800, k: "become", name: "Machalilla", title: "Machalilla culture", people: "Machalilla people", why: "New ways of living spread along the coast." }] },
-  { k: "uruk", name: "Uruk", title: "Uruk culture", people: "Sumerians", lat: 31.5, lon: 45.8, R: 12, pop: [100000, 300000], color: "#c9a24a",
+  { k: "uruk", name: "Uruk", title: "Uruk culture", people: "Sumerians", lat: 31.5, lon: 45.8, R: 12, pop: [100000, 300000], color: "#c9a24a", gov: "theocracy",
     note: "The world's first cities: temples, officials and colonies far up the rivers, all run from the great city of Uruk.",
     sites: [["Uruk", 31.32, 45.64, 2], ["Eridu", 30.82, 45.99, 1], ["Ur", 30.96, 46.10, 1], ["Nippur", 32.13, 45.23, 1], ["Habuba Kabira", 36.12, 38.08, 1], ["Tell Brak", 36.67, 41.06, 1]],
-    stages: [{ y: -3500, k: "learn", learn: ["wheel"] }, { y: -3300, k: "learn", learn: ["writing"] },
+    stages: [{ y: -3500, k: "learn", learn: ["wheel"] }, { y: -3300, k: "learn", learn: ["writing", "bronze"], era: 1 },
       { y: -3200, k: "strain", yrs: 100, loss: .3, why: "The rains fail and the rivers shrink; the far-off colonies can't be held." },
       { y: -3100, k: "abandon", why: "Uruk's far-off colonies up the rivers are abandoned." },
       { y: -3100, k: "become", name: "Jemdet Nasr", title: "Jemdet Nasr culture", people: "Sumerians", why: "A poorer, smaller world takes the place of Uruk's." },
-      { y: -2900, k: "test", p: .85, rise: true, why: "Sumer splits into rival city-states, each with its own king.", into: [["Uruk", 31.32, 45.64, "city of Uruk"], ["Ur", 30.96, 46.10, "city of Ur"], ["Lagash", 31.41, 46.41, "city of Lagash"], ["Kish", 32.55, 44.60, "city of Kish"], ["Nippur", 32.13, 45.23, "city of Nippur"]] }] },
+      { y: -2900, k: "test", p: .85, rise: true, gov: "monarchy", why: "Sumer splits into rival city-states, each with its own king.", into: [["Uruk", 31.32, 45.64, "city of Uruk"], ["Ur", 30.96, 46.10, "city of Ur"], ["Lagash", 31.41, 46.41, "city of Lagash"], ["Kish", 32.55, 44.60, "city of Kish"], ["Nippur", 32.13, 45.23, "city of Nippur"]] }] },
   { k: "naqada", name: "Naqada", title: "Naqada culture", people: "Egyptians", lat: 25.8, lon: 32.7, R: 12, pop: [200000, 500000], color: "#d0a050",
     note: "Chiefdoms strung along the Nile in Upper Egypt, rivals for trade, prestige and the river's floods.",
     sites: [["Hierakonpolis", 25.10, 32.78, 1], ["Naqada", 25.90, 32.72, 1], ["Abydos", 26.18, 31.92, 1], ["Elephantine", 24.09, 32.89, 0]],
     stages: [{ y: -3250, k: "unify", R: 40, why: "The chiefs of Upper Egypt set out to rule the whole river." },
-      { y: -3150, k: "become", name: "Egypt", title: "Kingdom of Egypt", people: "Egyptians", free: true, rise: true, why: "Upper and Lower Egypt are united under one king." }] },
+      { y: -3150, k: "become", name: "Egypt", title: "Kingdom of Egypt", people: "Egyptians", free: true, rise: true, learn: ["writing", "bronze"], era: 1, gov: "monarchy", why: "Upper and Lower Egypt are united under one king." }] },
   { k: "susa", name: "Susa", title: "Susa culture", people: "Susians", lat: 32.2, lon: 48.4, R: 8, pop: [30000, 100000], color: "#b0905a",
     note: "Susa and the plain of Khuzestan, closely tied to the cities of Uruk.",
     sites: [["Susa", 32.19, 48.25, 1], ["Chogha Mish", 32.22, 48.55, 1]],
-    stages: [{ y: -3100, k: "become", name: "Elam", title: "Proto-Elamite state", people: "Elamites", free: true, rise: true, learn: ["writing"], why: "Susa breaks away from the failing Uruk world and builds a state with a writing of its own." }] },
+    stages: [{ y: -3100, k: "become", name: "Elam", title: "Proto-Elamite state", people: "Elamites", free: true, rise: true, learn: ["writing", "bronze"], era: 1, gov: "monarchy", why: "Susa breaks away from the failing Uruk world and builds a state with a writing of its own." }] },
   { k: "mehrgarh", name: "Mehrgarh", title: "Mehrgarh culture", people: "Mehrgarh people", lat: 29.6, lon: 67.4, R: 10, pop: [20000, 80000], color: "#a8704a",
     note: "One of the oldest farming centers in South Asia, at the foot of the Bolan Pass.",
     sites: [["Mehrgarh", 29.39, 67.62, 1], ["Kili Ghul Muhammad", 30.2, 67.0, 0]],
@@ -2252,7 +2252,7 @@ const ANCIENT = [
     note: "Early towns of Sindh on the lower Indus, with mud-brick walls and painted pottery.",
     sites: [["Amri", 26.15, 68.00, 1], ["Kot Diji", 27.34, 68.71, 1]],
     stages: [{ y: -3000, k: "become", name: "Early Harappan", title: "Early Harappan culture", people: "Harappans", free: true, why: "Towns spread across the Indus plain." },
-      { y: -2600, k: "become", name: "Harappa", title: "Indus civilization", people: "Harappans", rise: true, why: "Great planned cities with drains, granaries and seals rise along the Indus." },
+      { y: -2600, k: "become", name: "Harappa", title: "Indus civilization", people: "Harappans", rise: true, learn: ["bronze", "writing"], era: 1, why: "Great planned cities with drains, granaries and seals rise along the Indus." },
       { y: -2600, k: "spread", why: "New cities rise at Harappa, Mohenjo-daro and Dholavira.", to: [[30.63, 72.86, 3, "Harappa"], [27.32, 68.14, 3, "Mohenjo-daro"], [23.89, 70.21, 2, "Dholavira"]] }] },
   { k: "yangshao", name: "Yangshao", title: "Yangshao culture", people: "Yangshao people", lat: 34.6, lon: 109.5, R: 26, pop: [200000, 500000], color: "#b8643c",
     note: "Millet farmers of the Yellow River valley, with painted pottery and large planned villages.",
@@ -2312,6 +2312,7 @@ function placeAncient(c, avoid) {
     if (!sp) sp = landSpot(cx, cy, c.R, q.t ? 1.6 : 1.1, avoid, home); if (!sp) continue;
     const s = addSettlement(n.id, sp.r, q.p, null, q.name || null, q.t, false, { x: sp.x, y: sp.y });
     if (n.cap < 0 || q.t > (setById(n.cap) || { t: -1 }).t) n.cap = s.id; }
+  n.gov = c.gov || (c.forager ? "tribe" : "chiefdom"); n.era = c.era || 0; n.resOpen = true; n.research = null; n.autoResearch = false;
   n.stateUp = true; bud(n).init = true; n.army = Math.max(1, econ(n).armyTarget || 1); /* a settled people with chiefs, trades and warriors of its own */
   n.peak = popOf(n); n.ancCap = n.peak * 1.25; /* their homeland is already full: room for a little more, not for doubling */
   return n; }
@@ -2341,6 +2342,7 @@ function stepAncient(n) {
 function ancStage(n, c, st) {
   const p = popOf(n), weak = p < .6 * (n.peak || p), [cx, cy, R] = n.ancC;
   if (st.learn) for (const t of st.learn) if (!has(n, t)) n.techs.push(t);
+  if (st.era != null && n.era < st.era) n.era = st.era; if (st.gov) n.gov = st.gov;
   if (st.k === "learn") return;
   if (st.k === "strain") {
     const luck = .4 + 1.2 * rnd(), led = n.aiSkill < .8 ? 1.25 : 1; /* how hard it really hits is never certain */
@@ -2562,6 +2564,8 @@ function processNation(n) {
   n.famine = sr < 0;
   // construction
   for (const ri of pres(n)) { const k = consOf(n.id, ri); if (k) { B(n.id, ri)[k] = 1; setCons(n.id, ri, null); if (!n.ai) log(`${BK[k].name} completed in ${W.regions[ri].n}.`, BK[k].icon); } }
+  if (n.anc) n.sciPts = 0; /* the old cultures follow their own history: what they know comes with it */
+  else {
   // research
   n.sciPts += E.sci * TD * (1 + (curDom(n) && aliveThinkers(n).some(t => t.d === curDom(n)) ? .25 : 0)); /* a great mind speeds research in their field */
   if (!resOpen(n)) elderTalks(n);
@@ -2602,6 +2606,7 @@ function processNation(n) {
     n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
     if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
     else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
+  }
   }
   // politics
   n.facMods.forEach(m => m.t -= TD); n.facMods = n.facMods.filter(m => m.t > 0);
@@ -2936,15 +2941,15 @@ function aiTurn(n) {
   const E = econ(n), sets = setsOf(n);
   const wars = warsOf(n), short = scarcity(n);
   if (seekMerge(n)) return;
-  // laws & government
-  if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
+  // laws & government (the old cultures keep their own ways)
+  if (!n.anc) { if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
   if (has(n, "currency") && n.pers === "trader") n.laws.trade = "free";
   if (has(n, "steam")) n.laws.labor = n.stab < 45 ? "rights" : "unreg";
   if (has(n, "printing") && !n.laws.press) n.laws.press = "cens";
   if (n.pers === "aggressive" && has(n, "bronze")) n.laws.focus = "mil";
   else if (n.pers === "builder" && has(n, "guilds")) n.laws.focus = "ind";
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
-  else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
+  else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal"; }
   if (tribal(n)) { const P0 = prodState(n);
     if (rnd() < n.aiSkill) for (const x of setsOf(n)) { if ((G.turn + x.id) % 2) continue; /* each village plans every other season */ sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 2.4 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
      if (qd > cap * .5) continue; /* plenty still queued */
@@ -2971,13 +2976,13 @@ function aiTurn(n) {
     const wl = n.era >= 5 ? 2 : n.era >= 3 ? 1 : 0; B0.inc = Math.min(wl, welfareMax(n, "inc")); B0.health = Math.min(wl + (n.era >= 6 ? 1 : 0), welfareMax(n, "health"));
     if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); }
     { const gap = welfareGap(n, "inc") + welfareGap(n, "health"); if (gap > .1) B0.prop = clamp(Math.round(gap * (n.pers === "zealot" || n.pers === "aggressive" ? 8 : 4) * (1 + eduOf(n) / 25)), 0, 40); } }
-  if (!(n.govCool > 0) && n.stab > 40) {
+  if (!n.anc && !(n.govCool > 0) && n.stab > 40) {
     const pref = { aggressive: ["party", "empire", "monarchy", "chiefdom"], builder: ["technocracy", "democracy", "empire", "monarchy", "chiefdom"], trader: ["democracy", "republic", "monarchy", "chiefdom"], zealot: ["theocracy", "monarchy", "chiefdom"] }[n.pers];
     const g = pref.find(g => has(n, GOVS[g].tech));
     if (g && g !== n.gov) { n.gov = g; n.anarchy = 1; n.govCool = 15; }
   }
   // grow: upgrades first, then new villages
-  for (const s of sets.filter(s => s.t === 1)) if (cityCheck(n, s).ok) upgrade(n, s);
+  if (!n.anc) for (const s of sets.filter(s => s.t === 1)) if (cityCheck(n, s).ok) upgrade(n, s);
   const byRegion = {};
   for (const s of sets) if (s.t === 0) (byRegion[s.r] || (byRegion[s.r] = [])).push(s);
   for (const ri in byRegion) { const v = byRegion[ri].sort((a, b) => b.pop - a.pop)[0]; if (v && townCheck(n, v).ok) upgrade(n, v); }
@@ -3034,9 +3039,9 @@ function aiTurn(n) {
   if (!resOpen(n)) return;
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
-  for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
+  if (!n.anc) for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
   let builds = 0;
-  for (let tries = 0; tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
+  for (let tries = 0; !n.anc && tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
     const opts = Object.values(FIELDS).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX);
     if (!opts.length) break;
     const score = f => { const c = fieldCost(n, f); return c.g * (prefC.includes(f.chain.k) ? .6 : 1) * (f.chain.k === "space" ? .3 : 1) * (1 + rnd() * .3); };

@@ -145,5 +145,10 @@ Results of a 400-year test (3600 to 3200 BCE):
   - spreads (Yamnaya across the steppe, Dapenkeng to the islands, new Indus cities)
   - how hard a squeeze hits is rolled, and breakups and endings are chances (likelier if already weakened), so cultures usually go the way they really did, and sometimes hold together or linger on
 - A culture that drops below 15% of its peak falls apart and scatters.
+- **They don't play by the normal rules.** They don't research, hold elder talks, develop fields, change laws or government, upgrade towns, drift in their customs or switch faiths. What they know, their age and their government come only from their history:
+  - starting governments: Uruk a temple state (theocracy); the farming cultures chiefdoms; the foragers tribal councils
+  - Bronze Age at the real time: Maykop from the start; Uruk 3300 (writing); Yamnaya 3300; Egypt 3150 and Elam 3100 (kingdoms, writing); Indus 2600; Oxus 2300; Mumun 1500; Yayoi 900
+  - the Sumerian city-states start as kingdoms
+- Their heirs (the peoples they break into) are ordinary peoples from then on, and play by the normal rules.
 - **Watching them:** world history records every rise and fall. You get a popup when it happens to a culture you've met, or when a regional squeeze reaches you. They're marked 🏛️ in the World tab, with a short real-history note, and labeled on the map. Successors show as "Heirs of …".
 - Speed: about 280 ms per turn at the start; about 800 ms by 3350 BCE (desktop).
