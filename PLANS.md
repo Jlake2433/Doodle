@@ -130,3 +130,20 @@ Results of a 400-year test (3600 to 3200 BCE):
 - 264 of 2,000 tribes collapsed (13%), most of them early.
 - No wars: tribes keep their villages close together, so after 400 years neighbors are still about 7.5 units apart and their lands don't touch. There's no scarcity yet.
 - No merges: no pair of peoples gets above +16 relations (see the open question above).
+
+## Ancient cultures (built)
+
+- 23 real cultures start in their real homelands in 3600 BCE, at their real size: people ÷ 4 = families, rolled inside the historical range. Khvalynsk is left out because it was already gone. AI only.
+- Their real big sites are towns and cities (Uruk is a city); the rest of their people live in towns and villages across the homeland. Ordinary tribes don't start inside their homelands, and they keep clear of your start.
+- They start as settled peoples with chiefs and warriors, and with their real know-how: farmers know the whole Stone Age; foragers (Botai, Jōmon, Jeulmun, Chinchorro, Dapenkeng) lack farming and a few other things; Maykop knows bronze; Uruk gains the wheel (3500) and writing (3300).
+- **They hold their homeland:** the land is already full, with room for about 25% more people. They don't found villages beyond it until history frees them (a rise, a spread or a unification lifts the limit by half). Their heirs inherit a full land too. Ordinary tribes are unaffected.
+- **Real pressures, real timing.** Each culture has its real history as stages at the real dates:
+  - long squeezes (drought, cooling, worn-out land, lost trade, plague) shrink the homeland's capacity and hit everyone living in that region, you included
+  - breakups into named successor peoples: each settlement goes with the successor whose heartland is nearest, and some people flee as refugees in several directions
+  - changes into what came next (Daxi → Qujialing, Susa → Proto-Elamite state, Amri → Indus civilization)
+  - Upper Egypt's war to rule the whole Nile (3250), then the Kingdom of Egypt (3150): this can reach you if you start in Lower Egypt
+  - spreads (Yamnaya across the steppe, Dapenkeng to the islands, new Indus cities)
+  - how hard a squeeze hits is rolled, and breakups and endings are chances (likelier if already weakened), so cultures usually go the way they really did, and sometimes hold together or linger on
+- A culture that drops below 15% of its peak falls apart and scatters.
+- **Watching them:** world history records every rise and fall. You get a popup when it happens to a culture you've met, or when a regional squeeze reaches you. They're marked 🏛️ in the World tab, with a short real-history note, and labeled on the map. Successors show as "Heirs of …".
+- Speed: about 280 ms per turn at the start; about 800 ms by 3350 BCE (desktop).

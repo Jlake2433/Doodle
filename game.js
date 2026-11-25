@@ -849,7 +849,7 @@ function pres(n) { const p = new Set(); for (const s of setsOf(n)) p.add(s.r); r
 const terrCount = n => G.regions.reduce((a, r) => a + (r.ctrl === n.id ? 1 : 0), 0);
 const territories = n => G.regions.filter(r => r.ctrl === n.id);
 const rankOf = n => rankIdx(terrCount(n));
-const nm = n => RANKS[rankOf(n)].t(n.name);
+const nm = n => n.title || RANKS[rankOf(n)].t(n.name); /* ancient cultures and their heirs keep their own names */
 const sizeOf = n => setsOf(n).reduce((a, s) => a + TIERS[s.t].admin, 0);
 const townsOf = n => setsOf(n).filter(s => s.t >= 1).length;
 function B(nid, ri) { const r = G.bld[ri] || (G.bld[ri] = {}); return r[nid] || (r[nid] = {}); }
@@ -933,8 +933,10 @@ function nearSets(x, y, r) {
 }
 function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false, at = null) {
   const nn = G.nations[nid];
+  if (nn && from && !at && nn.ancCap && turnCache("ap" + nn.id, () => popOf(nn)) >= nn.ancCap * .97) return null; /* and once its land is full, no one leaves to found new villages */
   const pt = at ? [at.x, at.y] : from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
+  if (nn && nn.anc && !nn.ancFree && from && pt && Math.hypot(pt[0] - nn.ancC[0], pt[1] - nn.ancC[1]) > nn.ancC[2] + 2) return null; /* an ancient culture keeps to its homeland */
   const [x, y] = pt || [W.regions[ri].lx, W.regions[ri].ly];
   const s = { id: G.sid++, o: nid, r: ri, t: tier, pop, b: { hut: Math.ceil(pop * (!from && (G.turn || 0) < 2 ? 1.2 : 1)) }, pq: [], qp: 0, name: name || nameFor(G.nations[nid], "place"), x, y, c: nid, u: 0, q: 0, f: G.turn, h: .05, hp: 1 };
   if (from && nid === G.player && G.fog) { // the settlers know the way they walked
@@ -1063,6 +1065,9 @@ function newGame(opts) {
     }
     for (const sp of spots) { addTribe(sp.r); const t = G.sets[G.sets.length - 1]; t.x = sp.x; t.y = sp.y; t.r = sp.r; }
   }
+  // the real cultures of the time, in their homelands; they keep clear of you and your first neighbors
+  { const avoid = G.sets.map(s => [s.x, s.y, s.o === 0 ? 9 : 4]); for (const c of ANCIENT) placeAncient(c, avoid); }
+  const ancZones = G.nations.filter(o => o.anc).map(o => o.ancC);
   // the rest of the world: thousands of peoples, thickest on rich land, thin in deserts, tundra and mountains
   { const pts = G.sets.map(s => [s.x, s.y]), cell = 6, occ = new Map(), key = (x, y) => (x / cell | 0) + "," + (y / cell | 0);
     for (const q of pts) (occ.get(key(q[0], q[1])) || occ.set(key(q[0], q[1]), []).get(key(q[0], q[1]))).push(q);
@@ -1072,7 +1077,7 @@ function newGame(opts) {
       const reg = W.regions.find(S => x > S.bb[0] && x < S.bb[2] && y > S.bb[1] && y < S.bb[3] && sampler.isPointInPath(S.path, x, y, "evenodd"));
       if (!reg) continue;
       const f = TER[reg.t].food / 1.5; if (rnd() > f * f) continue;
-      if (near(x, y)) continue;
+      if (near(x, y) || ancZones.some(([ax, ay, aR]) => Math.hypot(ax - x, ay - y) < aR + 3)) continue;
       addTribe(reg.i, { x, y }); const q = [x, y]; (occ.get(key(x, y)) || occ.set(key(x, y), []).get(key(x, y))).push(q);
     }
   }
@@ -2148,11 +2153,256 @@ function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
   if (!n.ai && lost >= .5) alertLoss(n, Math.round(lost), HARD[k].icon, HARD[k].name, `${HARD[k].name} took ${Math.max(1, Math.round(lost))} famil${Math.round(lost) === 1 ? "y" : "ies"} this season. ${HARD[k].help}`);
   if (--n.hard.left <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
-function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
-  /* the survivors split up and head off in different directions, each band to the people it finds that way */
+// ================= ANCIENT CULTURES =================
+/* real peoples of the time, placed in their homelands at their real size (people ÷ 4 = families).
+   They don't expand like ordinary tribes: they hold their land until the pressures history threw at them arrive, at the real time.
+   Each pressure is real, but how hard it hits is rolled, so a culture usually goes the way it really did, and sometimes doesn't.
+   stages: strain (a long squeeze on the whole region), test (break apart into successor peoples, likelier if weakened),
+   become (change into what came next), unify (go to war to rule a land), spread (settle new land), abandon (give up far colonies),
+   end (fall apart and scatter), learn (new know-how) */
+const llXY = (lat, lon) => [W.w / 2 + lon * W.w / 360 * (1 - 3.368e-5 * lat * lat - 3.887e-9 * lat ** 4), 521.5 - 6.55 * lat]; /* the map narrows toward the poles (fitted to the map's own territories) */
+const FORAGER_SKIP = ["agriculture", "mining", "nation", "trade", "calendar", "counting", "brewing", "wattle"];
+const ANCIENT = [
+  { k: "cucuteni", name: "Cucuteni–Trypillia", title: "Cucuteni–Trypillia culture", people: "Trypillians", lat: 48.6, lon: 29.3, R: 22, pop: [200000, 500000], color: "#c2703d",
+    note: "Farmers of the forest-steppe who built the largest towns on Earth: planned rings of hundreds of houses, burned down and rebuilt every few generations.",
+    sites: [["Talianki", 48.80, 30.50, 1], ["Maidanetske", 48.82, 30.63, 1], ["Nebelivka", 48.63, 30.55, 1], ["Cucuteni", 47.28, 26.93, 1], ["Trypillia", 50.12, 30.78, 1]],
+    stages: [{ y: -3600, k: "strain", yrs: 400, loss: .3, why: "The soil is worn out and the forests are cut back, and the climate turns cooler and drier." },
+      { y: -3400, k: "strain", yrs: 400, loss: .3, why: "Herders from the steppe push into the edges of the land." },
+      { y: -3100, k: "test", p: .45, why: "The great towns empty out.", into: [["Usatovo", 46.5, 30.6], ["Gorodsk", 50.3, 28.5], ["Sofievka", 50.4, 30.5]] },
+      { y: -2750, k: "test", p: .95, why: "The last of the old towns are abandoned.", into: [["Usatovo", 46.5, 30.6], ["Gorodsk", 50.3, 28.5]] }] },
+  { k: "sredny", name: "Sredny Stog", title: "Sredny Stog culture", people: "Sredny Stog people", lat: 48.2, lon: 35.0, R: 14, pop: [10000, 40000], color: "#b89a5a",
+    note: "Herders of the Dnieper steppe, among the first anywhere to keep horses.",
+    sites: [["Dereivka", 48.97, 33.83, 0], ["Sredny Stog", 47.85, 35.15, 0], ["Oleksandriya", 48.6, 36.6, 0]],
+    stages: [{ y: -3500, k: "become", name: "Repin", title: "Repin culture", people: "Repin people", why: "New herding ways spread along the rivers of the steppe." },
+      { y: -3300, k: "become", name: "Yamnaya", title: "Yamnaya herders", people: "Yamnaya", free: true, war: true, pers: "aggressive", why: "Herders with ox wagons and horses take to the open steppe." },
+      { y: -3250, k: "spread", why: "Yamnaya herders spread west toward the Danube and east to the Volga.", to: [[47.0, 30.5, 5], [49.5, 46.0, 5], [46.5, 40.0, 4]] }] },
+  { k: "maykop", name: "Maykop", title: "Maykop culture", people: "Maykop people", lat: 44.4, lon: 40.3, R: 10, pop: [10000, 40000], color: "#a8844a", techs: ["bronze"],
+    note: "Chiefs of the North Caucasus buried in great mounds with gold, silver and bronze, rich from trading metal with the south.",
+    sites: [["Maykop", 44.61, 40.10, 1], ["Meshoko", 44.43, 40.08, 0], ["Klady", 44.35, 40.2, 0]],
+    stages: [{ y: -3100, k: "strain", yrs: 150, loss: .35, why: "The metal trade with the south dries up as the Uruk world falls apart." },
+      { y: -2950, k: "test", p: .6, why: "The old chiefdoms break up.", into: [["Novosvobodnaya", 44.3, 39.6], ["North Caucasian", 43.7, 42.8]] }] },
+  { k: "trb", name: "Funnelbeaker", title: "Funnelbeaker culture", people: "Funnelbeaker people", lat: 54.0, lon: 11.5, R: 30, pop: [100000, 300000], color: "#7d8f5a",
+    note: "Farmers of the northern plains who raised great stone tombs and ditched enclosures, from the Netherlands to Poland and southern Sweden.",
+    sites: [["Sarup", 55.08, 10.10, 1], ["Flintbek", 54.25, 10.07, 1], ["Albersdorf", 54.15, 9.30, 0], ["Dölauer Heide", 51.5, 11.9, 1]],
+    stages: [{ y: -3000, k: "strain", yrs: 200, loss: .35, why: "A sickness spreads from village to village, and herders from the east move onto the land." },
+      { y: -2800, k: "test", p: .7, why: "The old farming communities give way.", into: [["Corded Ware", 51.5, 12.0], ["Globular Amphora", 52.5, 18.0], ["Single Grave", 56.0, 9.0]] }] },
+  { k: "michelsberg", name: "Michelsberg", title: "Michelsberg culture", people: "Michelsberg people", lat: 50.2, lon: 7.6, R: 14, pop: [30000, 100000], color: "#8c7a5b",
+    note: "Farmers of the Rhine who built great ditched enclosures on hilltops.",
+    sites: [["Michelsberg", 49.08, 8.55, 1], ["Mayen", 50.33, 7.22, 0], ["Urmitz", 50.41, 7.52, 1]],
+    stages: [{ y: -3600, k: "strain", yrs: 100, loss: .15, why: "The hilltop enclosures fall out of use." },
+      { y: -3500, k: "test", p: .9, why: "The Michelsberg way of life breaks up into regional cultures.", into: [["Wartberg", 51.2, 9.3], ["Seine-Oise-Marne", 49.4, 3.5]] }] },
+  { k: "chasseen", name: "Chasséen", title: "Chasséen culture", people: "Chasséens", lat: 46.0, lon: 2.5, R: 22, pop: [50000, 150000], color: "#9b8565",
+    note: "Farmers across much of France, linked by trade in fine flint and polished stone axes.",
+    sites: [["Chassey-le-Camp", 46.88, 4.72, 1], ["Villeneuve-Tolosane", 43.52, 1.34, 1], ["Bercy", 48.84, 2.38, 0]],
+    stages: [{ y: -3600, k: "strain", yrs: 100, loss: .15, why: "The old exchange networks break down." },
+      { y: -3500, k: "test", p: .9, why: "The Chasséen world breaks up into regional cultures.", into: [["Peu-Richard", 45.7, -0.9], ["Ferrières", 43.8, 3.9], ["Horgen", 47.3, 7.5]] }] },
+  { k: "cernavoda", name: "Cernavodă", title: "Cernavodă culture", people: "Cernavodă people", lat: 44.3, lon: 27.8, R: 10, pop: [10000, 40000], color: "#a07a5a",
+    note: "People of the lower Danube whose ways mixed old farming traditions with those of newcomers from the steppe.",
+    sites: [["Cernavodă", 44.34, 28.03, 1], ["Hârșova", 44.69, 27.95, 0]],
+    stages: [{ y: -3200, k: "test", p: .8, why: "Newcomers mix in, and the lower Danube splits into new peoples.", into: [["Coțofeni", 45.0, 24.0], ["Ezero", 42.5, 25.5]] }] },
+  { k: "botai", name: "Botai", title: "Botai culture", people: "Botai people", lat: 53.2, lon: 67.6, R: 10, pop: [5000, 20000], color: "#c0a060", forager: true, keep: ["husbandry"],
+    note: "Hunters and herders of the northern Kazakh steppe whose lives revolved around the horse; they may have been among the first to ride.",
+    sites: [["Botai", 53.18, 67.65, 0], ["Krasnyi Yar", 53.3, 69.0, 0]],
+    stages: [{ y: -3200, k: "strain", yrs: 100, loss: .3, why: "The wild horse herds thin out." },
+      { y: -3100, k: "end", p: .8, why: "The Botai way of life comes to an end." }] },
+  { k: "anau", name: "Anau", title: "Anau culture", people: "Anau people", lat: 37.6, lon: 59.2, R: 11, pop: [10000, 40000], color: "#b5784f",
+    note: "Oasis farmers of the Kopet Dag foothills, with painted pottery, copper and mud-brick villages.",
+    sites: [["Anau", 37.89, 58.53, 1], ["Namazga-Tepe", 37.45, 59.98, 1], ["Altyn-Depe", 37.0, 60.27, 0]],
+    stages: [{ y: -3300, k: "become", name: "Namazga", title: "Namazga culture", people: "Namazga people", why: "The oasis villages grow into towns." },
+      { y: -2300, k: "become", name: "Oxus", title: "Oxus civilization", people: "Oxus people", free: true, rise: true, why: "Great walled oasis towns rise along the rivers of Central Asia." }] },
+  { k: "jomon", name: "Jōmon", title: "Jōmon culture", people: "Jōmon people", lat: 37.0, lon: 139.0, R: 30, pop: [50000, 150000], color: "#8f6c4e", forager: true,
+    note: "Foragers of the Japanese islands who made some of the world's oldest pottery and lived in large villages without farming.",
+    sites: [["Sannai-Maruyama", 40.81, 140.70, 1], ["Kasori", 35.62, 140.16, 1], ["Torihama", 35.55, 135.86, 0]],
+    stages: [{ y: -2500, k: "strain", yrs: 1000, loss: .6, why: "The climate cools; nuts, fish and game grow scarce." },
+      { y: -900, k: "become", name: "Yayoi", title: "Yayoi culture", people: "Yayoi people", learn: ["agriculture"], why: "Rice farmers arrive from across the sea and mix with the old people of the islands." }] },
+  { k: "jeulmun", name: "Jeulmun", title: "Jeulmun culture", people: "Jeulmun people", lat: 36.6, lon: 127.6, R: 14, pop: [10000, 50000], color: "#7f7a5a", forager: true,
+    note: "Foragers and early millet farmers of Korea, named for their comb-patterned pottery.",
+    sites: [["Amsa-dong", 37.56, 127.13, 0], ["Osan-ri", 38.05, 128.65, 0], ["Dongsam-dong", 35.08, 129.07, 0]],
+    stages: [{ y: -1500, k: "become", name: "Mumun", title: "Mumun culture", people: "Mumun people", learn: ["agriculture"], why: "Farming villages with rice and millet fields take over the peninsula." }] },
+  { k: "chinchorro", name: "Chinchorro", title: "Chinchorro culture", people: "Chinchorro people", lat: -19.0, lon: -70.2, R: 6, pop: [2000, 10000], color: "#9a6f6f", forager: true, skip: ["pottery"],
+    note: "Fishers of the Atacama coast, the driest desert on Earth, who made the world's oldest mummies.",
+    sites: [["Arica", -18.48, -70.32, 0], ["Camarones", -19.2, -70.27, 0]],
+    stages: [{ y: -1500, k: "end", p: .9, why: "The old fishing peoples of the coast fade into newcomers from the highlands." }] },
+  { k: "valdivia", name: "Valdivia", title: "Valdivia culture", people: "Valdivia people", lat: -2.0, lon: -80.4, R: 6, pop: [5000, 20000], color: "#8a8a55",
+    note: "Early farming villages on the coast of Ecuador, among the first in the Americas to make pottery.",
+    sites: [["Real Alto", -2.38, -80.72, 0], ["Valdivia", -1.94, -80.78, 0], ["Loma Alta", -1.8, -80.5, 0]],
+    stages: [{ y: -1800, k: "become", name: "Machalilla", title: "Machalilla culture", people: "Machalilla people", why: "New ways of living spread along the coast." }] },
+  { k: "uruk", name: "Uruk", title: "Uruk culture", people: "Sumerians", lat: 31.5, lon: 45.8, R: 12, pop: [100000, 300000], color: "#c9a24a",
+    note: "The world's first cities: temples, officials and colonies far up the rivers, all run from the great city of Uruk.",
+    sites: [["Uruk", 31.32, 45.64, 2], ["Eridu", 30.82, 45.99, 1], ["Ur", 30.96, 46.10, 1], ["Nippur", 32.13, 45.23, 1], ["Habuba Kabira", 36.12, 38.08, 1], ["Tell Brak", 36.67, 41.06, 1]],
+    stages: [{ y: -3500, k: "learn", learn: ["wheel"] }, { y: -3300, k: "learn", learn: ["writing"] },
+      { y: -3200, k: "strain", yrs: 100, loss: .3, why: "The rains fail and the rivers shrink; the far-off colonies can't be held." },
+      { y: -3100, k: "abandon", why: "Uruk's far-off colonies up the rivers are abandoned." },
+      { y: -3100, k: "become", name: "Jemdet Nasr", title: "Jemdet Nasr culture", people: "Sumerians", why: "A poorer, smaller world takes the place of Uruk's." },
+      { y: -2900, k: "test", p: .85, rise: true, why: "Sumer splits into rival city-states, each with its own king.", into: [["Uruk", 31.32, 45.64, "city of Uruk"], ["Ur", 30.96, 46.10, "city of Ur"], ["Lagash", 31.41, 46.41, "city of Lagash"], ["Kish", 32.55, 44.60, "city of Kish"], ["Nippur", 32.13, 45.23, "city of Nippur"]] }] },
+  { k: "naqada", name: "Naqada", title: "Naqada culture", people: "Egyptians", lat: 25.8, lon: 32.7, R: 12, pop: [200000, 500000], color: "#d0a050",
+    note: "Chiefdoms strung along the Nile in Upper Egypt, rivals for trade, prestige and the river's floods.",
+    sites: [["Hierakonpolis", 25.10, 32.78, 1], ["Naqada", 25.90, 32.72, 1], ["Abydos", 26.18, 31.92, 1], ["Elephantine", 24.09, 32.89, 0]],
+    stages: [{ y: -3250, k: "unify", R: 40, why: "The chiefs of Upper Egypt set out to rule the whole river." },
+      { y: -3150, k: "become", name: "Egypt", title: "Kingdom of Egypt", people: "Egyptians", free: true, rise: true, why: "Upper and Lower Egypt are united under one king." }] },
+  { k: "susa", name: "Susa", title: "Susa culture", people: "Susians", lat: 32.2, lon: 48.4, R: 8, pop: [30000, 100000], color: "#b0905a",
+    note: "Susa and the plain of Khuzestan, closely tied to the cities of Uruk.",
+    sites: [["Susa", 32.19, 48.25, 1], ["Chogha Mish", 32.22, 48.55, 1]],
+    stages: [{ y: -3100, k: "become", name: "Elam", title: "Proto-Elamite state", people: "Elamites", free: true, rise: true, learn: ["writing"], why: "Susa breaks away from the failing Uruk world and builds a state with a writing of its own." }] },
+  { k: "mehrgarh", name: "Mehrgarh", title: "Mehrgarh culture", people: "Mehrgarh people", lat: 29.6, lon: 67.4, R: 10, pop: [20000, 80000], color: "#a8704a",
+    note: "One of the oldest farming centers in South Asia, at the foot of the Bolan Pass.",
+    sites: [["Mehrgarh", 29.39, 67.62, 1], ["Kili Ghul Muhammad", 30.2, 67.0, 0]],
+    stages: [{ y: -2600, k: "end", p: .9, why: "People leave the old villages at the foot of the hills for the new cities on the Indus plain." }] },
+  { k: "amri", name: "Amri", title: "Amri culture", people: "Amri people", lat: 26.4, lon: 68.2, R: 10, pop: [10000, 50000], color: "#b07a40",
+    note: "Early towns of Sindh on the lower Indus, with mud-brick walls and painted pottery.",
+    sites: [["Amri", 26.15, 68.00, 1], ["Kot Diji", 27.34, 68.71, 1]],
+    stages: [{ y: -3000, k: "become", name: "Early Harappan", title: "Early Harappan culture", people: "Harappans", free: true, why: "Towns spread across the Indus plain." },
+      { y: -2600, k: "become", name: "Harappa", title: "Indus civilization", people: "Harappans", rise: true, why: "Great planned cities with drains, granaries and seals rise along the Indus." },
+      { y: -2600, k: "spread", why: "New cities rise at Harappa, Mohenjo-daro and Dholavira.", to: [[30.63, 72.86, 3, "Harappa"], [27.32, 68.14, 3, "Mohenjo-daro"], [23.89, 70.21, 2, "Dholavira"]] }] },
+  { k: "yangshao", name: "Yangshao", title: "Yangshao culture", people: "Yangshao people", lat: 34.6, lon: 109.5, R: 26, pop: [200000, 500000], color: "#b8643c",
+    note: "Millet farmers of the Yellow River valley, with painted pottery and large planned villages.",
+    sites: [["Banpo", 34.27, 109.05, 1], ["Jiangzhai", 34.4, 109.25, 1], ["Miaodigou", 34.8, 111.2, 1], ["Dadiwan", 35.0, 105.9, 1]],
+    stages: [{ y: -3100, k: "strain", yrs: 200, loss: .3, why: "The climate cools and dries." },
+      { y: -3000, k: "test", p: .7, why: "The Yangshao world splits apart.", into: [["Longshan", 35.0, 113.0], ["Majiayao", 35.5, 103.5]] }] },
+  { k: "dawenkou", name: "Dawenkou", title: "Dawenkou culture", people: "Dawenkou people", lat: 35.9, lon: 117.8, R: 13, pop: [50000, 150000], color: "#9a6a48",
+    note: "Farmers of Shandong whose richest graves were filled with jade, ivory and fine pottery.",
+    sites: [["Dawenkou", 35.94, 117.10, 1], ["Wangyin", 35.6, 116.5, 0], ["Dazhujia", 35.9, 119.0, 0]],
+    stages: [{ y: -2600, k: "become", name: "Shandong Longshan", title: "Shandong Longshan culture", people: "Longshan people", rise: true, why: "Walled towns and black eggshell pottery: a richer, more unequal world." }] },
+  { k: "hongshan", name: "Hongshan", title: "Hongshan culture", people: "Hongshan people", lat: 41.9, lon: 119.6, R: 13, pop: [30000, 100000], color: "#8a6f8a",
+    note: "Farmers of the northeast who carved jade dragons and built the stone temples and altars of Niuheliang.",
+    sites: [["Niuheliang", 41.33, 119.53, 1], ["Hongshanhou", 42.28, 118.97, 0], ["Dongshanzui", 41.0, 120.1, 0]],
+    stages: [{ y: -3100, k: "strain", yrs: 200, loss: .45, why: "The land dries out and the sands spread." },
+      { y: -2900, k: "end", p: .75, why: "The Hongshan world falls apart." }] },
+  { k: "daxi", name: "Daxi", title: "Daxi culture", people: "Daxi people", lat: 30.3, lon: 111.5, R: 12, pop: [30000, 100000], color: "#6f8a5a",
+    note: "Rice farmers of the middle Yangtze.",
+    sites: [["Chengtoushan", 29.69, 111.66, 1], ["Daxi", 31.07, 109.8, 0], ["Guanmiaoshan", 30.3, 111.5, 0]],
+    stages: [{ y: -3300, k: "become", name: "Qujialing", title: "Qujialing culture", people: "Qujialing people", rise: true, why: "Walled towns rise along the middle Yangtze." }] },
+  { k: "dapenkeng", name: "Dapenkeng", title: "Dapenkeng culture", people: "Dapenkeng people", lat: 23.8, lon: 120.9, R: 6, pop: [5000, 20000], color: "#5a8a8a", forager: true, keep: ["pottery"],
+    note: "Coastal villagers of Taiwan, ancestors of the Austronesian peoples who would one day settle islands across half the world's oceans.",
+    sites: [["Dapenkeng", 25.18, 121.64, 0], ["Fengbitou", 22.6, 120.4, 0]],
+    stages: [{ y: -2200, k: "spread", free: true, rise: true, why: "They take to the sea and settle the islands to the south.", to: [[17.6, 121.7, 5, "Nagsabaran"]] }] },
+];
+const ANC = Object.fromEntries(ANCIENT.map(c => [c.k, c]));
+const regAt = (x, y) => W.regions.find(S => x > S.bb[0] && x < S.bb[2] && y > S.bb[1] && y < S.bb[3] && sampler.isPointInPath(S.path, x, y, "evenodd"));
+/* a free spot of land near a point: not too close to anyone's settlement, nor to places that must stay clear */
+function landSpot(cx, cy, R, gap, avoid = [], regs = null) {
+  for (let i = 0; i < 120; i++) { const a = rnd() * Math.PI * 2, d = R * Math.sqrt(rnd()), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
+    const reg = regAt(x, y); if (!reg || (regs && !regs.has(reg.i))) continue;
+    if (avoid.some(p => Math.hypot(p[0] - x, p[1] - y) < p[2])) continue;
+    if (nearSets(x, y, gap + 1).some(o => Math.hypot(o.x - x, o.y - y) < gap)) continue;
+    return { x, y, r: reg.i }; }
+  return null; }
+function placeAncient(c, avoid) {
+  const [cx, cy] = llXY(c.lat, c.lon), fam = Math.round((c.pop[0] + rnd() * (c.pop[1] - c.pop[0])) / 4);
+  const reg0 = regAt(cx, cy) || W.regions.reduce((b, S) => Math.hypot(S.lx - cx, S.ly - cy) < Math.hypot(b.lx - cx, b.ly - cy) ? S : b);
+  const n = newNation(c.name, c.color, -1, true, "builder", c.forager ? "mixed" : "agrarian");
+  n.lang = langOfRegion(reg0.i); n.anc = c.k; n.ancC = [cx, cy, c.R]; n.title = c.title; n.people = c.people; n.noWar = true; n.ancStage = 0; n.ancStrain = [];
+  n.aiSkill = .7 + rnd() * .3; n.disp = "wary";
+  const skip = new Set([...(c.forager ? FORAGER_SKIP : []), ...(c.skip || [])].filter(t => !(c.keep || []).includes(t)));
+  n.techs = eraTechs(0).map(t => t.id).filter(t => !skip.has(t)).concat(c.techs || []);
+  /* the real sites first: the great city, then towns, then villages; the rest of the people live in towns and villages across the homeland */
+  const plan = [], small = fam < 3000;
+  let left = fam;
+  for (const [nmS, la, lo, t] of c.sites) { const tier = small ? 0 : t, p = small ? Math.min(140, Math.round(fam / (c.sites.length + 6))) : tier === 2 ? 9000 : tier === 1 ? 2600 : 140;
+    plan.push({ name: nmS, at: llXY(la, lo), t: tier, p: Math.min(p, Math.max(10, left)) }); left -= plan[plan.length - 1].p; if (left <= 0) break; }
+  if (left > 0) { let towns = small ? 0 : Math.floor(left * .85 / 2600), rest = left - towns * 2600; const vil = Math.max(0, Math.min(40, Math.ceil(rest / 140)));
+    if (!small && rest > vil * 140) { const more = Math.ceil((rest - vil * 140) / 2600); towns += more; rest -= more * 2600; } /* villages stay village-sized; the rest live in towns */
+    const tp = towns ? Math.round((left - Math.max(0, rest)) / towns) : 0;
+    for (let i = 0; i < towns; i++) plan.push({ t: 1, p: Math.min(2900, tp) });
+    for (let i = 0; i < vil; i++) plan.push({ t: 0, p: Math.max(10, Math.min(140, Math.round(Math.max(0, rest) / vil))) }); }
+  const home = new Set([reg0.i, ...c.sites.map(([, la, lo]) => { const [x, y] = llXY(la, lo), r = regAt(x, y); return r ? r.i : -1; }).filter(i => i >= 0)]); /* their own lands, not across the sea */
+  for (const q of plan) {
+    let sp = null;
+    if (q.at && regAt(q.at[0], q.at[1]) && !avoid.some(p => Math.hypot(p[0] - q.at[0], p[1] - q.at[1]) < p[2])) sp = { x: q.at[0], y: q.at[1], r: regAt(q.at[0], q.at[1]).i };
+    if (!sp) sp = landSpot(cx, cy, c.R, q.t ? 1.6 : 1.1, avoid, home); if (!sp) continue;
+    const s = addSettlement(n.id, sp.r, q.p, null, q.name || null, q.t, false, { x: sp.x, y: sp.y });
+    if (n.cap < 0 || q.t > (setById(n.cap) || { t: -1 }).t) n.cap = s.id; }
+  n.stateUp = true; bud(n).init = true; n.army = Math.max(1, econ(n).armyTarget || 1); /* a settled people with chiefs, trades and warriors of its own */
+  n.peak = popOf(n); n.ancCap = n.peak * 1.25; /* their homeland is already full: room for a little more, not for doubling */
+  return n; }
+const andList = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0] || "";
+/* births and deaths balance once a people's land is full */
+function capHome(n) { const p1 = popOf(n); if (n.ancCap && p1 > n.ancCap) { const f = n.ancCap / p1; for (const x of setsOf(n)) x.pop *= f; } }
+/* history's pressures on an ancient culture, at their real dates */
+function ancTell(n, icon, title, text, cat = "fall") {
+  whist(icon, text, cat, [n.id]);
+  const me = G.nations[G.player], c = n.ancC;
+  const near = me && c && setsOf(me).some(s => Math.hypot(s.x - c[0], s.y - c[1]) < c[2] + 6);
+  if (me && me.alive && (dipR(me.id, n.id).met || near)) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text });
+}
+function stepAncient(n) {
+  if (!n.alive || !n.anc) return;
+  const c = ANC[n.anc], p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0);
+  if (p0 < .15 * n.peak || !setsOf(n).length) { collapseTribe(n, "Too few were left to hold it together."); return; }
+  /* long squeezes: drought, cooling, worn-out land, a lost trade. They hit everyone living in the region */
+  n.ancStrain = (n.ancStrain || []).filter(st => G.year < st.until);
+  for (const st of n.ancStrain) { const f = st.rate / TPY, [cx, cy, R] = n.ancC;
+    for (const x of setsOf(n)) x.pop = Math.max(2, x.pop * (1 - f));
+    if (n.ancCap) n.ancCap *= 1 - f; /* worn-out land, a lost trade, a drier climate: the homeland holds fewer people from now on */
+    for (const x of nearSets(cx, cy, R)) if (x.o !== n.id && Math.hypot(x.x - cx, x.y - cy) < R) x.pop = Math.max(2, x.pop * (1 - f)); }
+  capHome(n);
+  while (n.alive && n.ancStage < c.stages.length && c.stages[n.ancStage].y <= G.year) { const st = c.stages[n.ancStage++]; ancStage(n, c, st); }
+}
+function ancStage(n, c, st) {
+  const p = popOf(n), weak = p < .6 * (n.peak || p), [cx, cy, R] = n.ancC;
+  if (st.learn) for (const t of st.learn) if (!has(n, t)) n.techs.push(t);
+  if (st.k === "learn") return;
+  if (st.k === "strain") {
+    const luck = .4 + 1.2 * rnd(), led = n.aiSkill < .8 ? 1.25 : 1; /* how hard it really hits is never certain */
+    n.ancStrain.push({ until: G.year + st.yrs, rate: st.loss / st.yrs * luck * led, why: st.why });
+    ancTell(n, "🌵", `Hard times for the ${nm(n)}`, `${st.why} The ${nm(n)} and everyone living near them are feeling it.`, "event");
+    const me = G.nations[G.player]; if (me && setsOf(me).some(s => Math.hypot(s.x - cx, s.y - cy) < R)) hist(me, "🌵", st.why);
+    return; }
+  if (st.k === "test") { const pr0 = weak ? Math.max(st.p, .9) : st.p;
+    if (rnd() < pr0) splitAncient(n, st);
+    else ancTell(n, "🏛️", `The ${nm(n)} hold together`, `${st.why.replace(/\.$/, "")}, or so it seemed; but against the odds the ${nm(n)} held together.`);
+    return; }
+  if (st.k === "become") {
+    if (p < .3 * (n.peak || p)) { ancTell(n, "🏛️", `The ${nm(n)} linger on`, `Elsewhere a new age was dawning, but the weakened ${nm(n)} carried on in the old ways.`); return; }
+    const old = nm(n); n.name = st.name; n.title = st.title || st.name; if (st.people) n.people = st.people;
+    if (st.free) n.ancFree = true; if (st.war) n.noWar = false; if (st.pers) n.pers = st.pers;
+    if (st.rise || st.free) n.ancCap = Math.max(n.ancCap || 0, popOf(n) * 1.5); /* a rising power has room to grow */
+    ancTell(n, st.rise ? "🌅" : "🔄", `The ${old} become the ${nm(n)}`, `${st.why} The ${old} have become the ${nm(n)}.`);
+    return; }
+  if (st.k === "unify") { n.noWar = false; n.ancFree = true; n.pers = "aggressive"; n.ancCap = Math.max(n.ancCap || 0, popOf(n) * 1.5);
+    ancTell(n, "⚔️", `The ${nm(n)} march`, st.why, "war");
+    const foes = G.nations.filter(o => o.alive && o !== n && !o.anc && setsOf(o).some(s => Math.hypot(s.x - cx, s.y - cy) < st.R)).sort((a, b) => popOf(b) - popOf(a)).slice(0, 6);
+    for (const o of foes) { const d = dip(n.id, o.id); d.met = true; if (!d.war) declareWar(n, o, st.why); }
+    return; }
+  if (st.k === "spread") { n.ancFree = true; n.ancCap = Math.max(n.ancCap || 0, popOf(n) * 1.5);
+    for (const [la, lo, k, name] of st.to) { const [tx, ty] = llXY(la, lo);
+      for (let i = 0; i < k; i++) { const sp = landSpot(tx, ty, 4, 1.2); if (!sp) continue; addSettlement(n.id, sp.r, 60, null, i === 0 ? name || null : null, 0, false, { x: sp.x, y: sp.y }); } }
+    const from = capSet(n); if (from) from.pop = Math.max(20, from.pop - 60 * st.to.reduce((a, t) => a + t[2], 0));
+    ancTell(n, "⛵", `The ${nm(n)} spread out`, st.why, st.rise ? "fall" : "event");
+    return; }
+  if (st.k === "abandon") { const cap = capSet(n); let back = 0, k = 0;
+    for (const x of setsOf(n)) if (Math.hypot(x.x - cx, x.y - cy) > R + 2 && x !== cap) { back += x.pop * .5; k++; G.sets.splice(G.sets.indexOf(x), 1); }
+    if (k) { if (cap) cap.pop += back; G.sv++; for (const ri of new Set(setsOf(n).map(x => x.r))) recomputeControl(ri); ancTell(n, "🏚️", "Colonies abandoned", st.why); }
+    return; }
+  if (st.k === "end") { if (rnd() < (weak ? Math.max(st.p, .9) : st.p)) collapseTribe(n, st.why);
+    else ancTell(n, "🏛️", `The ${nm(n)} endure`, `Others gave up the old ways, but the ${nm(n)} carried on.`); }
+}
+/* a culture breaks apart: each settlement goes with the successor whose heartland is nearest, and some of the people leave as refugees */
+function splitAncient(n, st) {
+  const ss = setsOf(n), old = nm(n), heirs = st.into.map(([name, la, lo, title]) => ({ name, title: title || `${name} culture`, at: llXY(la, lo), sets: [] }));
+  for (const x of ss) heirs.reduce((b, h) => Math.hypot(h.at[0] - x.x, h.at[1] - x.y) < Math.hypot(b.at[0] - x.x, b.at[1] - x.y) ? h : b).sets.push(x);
+  const fam = popOf(n), c0 = capSet(n) || ss[0], lost = st.rise ? .05 : .15; /* in a collapse more people flee */
+  for (const x of ss) x.pop *= 1 - lost;
+  const fled = scatterFrom(n, fam * lost * .7, c0);
+  const made = [];
+  for (const h of heirs) { if (!h.sets.length) continue;
+    const o = newNation(h.name, shade(n.color, (made.length % 2 ? -1 : 1) * (.1 + .08 * made.length)), -1, true, n.pers === "aggressive" ? "aggressive" : "builder", n.cul);
+    Object.assign(o, { lang: n.lang, title: h.title, techs: n.techs.slice(), era: n.era, cus: { ...(n.cus || {}) }, relig: n.relig, stateUp: n.stateUp, gov: n.gov, laws: { ...n.laws }, resOpen: n.resOpen,
+      aiSkill: .5 + rnd() * .5, disp: rnd() < .5 ? "wary" : "iso", heir: old, peak: 0, ancCap: 0, gold: Math.max(5, n.gold / heirs.length), mat: Math.max(5, n.mat / heirs.length) });
+    for (const x of h.sets) { x.o = o.id; x.focus = null; delete x.eth; }
+    G.sv++; /* ownership changed: refresh who owns what */
+    o.cap = h.sets.slice().sort((a, b) => b.pop - a.pop)[0].id; o.ancCap = popOf(o) * (st.rise ? 1.5 : 1.25); made.push(o); } /* heirs inherit a full land too */
+  for (const a of made) for (const b of made) if (a.id < b.id) { const d = dip(a.id, b.id); d.met = true; d.rel = -10 + Math.round(rnd() * 20); }
+  n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; }
+  G.sv++; for (const ri of new Set(ss.map(x => x.r))) recomputeControl(ri);
+  const list = made.map(o => `the ${nm(o)}`), lj = list.length > 1 ? list.slice(0, -1).join(", ") + " and " + list[list.length - 1] : list[0] || "no one";
+  ancTell(n, st.rise ? "🌅" : "💔", st.rise ? `The ${old} give way to new powers` : `The ${old} break apart`, `${st.why} The ${old} ${st.rise ? "gave way to" : "broke apart into"} ${lj}.${fled.length ? ` Many fled, some as far as ${andList(fled.slice(0, 3).map(t => `the ${nm(t.o)}`))}.` : ""}`);
+}
+/* people leaving a fallen people split up and head off in different directions, each band to the people it finds that way */
+function scatterFrom(n, left, c0) {
   const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dipR(n.id, o.id);
     return { o, c, d, a: Math.atan2(c.y - c0.y, c.x - c0.x), sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 60);
-  const left = fam * .7, k = left < 4 ? 1 : Math.max(2, Math.min(4, Math.round(left / 8))), a0 = rnd() * Math.PI * 2, w = [];
+  const k = left < 4 ? 1 : Math.max(2, Math.min(4, Math.round(left / 8))), a0 = rnd() * Math.PI * 2, w = [];
   for (let i = 0; i < k; i++) w.push(.5 + rnd());
   const wt = w.reduce((a, v) => a + v, 0), to = [];
   for (let i = 0; i < k; i++) { const dir = a0 + i * 2 * Math.PI / k, f = left * w[i] / wt;
@@ -2160,9 +2410,14 @@ function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]
     if (!best || f < 1) continue; /* no one that way: that band is lost on the road */
     best.c.pop += f; addPeople(best.o, n, f, 0, best.c); const prev = to.find(t => t.o === best.o); if (prev) prev.f += f; else to.push({ o: best.o, f });
     if (best.o.id === G.player) { const ff = Math.round(f); hist(best.o, "🧳", `${ff} famil${ff === 1 ? "y" : "ies"} of the fallen ${nm(n)} came to us as refugees.`); log(`${ff} famil${ff === 1 ? "y" : "ies"} of the fallen ${nm(n)} arrived at ${best.c.name} as refugees.`, "🧳"); } }
+  return to; }
+/* a people that dwindles away or falls apart: its villages go back to the wild and its survivors scatter */
+function collapseTribe(n, why) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
+  const to = scatterFrom(n, fam * .7, c0);
   const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
   const names = to.map(t => `the ${nm(t.o)}`), list = names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
-  whist("🍂", to.length ? `The ${nm(n)} fell apart; ${to.length > 1 ? "its survivors scattered, some to" : "its last families joined"} ${list}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to.map(t => t.o.id)));
+  const text = (why ? why + " " : "") + (to.length ? `The ${nm(n)} fell apart; ${to.length > 1 ? "its survivors scattered, some to" : "its last families joined"} ${list}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`);
+  if (n.anc) ancTell(n, "💔", `The ${nm(n)} fall apart`, text); else whist("🍂", text, "fall", [n.id].concat(to.map(t => t.o.id)));
   n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; } G.sv++; }
 function processNation(n) {
   if (!n.alive) return;
@@ -2600,7 +2855,7 @@ function scarcity(n) { return turnCache("sc" + n.id, () => {
 const MERGE_SMALL = 40, MERGE_REL = 20, MERGE_NEAR = 15; /* good relations: "Warm" or better */
 function mergeWoes(n) { const p = popOf(n); return p < .75 * (n.peak || p) || (n.hungryT || 0) >= TPY || warsOf(n).some(o => wscore(n.id, o.id) < -8); } /* real trouble: dwindling, hungry for a year, or losing a war */
 function seekMerge(n) {
-  if (!n.ai || !n.alive || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
+  if (!n.ai || !n.alive || n.anc || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
   if (n.mergeAsk != null && G.year - n.mergeAsk < 10) return false; /* asking again so soon would shame them */
   if (rnd() > .3 / TPY) return false; /* about a 30% chance a year while they struggle */
   const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return false;
@@ -3069,6 +3324,7 @@ function endTurn() {
   if (G.year > -1400) faithFounders();
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
+  for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
   driftRelations();
   growBorders();
   updateContacts(); updateExplore();
@@ -3415,6 +3671,8 @@ function drawSettlements(k, me) {
       screenText(txt, s.x, ty, k, "800 11px Nunito, system-ui, sans-serif", 3.3, "rgba(255,255,255,.9)", "#1d2a4d");
     }
   }
+  for (const s of vis) { const n = G.nations[s.o]; if (!n || !(n.anc || n.heir) || n.cap !== s.id || fogged(s.r)) continue; /* the old cultures are named on the map */
+    screenText(`${n.anc ? "🏛️ " : ""}${n.title || n.name}`, s.x, s.y - 16 / k, k, "italic 800 12px Nunito, system-ui, sans-serif", 3.5, "rgba(255,248,228,.95)", "#6b4a10"); }
 }
 function loop() { if (dirty) draw(); requestAnimationFrame(loop); }
 
@@ -4343,7 +4601,7 @@ function panelWorld() {
   const met = metOf(n).sort((a, b) => score(b) - score(a));
   if (!met.length) h += `<p class="note">You haven't met anyone yet. Spread your villages or research Sailing to find your neighbors.</p>`;
   for (const o of met) { const d = dip(n.id, o.id);
-    h += `<button class="nat" data-act="nat" data-id="${o.id}"><span class="sw big" style="background:${o.color}"></span><span class="nt"><b>${esc(nm(o))}</b><small>${ERAS[o.era]} · ${fmtP(popOf(o))} people · ${terrCount(o)} territor${terrCount(o) === 1 ? "y" : "ies"} · ${PERS[o.pers]} · ${DISP[dispOf(o)].name}</small></span><span class="ns">${d.war ? '<span class="pill bad">War</span>' : d.ally ? '<span class="pill good">Ally</span>' : d.trade ? '<span class="pill">Trade</span>' : ""}<small>${relWord(d.rel)}</small></span></button>`; }
+    h += `<button class="nat" data-act="nat" data-id="${o.id}"><span class="sw big" style="background:${o.color}"></span><span class="nt"><b>${o.anc ? "🏛️ " : ""}${esc(nm(o))}</b><small>${o.anc ? "Ancient culture · " : o.heir ? `Heirs of the ${esc(o.heir)} · ` : ""}${ERAS[o.era]} · ${fmtP(popOf(o))} people · ${terrCount(o)} territor${terrCount(o) === 1 ? "y" : "ies"} · ${PERS[o.pers]} · ${DISP[dispOf(o)].name}</small></span><span class="ns">${d.war ? '<span class="pill bad">War</span>' : d.ally ? '<span class="pill good">Ally</span>' : d.trade ? '<span class="pill">Trade</span>' : ""}<small>${relWord(d.rel)}</small></span></button>`; }
   const rk = ranking();
   h += `<div class="card"><h4>World ranking</h4>${rk.slice(0, 10).map((o, i) => `<div class="ln ${o.id === n.id ? "me" : ""}"><span>${i + 1}. <span class="sw" style="background:${o.color}"></span> ${o.id === n.id || dip(n.id, o.id).met ? esc(o.name) : "Unknown people"}</span><b>${score(o)}</b></div>`).join("")}</div>`;
   return h;
@@ -4363,6 +4621,8 @@ function openNationDetail(id) {
   const g = Math.round(12 * Math.pow(1.6, n.era)), trib = Math.round(20 * Math.pow(1.6, o.era));
   let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `The ${esc(demonym(o))} · ${GOVS[o.gov].name} · ${ERAS[o.era]} · ${cul(o).icon} ${cul(o).name} culture`);
   h += `<button class="btn ghost small back" data-act="world">← All peoples</button>`;
+  if (o.anc) h += `<div class="card"><h4>🏛️ An ancient culture</h4><p class="small">${esc(ANC[o.anc].note)}</p>${o.title !== ANC[o.anc].title ? `<p class="small muted">Once the ${esc(ANC[o.anc].title)}.</p>` : ""}</div>`;
+  else if (o.heir) h += `<div class="card"><p class="small">Heirs of the ${esc(o.heir)}.</p></div>`;
   h += `<div class="card">${line("Relations", `${Math.round(d.rel)} · ${relWord(d.rel)}`)}${line("Toward outsiders", DISP[dispOf(o)].name)}${line("People", fmtP(popOf(o)))}${line("Territories", terrCount(o))}${line("Settlements", setsOf(o).length)}${line("Army strength", `${fmt(power(o))} (yours ${fmt(power(n))})`)}${line("Technologies", `${o.techs.length} (yours ${n.techs.length})`)}${line("Status", d.war ? `At war · score ${Math.round(wscore(n.id, o.id))}` : d.ally ? "Allied" : d.trade ? "Trade pact" : d.truce > 0 ? `Truce (${d.truce} turns)` : "Peace")}</div>`;
   h += `<div class="opts">`;
   if (d.war) {
