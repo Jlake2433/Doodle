@@ -149,6 +149,6 @@ Results of a 400-year test (3600 to 3200 BCE):
   - starting governments: Uruk a temple state (theocracy); the farming cultures chiefdoms; the foragers tribal councils
   - Bronze Age at the real time: Maykop from the start; Uruk 3300 (writing); Yamnaya 3300; Egypt 3150 and Elam 3100 (kingdoms, writing); Indus 2600; Oxus 2300; Mumun 1500; Yayoi 900
   - the Sumerian city-states start as kingdoms
-- Their heirs (the peoples they break into) are ordinary peoples from then on, and play by the normal rules.
+- Their heirs (the peoples they break into) follow history too: no research or policy changes. They have no stages of their own yet, so they stay as they are until their next chapters are written (for example Akkad conquering Sumer, Longshan to Erlitou, Corded Ware to Bell Beaker).
 - **Watching them:** world history records every rise and fall. You get a popup when it happens to a culture you've met, or when a regional squeeze reaches you. They're marked 🏛️ in the World tab, with a short real-history note, and labeled on the map. Successors show as "Heirs of …".
 - Speed: about 280 ms per turn at the start; about 800 ms by 3350 BCE (desktop).

@@ -1222,7 +1222,7 @@ function checkGovMil(n, fresh, pend) {
 }
 function checkFaiths(n) {
   ensureCustoms(n);
-  if (n.ai && !n.anc) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
+  if (n.ai && !scripted(n)) { if (rnd() < 1 / (TPY * 40)) { const k = pick(Object.keys(CUSTOMS)), O = CUSTOMS[k].opts, open = Object.keys(O).filter(o => cusOpen(n, O[o])); n.cus[k] = rnd() < .5 ? open[open.length - 1] : pick(open); } }
   else { const seen = n.cusSeen || (n.cusSeen = {}), fresh = !n.cusSeen._init; seen._init = 1;
     const by = {};
     for (const k in CUSTOMS) for (const o in CUSTOMS[k].opts) { const O = CUSTOMS[k].opts[o], id = k + "." + o; if (seen[id] || !cusOpen(n, O)) continue; seen[id] = 1;
@@ -1232,7 +1232,7 @@ function checkFaiths(n) {
         : { icon: "🎎", title: `${TECH[t].name} opens new ways of living`, text: `${L.map(([k, O]) => `${CUSTOMS[k].name}: ${O.name}`).join(". ")}. Your people could take them up (Laws › Customs).` }); } }
   if (!n.relig) n.relig = n.laws && n.laws.rel === "sec" && relOpen("secular") ? "secular" : "animism";
   if (n.laws) { const none = relOf(n).fam === "none"; if (none) n.laws.rel = "sec"; else if (n.laws.rel === "sec") n.laws.rel = "faith"; } /* faith and state follow the national religion */
-  if (n.ai && !n.anc) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dipR(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
+  if (n.ai && !scripted(n)) { const f = regionalFaith(n); if (f !== n.relig && relOpen(f) && rnd() < 1 / (TPY * 15)) { n.relig = f; if (G.player != null && dipR(G.player, n.id).met) log(`The ${nm(n)} have taken up ${RELIGIONS[f].name}.`, RELIGIONS[f].icon); } return; }
   const seen = G.relSeen || (G.relSeen = {});
   for (const k in RELIGIONS) { if (seen[k] || !relOpen(k)) continue; seen[k] = 1; const R = RELIGIONS[k]; if (R.y < -1e8 || G.turn < 2) continue; whist(R.icon, `A new faith arose: ${R.name}.`, "first", []);
     (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: R.icon, title: `A new faith: ${R.name}`, text: `${R.d} You can make it your national religion in the Laws tab.` }); }
@@ -2278,6 +2278,7 @@ const ANCIENT = [
     stages: [{ y: -2200, k: "spread", free: true, rise: true, why: "They take to the sea and settle the islands to the south.", to: [[17.6, 121.7, 5, "Nagsabaran"]] }] },
 ];
 const ANC = Object.fromEntries(ANCIENT.map(c => [c.k, c]));
+const scripted = n => !!(n.anc || n.heir); /* follows history rather than the normal rules */
 const regAt = (x, y) => W.regions.find(S => x > S.bb[0] && x < S.bb[2] && y > S.bb[1] && y < S.bb[3] && sampler.isPointInPath(S.path, x, y, "evenodd"));
 /* a free spot of land near a point: not too close to anyone's settlement, nor to places that must stay clear */
 function landSpot(cx, cy, R, gap, avoid = [], regs = null) {
@@ -2390,7 +2391,7 @@ function splitAncient(n, st) {
   for (const h of heirs) { if (!h.sets.length) continue;
     const o = newNation(h.name, shade(n.color, (made.length % 2 ? -1 : 1) * (.1 + .08 * made.length)), -1, true, n.pers === "aggressive" ? "aggressive" : "builder", n.cul);
     Object.assign(o, { lang: n.lang, title: h.title, techs: n.techs.slice(), era: n.era, cus: { ...(n.cus || {}) }, relig: n.relig, stateUp: n.stateUp, gov: n.gov, laws: { ...n.laws }, resOpen: n.resOpen,
-      aiSkill: .5 + rnd() * .5, disp: rnd() < .5 ? "wary" : "iso", heir: old, peak: 0, ancCap: 0, gold: Math.max(5, n.gold / heirs.length), mat: Math.max(5, n.mat / heirs.length) });
+      aiSkill: .5 + rnd() * .5, disp: rnd() < .5 ? "wary" : "iso", heir: old, research: null, autoResearch: false, sciPts: 0, peak: 0, ancCap: 0, gold: Math.max(5, n.gold / heirs.length), mat: Math.max(5, n.mat / heirs.length) });
     for (const x of h.sets) { x.o = o.id; x.focus = null; delete x.eth; }
     G.sv++; /* ownership changed: refresh who owns what */
     o.cap = h.sets.slice().sort((a, b) => b.pop - a.pop)[0].id; o.ancCap = popOf(o) * (st.rise ? 1.5 : 1.25); made.push(o); } /* heirs inherit a full land too */
@@ -2564,7 +2565,7 @@ function processNation(n) {
   n.famine = sr < 0;
   // construction
   for (const ri of pres(n)) { const k = consOf(n.id, ri); if (k) { B(n.id, ri)[k] = 1; setCons(n.id, ri, null); if (!n.ai) log(`${BK[k].name} completed in ${W.regions[ri].n}.`, BK[k].icon); } }
-  if (n.anc) n.sciPts = 0; /* the old cultures follow their own history: what they know comes with it */
+  if (scripted(n)) n.sciPts = 0; /* the old cultures and their heirs follow their own history: what they know comes with it */
   else {
   // research
   n.sciPts += E.sci * TD * (1 + (curDom(n) && aliveThinkers(n).some(t => t.d === curDom(n)) ? .25 : 0)); /* a great mind speeds research in their field */
@@ -2860,7 +2861,7 @@ function scarcity(n) { return turnCache("sc" + n.id, () => {
 const MERGE_SMALL = 40, MERGE_REL = 20, MERGE_NEAR = 15; /* good relations: "Warm" or better */
 function mergeWoes(n) { const p = popOf(n); return p < .75 * (n.peak || p) || (n.hungryT || 0) >= TPY || warsOf(n).some(o => wscore(n.id, o.id) < -8); } /* real trouble: dwindling, hungry for a year, or losing a war */
 function seekMerge(n) {
-  if (!n.ai || !n.alive || n.anc || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
+  if (!n.ai || !n.alive || scripted(n) || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
   if (n.mergeAsk != null && G.year - n.mergeAsk < 10) return false; /* asking again so soon would shame them */
   if (rnd() > .3 / TPY) return false; /* about a 30% chance a year while they struggle */
   const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return false;
@@ -2942,7 +2943,7 @@ function aiTurn(n) {
   const wars = warsOf(n), short = scarcity(n);
   if (seekMerge(n)) return;
   // laws & government (the old cultures keep their own ways)
-  if (!n.anc) { if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
+  if (!scripted(n)) { if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
   if (has(n, "currency") && n.pers === "trader") n.laws.trade = "free";
   if (has(n, "steam")) n.laws.labor = n.stab < 45 ? "rights" : "unreg";
   if (has(n, "printing") && !n.laws.press) n.laws.press = "cens";
@@ -2976,13 +2977,13 @@ function aiTurn(n) {
     const wl = n.era >= 5 ? 2 : n.era >= 3 ? 1 : 0; B0.inc = Math.min(wl, welfareMax(n, "inc")); B0.health = Math.min(wl + (n.era >= 6 ? 1 : 0), welfareMax(n, "health"));
     if (n.gold < 0 && E.goldNet < 0) { B0.prod = B0.travel = B0.sub = 0; B0.inc = Math.max(0, B0.inc - 1); B0.health = Math.max(0, B0.health - 1); B0.res = Math.max(3, B0.res - 7); }
     { const gap = welfareGap(n, "inc") + welfareGap(n, "health"); if (gap > .1) B0.prop = clamp(Math.round(gap * (n.pers === "zealot" || n.pers === "aggressive" ? 8 : 4) * (1 + eduOf(n) / 25)), 0, 40); } }
-  if (!n.anc && !(n.govCool > 0) && n.stab > 40) {
+  if (!scripted(n) && !(n.govCool > 0) && n.stab > 40) {
     const pref = { aggressive: ["party", "empire", "monarchy", "chiefdom"], builder: ["technocracy", "democracy", "empire", "monarchy", "chiefdom"], trader: ["democracy", "republic", "monarchy", "chiefdom"], zealot: ["theocracy", "monarchy", "chiefdom"] }[n.pers];
     const g = pref.find(g => has(n, GOVS[g].tech));
     if (g && g !== n.gov) { n.gov = g; n.anarchy = 1; n.govCool = 15; }
   }
   // grow: upgrades first, then new villages
-  if (!n.anc) for (const s of sets.filter(s => s.t === 1)) if (cityCheck(n, s).ok) upgrade(n, s);
+  if (!scripted(n)) for (const s of sets.filter(s => s.t === 1)) if (cityCheck(n, s).ok) upgrade(n, s);
   const byRegion = {};
   for (const s of sets) if (s.t === 0) (byRegion[s.r] || (byRegion[s.r] = [])).push(s);
   for (const ri in byRegion) { const v = byRegion[ri].sort((a, b) => b.pop - a.pop)[0]; if (v && townCheck(n, v).ok) upgrade(n, v); }
@@ -3039,9 +3040,9 @@ function aiTurn(n) {
   if (!resOpen(n)) return;
   const prefC = { aggressive: ["mil", "land", "air", "navy", "def", "ind"], builder: ["ind", "food", "energy", "health"], trader: ["trade", "sci", "food", "navy"], zealot: ["faith", "def", "food"] }[n.pers] || [];
   { let i = 0; for (const s of setsOf(n)) if (canEmph(n, s) && !s.focus) { s.focus = s.id === n.cap ? (n.pers === "aggressive" ? "mil" : "sci") : prefC[i++ % prefC.length] || "ind"; G.fv = (G.fv || 0) + 1; } }
-  if (!n.anc) for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
+  if (!scripted(n)) for (const c of fieldsMissing(n)) { const f = c.f.map(([k]) => FIELDS[k]).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX).sort((a, b) => fieldCost(n, a).g - fieldCost(n, b).g)[0]; if (!f) continue; const cst = fieldCost(n, f); if (n.gold > cst.g + 3 && n.mat > cst.m) expandField(n, f); }
   let builds = 0;
-  for (let tries = 0; !n.anc && tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
+  for (let tries = 0; !scripted(n) && tries < 3 && builds < 1 + Math.floor(n.era / 2); tries++) {
     const opts = Object.values(FIELDS).filter(f => fieldOpen(n, f) && lv(n, f.k) < FIELD_MAX);
     if (!opts.length) break;
     const score = f => { const c = fieldCost(n, f); return c.g * (prefC.includes(f.chain.k) ? .6 : 1) * (f.chain.k === "space" ? .3 : 1) * (1 + rnd() * .3); };
