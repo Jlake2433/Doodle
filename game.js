@@ -2149,11 +2149,20 @@ function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
   if (--n.hard.left <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
 function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
+  /* the survivors split up and head off in different directions, each band to the people it finds that way */
   const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dipR(n.id, o.id);
-    return { o, d, sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 60).sort((a, b) => a.sc - b.sc), to = cand.length ? cand[0].o : null;
+    return { o, c, d, a: Math.atan2(c.y - c0.y, c.x - c0.x), sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 60);
+  const left = fam * .7, k = left < 4 ? 1 : Math.max(2, Math.min(4, Math.round(left / 8))), a0 = rnd() * Math.PI * 2, w = [];
+  for (let i = 0; i < k; i++) w.push(.5 + rnd());
+  const wt = w.reduce((a, v) => a + v, 0), to = [];
+  for (let i = 0; i < k; i++) { const dir = a0 + i * 2 * Math.PI / k, f = left * w[i] / wt;
+    const best = cand.filter(z => { let da = Math.abs(z.a - dir) % (2 * Math.PI); if (da > Math.PI) da = 2 * Math.PI - da; return da <= Math.PI / k + .2; }).sort((x, y) => x.sc - y.sc)[0];
+    if (!best || f < 1) continue; /* no one that way: that band is lost on the road */
+    best.c.pop += f; addPeople(best.o, n, f, 0, best.c); const prev = to.find(t => t.o === best.o); if (prev) prev.f += f; else to.push({ o: best.o, f });
+    if (best.o.id === G.player) { const ff = Math.round(f); hist(best.o, "🧳", `${ff} famil${ff === 1 ? "y" : "ies"} of the fallen ${nm(n)} came to us as refugees.`); log(`${ff} famil${ff === 1 ? "y" : "ies"} of the fallen ${nm(n)} arrived at ${best.c.name} as refugees.`, "🧳"); } }
   const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
-  whist("🍂", to ? `The ${nm(n)} faded away; its last families joined the ${nm(to)}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to ? [to.id] : []));
-  if (to) { const tc = capSet(to) || setsOf(to)[0], f = fam * .7; tc.pop += f; addPeople(to, n, f, 0, tc); }
+  const names = to.map(t => `the ${nm(t.o)}`), list = names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
+  whist("🍂", to.length ? `The ${nm(n)} fell apart; ${to.length > 1 ? "its survivors scattered, some to" : "its last families joined"} ${list}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to.map(t => t.o.id)));
   n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; } G.sv++; }
 function processNation(n) {
   if (!n.alive) return;
@@ -2593,7 +2602,7 @@ function mergeWoes(n) { const p = popOf(n); return p < .75 * (n.peak || p) || (n
 function seekMerge(n) {
   if (!n.ai || !n.alive || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
   if (n.mergeAsk != null && G.year - n.mergeAsk < 10) return false; /* asking again so soon would shame them */
-  if (rnd() > .3 * YEARS_PER_TURN[calEra(G.year)] / TPY) return false; /* about a 30% chance a year while they struggle */
+  if (rnd() > .3 / TPY) return false; /* about a 30% chance a year while they struggle */
   const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return false;
   const cand = metOf(n).filter(o => { const d = dipR(n.id, o.id), c = capSet(o) || setsOf(o)[0];
     return c && !d.war && d.rel >= MERGE_REL && popOf(o) > popOf(n) && Math.hypot(c.x - c0.x, c.y - c0.y) < MERGE_NEAR && (o.id === G.player || !mergeWoes(o)); })
@@ -2615,6 +2624,15 @@ function mergeInto(n, to) {
   if (to.id === G.player) { hist(to, "🤝", `The ${nm(n)} joined us: ${fam} famil${fam === 1 ? "y" : "ies"} in ${ss.length} ${ss.length === 1 ? "village" : "villages"}.`); log(`The ${nm(n)} have joined your people.`, "🤝"); }
   else if (dipR(to.id, G.player).met) log(`The ${nm(n)} joined the ${nm(to)}.`, "🤝", -1);
 }
+/* temperament toward outsiders: many peoples keep to themselves, some are wary, a few are friendly */
+const DISP = { iso: { name: "Keeps to itself", to: -15, r: .5 }, wary: { name: "Wary", to: null, r: 0 }, open: { name: "Friendly", to: 60, r: 2 } };
+function dispOf(n) { if (!n.ai) return "wary"; if (!n.disp) { const r = rnd(); n.disp = r < .5 ? "iso" : r < .8 ? "wary" : "open"; } return n.disp; }
+/* where a pair's relations drift on their own, and how fast (per year): an aloof side keeps its distance; a friendly side warms things up */
+function dispPull(a, b) { const x = dispOf(a), y = dispOf(b);
+  if (x === "iso" || y === "iso") return DISP.iso;
+  if (x === "open" && y === "open") return DISP.open;
+  if (x === "open" || y === "open") return { to: 35, r: 1 };
+  return null; }
 function declareWar(a, b, why) {
   if (a.id === G.player) hist(a, "⚔️", `War declared on the ${nm(b)}.`); else if (b.id === G.player) hist(b, "⚔️", `The ${nm(a)} declared war on us.`);
   const d = dip(a.id, b.id); d.war = true; d.trade = false; d.ally = false; d.ws = 0; d.wt = G.tt;
@@ -2831,6 +2849,7 @@ function driftRelations() {
     v += .06 * (Math.min(6, metCount(a)) + Math.min(6, metCount(b))); // the more of the world a people knows, the more open it is
     v -= d.rel * .015;
     d.rel = clamp(d.rel + v * TD, -100, 100);
+    { const g = d.war ? null : dispPull(a, b); if (g) { const st = g.r / TPY; d.rel = d.rel < g.to ? Math.min(g.to, d.rel + st) : Math.max(g.to, d.rel - st); } }
     d.truce = dec(d.truce);
   }
 }
@@ -4324,7 +4343,7 @@ function panelWorld() {
   const met = metOf(n).sort((a, b) => score(b) - score(a));
   if (!met.length) h += `<p class="note">You haven't met anyone yet. Spread your villages or research Sailing to find your neighbors.</p>`;
   for (const o of met) { const d = dip(n.id, o.id);
-    h += `<button class="nat" data-act="nat" data-id="${o.id}"><span class="sw big" style="background:${o.color}"></span><span class="nt"><b>${esc(nm(o))}</b><small>${ERAS[o.era]} · ${fmtP(popOf(o))} people · ${terrCount(o)} territor${terrCount(o) === 1 ? "y" : "ies"} · ${PERS[o.pers]}</small></span><span class="ns">${d.war ? '<span class="pill bad">War</span>' : d.ally ? '<span class="pill good">Ally</span>' : d.trade ? '<span class="pill">Trade</span>' : ""}<small>${relWord(d.rel)}</small></span></button>`; }
+    h += `<button class="nat" data-act="nat" data-id="${o.id}"><span class="sw big" style="background:${o.color}"></span><span class="nt"><b>${esc(nm(o))}</b><small>${ERAS[o.era]} · ${fmtP(popOf(o))} people · ${terrCount(o)} territor${terrCount(o) === 1 ? "y" : "ies"} · ${PERS[o.pers]} · ${DISP[dispOf(o)].name}</small></span><span class="ns">${d.war ? '<span class="pill bad">War</span>' : d.ally ? '<span class="pill good">Ally</span>' : d.trade ? '<span class="pill">Trade</span>' : ""}<small>${relWord(d.rel)}</small></span></button>`; }
   const rk = ranking();
   h += `<div class="card"><h4>World ranking</h4>${rk.slice(0, 10).map((o, i) => `<div class="ln ${o.id === n.id ? "me" : ""}"><span>${i + 1}. <span class="sw" style="background:${o.color}"></span> ${o.id === n.id || dip(n.id, o.id).met ? esc(o.name) : "Unknown people"}</span><b>${score(o)}</b></div>`).join("")}</div>`;
   return h;
@@ -4344,7 +4363,7 @@ function openNationDetail(id) {
   const g = Math.round(12 * Math.pow(1.6, n.era)), trib = Math.round(20 * Math.pow(1.6, o.era));
   let h = ph(`<span class="sw big" style="background:${o.color}"></span> ${esc(nm(o))}`, `The ${esc(demonym(o))} · ${GOVS[o.gov].name} · ${ERAS[o.era]} · ${cul(o).icon} ${cul(o).name} culture`);
   h += `<button class="btn ghost small back" data-act="world">← All peoples</button>`;
-  h += `<div class="card">${line("Relations", `${Math.round(d.rel)} · ${relWord(d.rel)}`)}${line("People", fmtP(popOf(o)))}${line("Territories", terrCount(o))}${line("Settlements", setsOf(o).length)}${line("Army strength", `${fmt(power(o))} (yours ${fmt(power(n))})`)}${line("Technologies", `${o.techs.length} (yours ${n.techs.length})`)}${line("Status", d.war ? `At war · score ${Math.round(wscore(n.id, o.id))}` : d.ally ? "Allied" : d.trade ? "Trade pact" : d.truce > 0 ? `Truce (${d.truce} turns)` : "Peace")}</div>`;
+  h += `<div class="card">${line("Relations", `${Math.round(d.rel)} · ${relWord(d.rel)}`)}${line("Toward outsiders", DISP[dispOf(o)].name)}${line("People", fmtP(popOf(o)))}${line("Territories", terrCount(o))}${line("Settlements", setsOf(o).length)}${line("Army strength", `${fmt(power(o))} (yours ${fmt(power(n))})`)}${line("Technologies", `${o.techs.length} (yours ${n.techs.length})`)}${line("Status", d.war ? `At war · score ${Math.round(wscore(n.id, o.id))}` : d.ally ? "Allied" : d.trade ? "Trade pact" : d.truce > 0 ? `Truce (${d.truce} turns)` : "Peace")}</div>`;
   h += `<div class="opts">`;
   if (d.war) {
     h += `<button class="opt" data-act="dPeace" data-id="${id}"><span class="oi">🕊️</span><span class="ot"><b>Propose peace</b><small>${aiAccept(o, "peace", n) ? "They seem willing" : "They are unlikely to accept"}</small></span></button>`;

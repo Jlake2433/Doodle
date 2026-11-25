@@ -79,7 +79,16 @@ To do (later ages):
 - The first ~400 years are about surviving. About 2,000 tribes start out, spread over all livable land: thickest on fertile lowlands and plains, thin in forest and steppe, rare in deserts, tundra and mountains. No two start closer than 5 map units.
 - Hard years (about 10% a year per tribe, 1–3 seasons): drought, brutal winters (cold lands), sickness (worst in big villages), failed hunts. Stores, warmth, health, healers, water and a food surplus soften them.
 - AI tribes roll a hidden competence; about 30% are poorly led and suffer far more in hard years.
-- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish.
+- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. About 70% of its families survive and scatter:
+  - They split into 2–4 bands (one if only a handful are left), each heading a different way.
+  - Each band joins the best people it finds in its direction within about 60 units, as a minority people.
+  - A band with no one in its direction is lost on the road.
+  - If refugees reach you, you're told.
+- Temperament toward outsiders, rolled per AI people:
+  - about 50% keep to themselves (relations drift toward −15)
+  - about 30% are wary (no pull either way)
+  - about 20% are friendly (with another friendly people, relations drift toward +60 at about 2 a year; with a wary people or you, toward +35 at about 1 a year)
+  - It shows in the World tab.
 
 ## Scarcity wars (built)
 
@@ -103,7 +112,7 @@ To do (later ages):
 - Only the struggling tribe can ask. It asks about 30% of years while it struggles, and waits 10 years after asking.
 - AI peoples accept more readily the warmer their relations are. You get a popup and take them in or refuse.
 - On joining, its villages become the other people's and its families live on as a people of their own among them, under that nation's policy for minority peoples.
-- **Open question:** Stone Age relations barely move. Strangers start out wary (about −12), and after a century nearly every pair is still "Neutral". So in the survival period nobody is "Warm" yet, and merges don't happen. Waiting on a decision about how relations should work early on.
+- Merging is jumping to another ship before yours sinks; collapsing is swimming away. A tribe asks to join only while it can still choose, and only a friendly neighbor. In a 100-year test, about 46 tribes joined neighbors and 185 fell apart.
 
 ## Engineering notes for a world of thousands
 
