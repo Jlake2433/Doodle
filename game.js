@@ -301,7 +301,7 @@ const techCost = (n, t) => { let b = 0; for (const ck of techChains(t.id)) { con
 // neighbors and allies who already know a technology make it cheaper to learn, especially larger ones
 let diffKey = null, diffLinks = new Map();
 function knowledgeLinks(n) {
-  const key = G.turn + ":" + G.sv;
+  const key = G.turn + ":" + (G.bv || 0); /* once a turn */
   if (diffKey !== key) { diffKey = key; diffLinks = new Map(); }
   let l = diffLinks.get(n.id); if (l) return l;
   const myPop = popOf(n); l = [];
@@ -989,12 +989,13 @@ const radTo = (s, x, y) => (s.h || .05) * lobe(s, Math.atan2(y - s.y, x - s.x));
 const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) - radTo(b, a.x, a.y);
 const huntR = n => n && tribal(n) ? turnCache("hr" + n.id, () => .4 * scoutSight(n)) : 0; /* tribes range over hunting lands beyond their borders */
 function touchesSet(n, s) { const r = .25 + huntR(n) + huntR(G.nations[s.o]); return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < r); }
-let touchKey = null, touchPairs = new Set();
+let touchKey = null, touchPairs = new Map();
 function bordersTouch(a, b) {
-  const key = G.sv + ":" + G.turn;
-  if (touchKey !== key) { touchKey = key; touchPairs = new Set();
-    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) touchPairs.add(pk(s.o, o.o)); } /* borders, or hunting lands, meet */
-  return touchPairs.has(pk(a.id, b.id));
+  const key = G.turn + ":" + (G.bv || 0) + ":" + G.nations.length + ":" + (G.nations[G.player] ? setsOf(G.nations[G.player]).length : 0); /* worked out once a turn (and when you build): with thousands of peoples, villages are founded all the time */
+  if (touchKey !== key || touchPairs.G !== G) { touchKey = key; touchPairs = new Map(); touchPairs.G = G;
+    const add = (x, y) => { let m = touchPairs.get(x); if (!m) touchPairs.set(x, m = new Set()); m.add(y); };
+    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) { add(s.o, o.o); add(o.o, s.o); } } /* borders, or hunting lands, meet */
+  const m = touchPairs.get(a.id); return !!m && m.has(b.id);
 }
 // a won battle pushes the defender's border back; the attacker's land grows into the gap
 function chip(att, s) {
@@ -1266,8 +1267,8 @@ function tradePartners(n) { const m = relIndex().get(n.id) || EMPTY_SET, out = [
 let metKey = null, metMap = new Map();
 function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; c = metOf(o).length; metMap.set(o.id, c); } return c; }
 const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0) - (turnCache("po" + o.id, () => setsOf(o).some(x => builtAt(x, "post"))) ? 8 : 0)); // relations a people needs before trading with you
-const relOK = (n, o) => { const d = dip(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
-const canTradeWith = (n, o) => { if (!o.alive || o.id === n.id) return false; const d = dip(n.id, o.id); return d.met && !d.emb && !d.war && tradeOpen(o) && tradeReach(n, o) && relOK(n, o); }; /* cheap checks first */
+const relOK = (n, o) => { const d = dipR(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
+const canTradeWith = (n, o) => { if (!o.alive || o.id === n.id) return false; const d = dipR(n.id, o.id); return d.met && !d.emb && !d.war && tradeOpen(o) && tradeReach(n, o) && relOK(n, o); }; /* cheap checks first */
 // broad sectors of the economy. Mostly private; you steer them with public investment, subsidies, tariffs or by nationalizing them
 const SECTORS = {
   house:  { name: "Housing", icon: "🏠", era: 1, w: .12, chain: "health", amp: .15, eff: "room in settlements", d: "Homes for your people." },
@@ -1857,7 +1858,7 @@ function econ0(n) {
   sci += resSci; mat -= resMat;
   // the sector market: what your people need, what they make at home, and what is bought and sold abroad
   const open = tradeOpen(n), SU = suitOf(n), pc = partners.length;
-  const canImport = open && G.nations.some(o => canTradeWith(n, o));
+  const canImport = open && metOf(n).some(o => canTradeWith(n, o)); /* trading needs contact */
   const impP = pc >= 3 ? .95 : pc ? 1 : 1.25, expP = pc ? .9 : .7, expCap = .15 + .15 * pc;
   const sectors = {}; let secImp = 0, secExp = 0, secTar = 0, secSub = 0, secState = 0, secInv = 0;
   n.secF = n.secF || {};
@@ -1867,7 +1868,7 @@ function econ0(n) {
   const natTars = canTar && n.tariffOn ? Object.keys(n.tariffOn).filter(id => G.nations[id] && G.nations[id].alive).length : 0;
   const drag = Math.min(.15, .015 * tarLv + .005 * natTars);
   mat *= 1 - drag / 2;
-  const rivals = open ? G.nations.filter(o => canTradeWith(n, o)) : [];
+  const rivals = open ? metOf(n).filter(o => canTradeWith(n, o)) : [];
   let pubWages = 0;
   const wage = wage0, wageCost = clamp(1 - .08 * (wage - 1), .85, 1.06); // well-paid workers cost more, cheap labor competes on price
   for (const k in SECTORS) { if (!secUnlocked(n, k)) continue;
@@ -2052,25 +2053,26 @@ function updateExplore() {
 const seeAll = () => !G.fog || G.fogAll || G.setup || G.demo;
 const visibleAt = (x, y) => seeAll() || G.fog.some(d => Math.hypot(d.x - x, d.y - y) < d.r);
 const fogged = ri => G.exp && !G.setup && !G.demo && !G.exp[ri];
+/* peoples meet those living within walking distance (farther with good scouts, and across short seas once they sail);
+   the far-sailing ages meet the whole world. With thousands of peoples, "the same region" is far too wide */
+const CONTACT_WALK = 8;
+const landMemo = new Map(); /* villages don't move: whether there's dry land between two of them never changes */
+function landBetween(s, o) { const k = s.id < o.id ? s.id * 1e6 + o.id : o.id * 1e6 + s.id; let v = landMemo.get(k); if (v === undefined) { v = overLand(s.x, s.y, o.x, o.y); if (landMemo.size > 2e5) landMemo.clear(); landMemo.set(k, v); } return v; }
+const contactR = n => CONTACT_WALK + 2 * scoutSight(n) + (has(n, "sailing") ? 12 : 0);
 function updateContacts() {
-  const PR = new Map(); for (const s of G.sets) { let p = PR.get(s.o); if (!p) PR.set(s.o, p = new Set()); p.add(s.r); }
-  const presOf = n => PR.get(n.id) || new Set();
-  /* a people meets those living within its reach (and the far-sailing ages meet each other), so look only there */
-  const byReg = new Map(); for (const [o, rs] of PR) for (const ri of rs) { let a = byReg.get(ri); if (!a) byReg.set(ri, a = []); a.push(o); }
   const lateL = G.nations.filter(a => a.alive && (has(a, "navigation") || a.era >= 6));
+  const meet = (a, b) => { const d = dip(a.id, b.id);
+    if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
+    d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
+    if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝"); };
   for (const a of G.nations) { if (!a.alive) continue;
-    const cand = new Set(); for (const ri of reachSet(a)) for (const o of byReg.get(ri) || []) cand.add(o);
-    if (has(a, "navigation") || a.era >= 6) for (const o of lateL) cand.add(o.id);
-    for (const bi of cand) { const b = G.nations[bi]; if (!b || !b.alive || b.id === a.id) continue;
-      if (dipR(a.id, b.id).met) continue;
-      const late = (has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6);
-      const ra = reachSet(a), rb = reachSet(b);
-      if (late || [...presOf(a)].some(ri => rb.has(ri)) || [...presOf(b)].some(ri => ra.has(ri))) { const d = dip(a.id, b.id);
-        if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
-        d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
-        if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝");
-      }
-    }
+    const R = contactR(a), seen = new Set();
+    for (const s of setsOf(a)) for (const o of nearSets(s.x, s.y, R)) { if (o.o === a.id || seen.has(o.o)) continue;
+      if (Math.hypot(o.x - s.x, o.y - s.y) >= R) continue; seen.add(o.o);
+      const b = G.nations[o.o]; if (!b || !b.alive || dipR(a.id, b.id).met) continue;
+      if (has(a, "sailing") || Math.hypot(o.x - s.x, o.y - s.y) < CONTACT_WALK * .5 || landBetween(s, o)) meet(a, b); } /* on foot, not across open water */
+    if (has(a, "navigation") || a.era >= 6) for (const b of lateL) { if (b === a || dipR(a.id, b.id).met) continue;
+      if ((has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6)) meet(a, b); }
   }
 }
 function buildCost(n, b) { const disc = n.laws.focus === "ind" ? .9 : 1; return { g: Math.round(b.cg * disc), m: Math.round(b.cm * disc) }; }
@@ -2787,13 +2789,12 @@ function aiTurn(n) {
         G.pendingPeace = { from: n.id, tribute: Math.round(Math.min(Math.max(0, o.gold) * .4, 40 * (o.era + 1))), payer: o.id };
       }
     } else if (!d.ally && !(d.truce > 0) && wars.length === 0 && !(n.anarchy > 0)) {
-      const ratioP = power(n) / Math.max(1, power(o));
       const need = short.v; /* short of land or food: the neighbors' land and game start to look worth fighting for */
       const hostile = d.rel < (n.pers === "aggressive" ? 0 : -25) + 45 * need;
-      const border = bordersTouch(n, o);
+      const border = hostile && bordersTouch(n, o); /* only looked up when it matters */
       const chance = { aggressive: .22, zealot: .12, builder: .06, trader: .05 }[n.pers] * (o.id === G.player ? [.5, 1, 1.4][G.diff] : 1) * (1 + 3 * need);
       const grace = (o.id === G.player && G.tt < [60, 35, 20][G.diff]) || G.tt < 12;
-      if (!n.noWar && !grace && hostile && border && ratioP > (n.pers === "aggressive" ? 1.1 : 1.5) - .5 * need && rnd() < pr(chance)) declareWar(n, o, need > .25 ? short.why : null);
+      if (!n.noWar && !grace && hostile && border && power(n) / Math.max(1, power(o)) > (n.pers === "aggressive" ? 1.1 : 1.5) - .5 * need && rnd() < pr(chance)) declareWar(n, o, need > .25 ? short.why : null);
     }
   }
   // attack
@@ -4795,7 +4796,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { dump: () => JSON.stringify(G), load: s => { G = JSON.parse(s); reachCache.clear(); restoreCells(); }, draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();

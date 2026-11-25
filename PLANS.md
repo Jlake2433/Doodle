@@ -108,5 +108,5 @@ To do (later ages):
 ## Engineering notes for a world of thousands
 
 - Diplomacy is kept only for pairs of peoples who have dealt with each other, and each people keeps a list of them. Loops run over a people's contacts, not the whole world.
-- Contacts are found through the regions each people can reach.
+- **First contact is by distance now, not region.** Regions are huge: Lower Egypt alone starts with about 30 tribes. Under the old rule, a tribe knew everyone in its own and neighboring regions, about 230 others by 3350 BCE. Now a people meets those living within walking distance: about 8 map units (roughly 180 km), plus twice its scouts' sight, never across open water on foot. Sailing adds 12 units, and the navigation age meets the whole world as before. At the start you meet your 3 nearest neighbors; about a third of tribes start alone.
 - Saves go to IndexedDB, compressed. Browser local storage is too small for a world this size.
