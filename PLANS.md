@@ -110,3 +110,14 @@ To do (later ages):
 - Diplomacy is kept only for pairs of peoples who have dealt with each other, and each people keeps a list of them. Loops run over a people's contacts, not the whole world.
 - **First contact is by distance now, not region.** Regions are huge: Lower Egypt alone starts with about 30 tribes. Under the old rule, a tribe knew everyone in its own and neighboring regions, about 230 others by 3350 BCE. Now a people meets those living within walking distance: about 8 map units (roughly 180 km), plus twice its scouts' sight, never across open water on foot. Sailing adds 12 units, and the navigation age meets the whole world as before. At the start you meet your 3 nearest neighbors; about a third of tribes start alone.
 - Saves go to IndexedDB, compressed. Browser local storage is too small for a world this size.
+- Measured on a desktop browser with 2,000 tribes (a phone will be slower):
+  - about 250 ms per turn at the start
+  - about 730 ms per turn by 3200 BCE (1,750 tribes, 6,200 villages, 306,000 families)
+  - memory steady around 100–250 MB
+  - the save is about 13 MB before compression
+- What's left is mostly each tribe's own yearly work. It grows with the number of villages.
+
+Results of a 400-year test (3600 to 3200 BCE):
+- 264 of 2,000 tribes collapsed (13%), most of them early.
+- No wars: tribes keep their villages close together, so after 400 years neighbors are still about 7.5 units apart and their lands don't touch. There's no scarcity yet.
+- No merges: no pair of peoples gets above +16 relations (see the open question above).

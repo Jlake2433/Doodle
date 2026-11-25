@@ -839,7 +839,8 @@ function log(text, icon = "•", who = null) { G.news.push({ t: AW(text), i: ico
 // settlements & territories
 let sIx = null, sIxK = null;
 const setsOf = n => { const k = G.sv + ":" + G.sets.length; if (sIxK !== k || !sIx || sIx.G !== G) { sIx = new Map(); sIx.G = G; sIxK = k; for (const s of G.sets) { let a = sIx.get(s.o); if (!a) sIx.set(s.o, a = []); a.push(s); } } const a = sIx.get(n.id); return a ? a.slice() : []; };
-const setsIn = ri => G.sets.filter(s => s.r === ri);
+let rIx = null, rIxK = null;
+const setsIn = ri => { const k = G.sid + ":" + G.sets.length; if (rIxK !== k || !rIx || rIx.G !== G) { rIx = new Map(); rIx.G = G; rIxK = k; for (const s of G.sets) { let a = rIx.get(s.r); if (!a) rIx.set(s.r, a = []); a.push(s); } } const a = rIx.get(ri); return a ? a.slice() : []; }; /* settlements never move between territories */
 let byIdM = null, byIdK = null;
 const setById = id => { const k = G.sv + ":" + G.sets.length; if (byIdK !== k || !byIdM || byIdM.G !== G) { byIdM = new Map(); byIdM.G = G; byIdK = k; for (const s of G.sets) byIdM.set(s.id, s); } return byIdM.get(id); };
 const capSet = n => setById(n.cap);
@@ -875,11 +876,11 @@ function near(n, a, b) { // can people walk/sail from region a to region b?
   return s.adj.includes(b) || (has(n, "sailing") && s.sea.includes(b)) || (has(n, "navigation") && oceanNeighbors(a).includes(b));
 }
 
-let sampler = null;
+let sampler = document.createElement("canvas").getContext("2d"); /* for point-in-land tests; made up front so a loaded game has it too */
 // 1 map unit is roughly 24 km. A village of 50 people works about 5 km of land.
 // how far settlers will walk (or row) from their old home to found a new village
 const settleRange = (n, directed) => (2 + .5 * (n ? n.era : 0) + (n && has(n, "wheel") ? .5 : 0)) * (directed ? 2 : 1) * (projDone(n, "trails") ? 1.3 : 1);
-function overLand(ax, ay, bx, by) { const lp = getLandPath(), steps = Math.max(2, Math.ceil(Math.hypot(bx - ax, by - ay) / .35)); for (let i = 1; i < steps; i++) if (!sampler.isPointInPath(lp, ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps, "evenodd")) return false; return true; }
+function overLand(ax, ay, bx, by) { if (!sampler) sampler = document.createElement("canvas").getContext("2d"); const lp = getLandPath(), steps = Math.max(2, Math.ceil(Math.hypot(bx - ax, by - ay) / .35)); for (let i = 1; i < steps; i++) if (!sampler.isPointInPath(lp, ax + (bx - ax) * i / steps, ay + (by - ay) * i / steps, "evenodd")) return false; return true; }
 function samplePoint(ri, nearPt, owner = -1, maxD = 40, needLand = false) {
   const S = W.regions[ri];
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
@@ -1008,7 +1009,7 @@ function resetCells() {}
 function rle() { return null; }
 function recomputeControl(ri) {
   const cnt = {};
-  for (const s of G.sets) if (s.r === ri && s.t >= 1) cnt[s.o] = (cnt[s.o] || 0) + 1;
+  for (const s of G.sets) if (s.t >= 1 && s.r === ri) cnt[s.o] = (cnt[s.o] || 0) + 1;
   const r = G.regions[ri], cur = r.ctrl;
   let nc = -1;
   if (cur >= 0 && (cnt[cur] || 0) >= TOWNS_TO_CLAIM) nc = cur;
@@ -1089,8 +1090,8 @@ const cityCost = n => ({ g: Math.round(120 * eraM(n, 1.6)), m: Math.round(100 * 
 const afford = (n, c) => n.gold >= c.g && n.mat >= c.m;
 function donorFor(n, ri) {
   let best = null;
-  for (const s of G.sets) {
-    if (s.o !== n.id || s.pop < MOVERS + 12 || !near(n, s.r, ri)) continue;
+  for (const s of setsOf(n)) {
+    if (s.pop < MOVERS + 12 || !near(n, s.r, ri)) continue;
     const score = (s.r === ri ? 1e6 : 0) + (s.t === 0 && s.pop >= VILLAGE_CAP - 2 ? 5e5 : 0) + s.pop;
     if (!best || score > best.sc) best = { s, sc: score };
   }
@@ -1143,7 +1144,7 @@ function townCheck(n, s) {
   if (!afford(n, c)) return { ok: false, why: "Not enough gold or materials", c };
   return { ok: true, c, mates };
 }
-const urbanIn = ri => G.sets.reduce((a, x) => a + (x.r === ri && x.t >= 1 ? 1 : 0), 0);
+const urbanIn = ri => turnCache("urb", () => { const m = new Map(); for (const x of G.sets) if (x.t >= 1) m.set(x.r, (m.get(x.r) || 0) + 1); return m; }).get(ri) || 0; /* towns and cities per territory */
 // the 3 closest villages (same territory or a bordering one) that would merge with s into a town
 function mergeMates(n, s) {
   const adj = W.regions[s.r].adj;
@@ -1379,7 +1380,7 @@ function suitOf(n) { // how well your land suits each sector (1 = average; low m
   if (suitKey !== key) { suitKey = key; suitCache = new Map(); }
   let r = suitCache.get(n.id); if (r) return r;
   let ut = 0, food = 0, prod = 0, flat = 0, coast = 0, metal = 0, mount = 0, ci = 0, oil = 0;
-  for (const x of G.sets) { if (x.o !== n.id) continue; const R = W.regions[x.r], T = TER[R.t], u = U(x.pop);
+  for (const x of setsOf(n)) { const R = W.regions[x.r], T = TER[R.t], u = U(x.pop);
     ut += u; food += u * T.food; prod += u * T.prod; flat += u * (FLAT[R.t] || 1); coast += R.c ? u : 0; metal += METALS.includes(R.r) ? u : 0; mount += R.t === "mountain" ? u : 0; ci += R.r === "coal" || R.r === "iron" ? u : 0; oil += R.r === "oil" ? u : 0; }
   const a = v => ut > 0 ? v / ut : 0, c = v => clamp(v, .15, 1.8);
   r = { house: 1, agri: c(a(food) / 1.15), constr: c(.6 + .4 * a(prod) / 1.2), mining: c(.45 + 1.5 * a(metal) + .4 * a(mount)), infra: c(a(flat) || 1), ships: c(.15 + 1.3 * a(coast)),
@@ -4796,7 +4797,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { dump: () => JSON.stringify(G), load: s => { G = JSON.parse(s); reachCache.clear(); restoreCells(); }, draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
