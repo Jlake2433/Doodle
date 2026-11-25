@@ -3083,15 +3083,20 @@ let idbDB = null; idb().then(d => idbDB = d, () => {});
 function idbPut(v) { return new Promise((ok, no) => { const t = idbDB.transaction("save", "readwrite"); t.objectStore("save").put(v, "g"); t.oncomplete = ok; t.onerror = () => no(t.error); }); }
 async function gz(str) { if (typeof CompressionStream === "undefined") return str; return await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream("gzip"))).blob(); }
 async function ungz(v) { if (typeof v === "string") return v; return await new Response(v.stream().pipeThrough(new DecompressionStream("gzip"))).text(); }
-let saveSeq = 0;
+let saveSeq = 0, waitStr = null, saving = false, saveAgain = false;
 function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify({ name: G.nations[G.player].name, year: G.year })); localStorage.removeItem(SAVE_KEY); } catch (e) {} }
 function save(now) {
-  if (!G || G.demo) return; delete G.cells; lastSave = Date.now();
+  if (!G || G.demo) return;
+  if (saving && !now) { saveAgain = true; return; } /* one save at a time; the newest state goes next */
+  delete G.cells; lastSave = Date.now();
   let str; try { str = JSON.stringify(G); } catch (e) { return; }
   const seq = ++saveSeq; saveMeta();
-  if (!idbDB) { idb().then(() => seq === saveSeq && idbPut(str)).catch(() => {}); return; }
+  if (!idbDB) { /* storage not open yet: keep only the latest copy waiting, never a pile of them */
+    const first = waitStr == null; waitStr = str; if (first) idb().then(() => { const w = waitStr; waitStr = null; if (w != null) idbPut(w); }, () => { waitStr = null; }); return; }
   if (now) { try { idbPut(str); } catch (e) {} return; } /* leaving the page: write at once, no time to compress */
-  gz(str).then(v => seq === saveSeq ? idbPut(v) : null).catch(() => { try { idbPut(str); } catch (e) {} });
+  saving = true;
+  gz(str).then(v => seq === saveSeq ? idbPut(v) : null).catch(() => seq === saveSeq ? idbPut(str) : null).catch(() => {})
+    .then(() => { saving = false; if (saveAgain) { saveAgain = false; saveSoon(); } });
 }
 function clearSave() { saveSeq++; try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(META_KEY); } catch (e) {} idb().then(d => { const t = d.transaction("save", "readwrite"); t.objectStore("save").delete("g"); }).catch(() => {}); }
 function saveMetaRead() { try { const m = localStorage.getItem(META_KEY); if (m) return JSON.parse(m); const old = localStorage.getItem(SAVE_KEY); if (old) { const g = JSON.parse(old); return g && g.v === 2 ? { name: g.nations[g.player].name, year: g.year } : null; } } catch (e) {} return null; }
