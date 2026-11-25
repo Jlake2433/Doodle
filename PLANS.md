@@ -76,7 +76,7 @@ To do (later ages):
 
 ## Survival period (built)
 
-- The first ~400 years are about surviving. Tribes start far apart (the nearest neighbor is about 96 map units away on average), so wars are rare until peoples grow toward each other.
+- The first ~400 years are about surviving. 80 tribes start out (the nearest neighbor is about 49 map units away on average), so wars are rare until peoples grow toward each other.
 - Hard years (about 10% a year per tribe, 1–3 seasons): drought, brutal winters (cold lands), sickness (worst in big villages), failed hunts. Stores, warmth, health, healers, water and a food surplus soften them.
 - AI tribes roll a hidden competence; about 30% are poorly led and suffer far more in hard years.
-- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish. In testing, 3–6 of 30 tribes collapse in the first 400 years.
+- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish. In testing, about 11 of 80 tribes (roughly 14%) collapse in the first 400 years, most of them early.

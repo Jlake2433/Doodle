@@ -407,6 +407,7 @@ const FACTIONS = {
   workers: { name: () => "Workers", icon: "🔧", from: 5 },
 };
 const COLORS = ["#e9524a", "#3c7dd9", "#f2b134", "#2fae6b", "#9b59d0", "#f07f2f", "#1fb5b0", "#e45aa0", "#8a5a33", "#5b6ee1", "#a5c234", "#c0392b", "#16a085", "#d35400", "#7d3c98", "#34495e", "#ff8fab", "#00a8e8", "#6c5ce7", "#00b894", "#e1a10b", "#e17055", "#0984e3", "#b33771", "#3b3b98", "#58b19f", "#cd6133", "#4b4b7a", "#ff9f43", "#218c74", "#82589f", "#8e7d5b", "#d63031", "#2d98da"];
+const TRIBES = 80; /* peoples in the world at the start */
 const CRADLES = ["Lower Egypt", "Mesopotamia", "Indus", "North China Plain", "Jiangnan", "Punjab", "Anatolia", "Greece", "Southern Italy", "Central Mexico", "Peru", "Mali", "Ethiopia", "Northern Gaul", "England", "Persia", "Japan", "Muscovy", "Midwest", "Java", "Eastern Mongolia", "Castile", "Bengal", "Zimbabwe", "Korea", "Rhineland", "Gold Coast", "Southern Plains", "Pampas", "New South Wales", "Great Lakes Africa", "Yucatan"];
 const SYL = ["ka", "ra", "tal", "mor", "eth", "vin", "sul", "dor", "ash", "ul", "ren", "bar", "kesh", "an", "ith", "or", "zan", "lo", "mir", "gal", "hun", "tep", "yar", "ob", "nek", "sa", "tor", "al", "qua", "ri", "ven", "ito", "ba", "du", "shen", "ko", "zi", "mar", "el", "ost", "ta", "ny", "vel", "kor", "ae", "bri", "hal", "wen"];
 // ---- languages: every people names its land, towns and leaders in the style of the place it comes from ----
@@ -1049,9 +1050,9 @@ function newGame(opts) {
   // the rest of the world: mostly coastal peoples, a few inland river valleys
   const pool = W.regions.map(r => r.i).filter(r => !used.includes(r) && (livable(r) || CRADLES.includes(W.regions[r].n))).sort(() => rnd() - .5);
   for (const r of pool) {
-    if (G.nations.length >= 30) break;
-    if (!W.regions[r].c && !CRADLES.includes(W.regions[r].n) && rnd() > .2) continue;
-    if (used.some(u => gdist(u, r) < 9)) continue;
+    if (G.nations.length >= TRIBES) break;
+    if (!W.regions[r].c && !CRADLES.includes(W.regions[r].n) && rnd() > .5) continue;
+    if (used.some(u => gdist(u, r) < 5)) continue;
     addTribe(r);
   }
   G.exp = new Array(NR).fill(0); G.fog = [];
@@ -1244,7 +1245,7 @@ let metKey = null, metMap = new Map();
 function metCount(o) { if (metKey !== G.turn) { metKey = G.turn; metMap = new Map(); } let c = metMap.get(o.id); if (c == null) { c = 0; for (const x of G.nations) if (x.alive && x.id !== o.id && dip(o.id, x.id).met) c++; metMap.set(o.id, c); } return c; }
 const tradeTrust = o => o.id === G.player && !o.ai ? -100 : Math.max(-20, 20 - 5 * Math.min(6, metCount(o)) - (o.era >= 2 ? 10 : 0) - (o.era >= 4 ? 10 : 0) - (o.pers === "trader" ? 10 : 0) - (turnCache("po" + o.id, () => setsOf(o).some(x => builtAt(x, "post"))) ? 8 : 0)); // relations a people needs before trading with you
 const relOK = (n, o) => { const d = dip(n.id, o.id); return d.trade || d.rel >= Math.max(tradeTrust(n), tradeTrust(o)); };
-const canTradeWith = (n, o) => relOK(n, o) && o.alive && o.id !== n.id && dip(n.id, o.id).met && !dip(n.id, o.id).emb && !atWar(n.id, o.id) && tradeOpen(o) && tradeReach(n, o);
+const canTradeWith = (n, o) => { if (!o.alive || o.id === n.id) return false; const d = dip(n.id, o.id); return d.met && !d.emb && !d.war && tradeOpen(o) && tradeReach(n, o) && relOK(n, o); }; /* cheap checks first */
 // broad sectors of the economy. Mostly private; you steer them with public investment, subsidies, tariffs or by nationalizing them
 const SECTORS = {
   house:  { name: "Housing", icon: "🏠", era: 1, w: .12, chain: "health", amp: .15, eff: "room in settlements", d: "Homes for your people." },
@@ -1363,7 +1364,8 @@ function suitOf(n) { // how well your land suits each sector (1 = average; low m
   suitCache.set(n.id, r); return r;
 }
 const suitWord = su => su < .55 ? "Poor" : su < .85 ? "Weak" : su < 1.15 ? "Fair" : su < 1.45 ? "Good" : "Excellent";
-function stratStatus(n) {
+function stratStatus(n) { return turnCache("ss" + n.id, () => stratStatus0(n)); }
+function stratStatus0(n) {
   const out = [];
   for (const s of STRAT_NEED) {
     if (n.era < s.from || n.era > s.to) continue;
@@ -1456,7 +1458,8 @@ const fireCov = n => { const need = firewoodNeed(n); return need > 0 ? Math.min(
 const roleName = (n, k) => TIME[k].name;
 const roleIcon = (n, k) => TIME[k].icon;
 const roleOpen = (n, k) => (!TIME[k].tech || has(n, TIME[k].tech)) && !(n.retired && n.retired[k]) && (!TIME[k].when || TIME[k].when(n) || (n.time && n.time[k] > 0)); /* roles your people have outgrown leave the allocation */
-function timeOf(n) {
+function timeOf(n) { if (n.time && n._toT === G.turn && n._toS === G.sv) return n.time; n._toT = G.turn; n._toS = G.sv; return timeOf0(n); }
+function timeOf0(n) {
   if (n.time && n.time.hunt != null) { const o = n.time; n.time = { warrior: o.train || 20, food: o.hunt || 45, build: o.craft || 20, elder: o.lore || 10, scout: o.scout || 5 }; } // older saves
   if (!n.time) { n.time = {}; for (const k in TIME) n.time[k] = TIME[k].def; }
   if (n.time.farm == null) n.time.farm = 0;
@@ -1634,8 +1637,8 @@ function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = cold
 function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
   for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
 function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
-let tcKey = null, tcMap = new Map(); /* per-turn cache for values that loop over every settlement */
-function turnCache(id, f) { const key = G.turn + ":" + G.sv + ":" + (G.bv || 0); if (tcKey !== key) { tcKey = key; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
+let tcT = -1, tcS = -1, tcB = -1, tcMap = new Map(); /* per-turn cache for values that loop over every settlement */
+function turnCache(id, f) { if (tcT !== G.turn || tcS !== G.sv || tcB !== (G.bv || 0)) { tcT = G.turn; tcS = G.sv; tcB = G.bv || 0; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
 function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
 const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1) * (has(n, "sledges") ? 1.05 : 1) * (1 + thinkB(n, "build"));
@@ -1655,7 +1658,7 @@ function workProjects(n) { // each settlement's builders work through its own qu
       if (x.cond < 35) decay(n, x); }
     x.waitMat = false;
     /* builders finish everything that fits this season, in order; a big job that doesn't fit soaks up whatever time is left over */
-    const fin = it => { if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; G.bv = (G.bv || 0) + 1; if (it.id === "hut") hutGrow(x); if (it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); }
+    const fin = it => { if (it.repeat) { x.b[it.id] = (x.b[it.id] || 0) + 1; if (!n.ai) G.bv = (G.bv || 0) + 1; if (it.id === "hut") hutGrow(x); if (it.tier && !n.ai) log(`${x.name} has a new ${it.one}. ${it.d}`, it.icon); }
       else { P0.done[it.id] = 1; G.sv++; if (!n.ai) log(`The builders of ${x.name} finished the ${it.name.toLowerCase()}. ${it.d}`, it.icon); } };
     for (let i = 0; i < x.pq.length && hrs > 1e-9 && guard++ < 200;) {
       const it = itemOf(x.pq[i]); if (!it || (!it.repeat && P0.done[it.id])) { x.pq.splice(i, 1); continue; }
@@ -1669,7 +1672,7 @@ function workProjects(n) { // each settlement's builders work through its own qu
 function decay(n, x) { const sev = (35 - x.cond) / 35, kinds = Object.keys(x.b).filter(k => STRUCTS[k] && x.b[k] > 0), tot = kinds.reduce((a, k) => a + x.b[k], 0);
   let k0 = tot * sev * .04; const lost = {};
   while (tot > 0 && (k0 >= 1 || rnd() < k0)) { k0 -= 1; let r = rnd() * kinds.reduce((a, k) => a + x.b[k], 0), k = kinds[0]; for (const q of kinds) { r -= x.b[q]; if (r <= 0) { k = q; break; } }
-    if (x.b[k] > 0) { x.b[k]--; G.bv = (G.bv || 0) + 1; lost[k] = (lost[k] || 0) + 1; } if (Object.values(lost).reduce((a, v) => a + v, 0) > 6) break; }
+    if (x.b[k] > 0) { x.b[k]--; if (!n.ai) G.bv = (G.bv || 0) + 1; lost[k] = (lost[k] || 0) + 1; } if (Object.values(lost).reduce((a, v) => a + v, 0) > 6) break; }
   let shrank = false; if ((x.exp || 0) > 0 && rnd() < .12 * sev + .03) { x.exp--; shrank = true; G.sv++; }
   if (n.ai || (!Object.keys(lost).length && !shrank)) return;
   const at = n.alertT || (n.alertT = {}), key = "decay" + x.id, txt = `${Object.entries(lost).map(([k, v]) => `${v} ${v === 1 ? STRUCTS[k].one : STRUCTS[k].name.toLowerCase()}`).join(", ")}${Object.keys(lost).length ? " collapsed" : ""}${shrank ? `${Object.keys(lost).length ? ", and" : ""} the borders shrank back` : ""}`;
@@ -1746,7 +1749,8 @@ const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propS
 const welfareWork = n => .02 * welfareLv(n); // healthier, steadier people work better
 const FLOWS = ["govWages", "pubWages", "secImp", "secExp", "secTar", "secSub", "secState", "secInv", "secNet", "natTar", "tax", "routeGold", "luxGold", "foodGold", "bUp", "armyUp", "imports", "govUp", "goldNet", "mat", "sci", "resGold", "resMat", "resSci", "acadUp", "sciPay", "offPay", "gross", "fixed", "spend", "milGold", "qtyGold", "qualGold", "prodGold", "travelGold", "subGold", "propGold", "incGold", "healthGold", "spare"];
 function econM(n) { setTD(); const E = econ(n), M = { ...E, raw: E }; for (const k of FLOWS) M[k] = E[k] * TD; return M; } // what a quarter brings in and costs
-function econ(n) {
+function econ(n) { return n.ai ? turnCache("ec" + n.id, () => econ0(n)) : econ0(n); } /* other peoples' books are worked out once a turn */
+function econ0(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
   const taxM = { low: .7, normal: 1, high: 1.35, extort: 1.7 }[L.tax];
@@ -2027,12 +2031,14 @@ const seeAll = () => !G.fog || G.fogAll || G.setup || G.demo;
 const visibleAt = (x, y) => seeAll() || G.fog.some(d => Math.hypot(d.x - x, d.y - y) < d.r);
 const fogged = ri => G.exp && !G.setup && !G.demo && !G.exp[ri];
 function updateContacts() {
+  const PR = new Map(); for (const s of G.sets) { let p = PR.get(s.o); if (!p) PR.set(s.o, p = new Set()); p.add(s.r); }
+  const presOf = n => PR.get(n.id) || new Set();
   for (const a of G.nations) { if (!a.alive) continue;
     for (const b of G.nations) { if (!b.alive || b.id <= a.id) continue;
       const d = dip(a.id, b.id); if (d.met) continue;
       const late = (has(a, "navigation") && has(b, "navigation")) || (a.era >= 6 && b.era >= 6);
       const ra = reachSet(a), rb = reachSet(b);
-      if (late || [...pres(a)].some(ri => rb.has(ri)) || [...pres(b)].some(ri => ra.has(ri))) {
+      if (late || [...presOf(a)].some(ri => rb.has(ri)) || [...presOf(b)].some(ri => ra.has(ri))) {
         if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
         d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
         if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝");
@@ -2098,7 +2104,7 @@ const HARD = { drought: { icon: "🏜️", name: "Drought", d: "The rains have f
   sickness: { icon: "🤒", name: "Sickness", d: "A sickness moves from hut to hut.", help: "Refuse pits, sweat lodges and healers soften it; crowded villages suffer most." },
   hunt: { icon: "🦌", name: "The game has gone", d: "The herds have moved on and the hunters come home empty-handed.", help: "Foragers, fishers, farms and food stores soften it." } };
 function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
-  if (!n.hard && rnd() < .1 / TPY) { const cN = coldNation(n), dryF = sets.filter(dry).length / sets.length, big = sets.reduce((a, x) => a + bigF(x), 0) / sets.length;
+  if (!n.hard && rnd() < .1 / TPY * YEARS_PER_TURN[0] / YEARS_PER_TURN[calEra(G.year)]) { /* in step with how fast peoples grow in each age of the calendar */ const cN = coldNation(n), dryF = sets.filter(dry).length / sets.length, big = sets.reduce((a, x) => a + bigF(x), 0) / sets.length;
     const w = { drought: .6 + 3 * dryF, winter: cN > .3 ? 2.5 * cN : 0, sickness: .8 + 2 * big, hunt: .5 + 3 * timeShare(n, "food") };
     let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), k = "drought"; for (const q in w) { r -= w[q]; if (r <= 0) { k = q; break; } }
     n.hard = { k, left: 1 + Math.floor(rnd() * 3) };
@@ -2241,7 +2247,7 @@ function processNation(n) {
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
     if (sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
     if (s.t >= 1 && s.g > 0 && n.ai) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
-    if (s.pop >= cap * start) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD;
+    if (s.pop >= (n.ai && s.t === 0 ? Math.min(cap * start, 70) : cap * start)) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
     else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
     if (!n.ai) { s.ov = T.need; if (!s.moveAsk) { s.moveAsk = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🛖", title: `${s.name} is getting full`, text: `Some families of ${s.name} would like to found a new village. In Production, tap "Found a new village" and choose where, within your scouts' reach.` }); } continue; } /* you choose where your people settle */
@@ -2602,8 +2608,9 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal";
   if (tribal(n)) { const P0 = prodState(n);
-    if (rnd() < n.aiSkill) for (const x of setsOf(n)) { sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 1.2 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
-     for (let tries = 0; tries < 12 && qd < cap; tries++) { let best = null, bs = 0;
+    if (rnd() < n.aiSkill) for (const x of setsOf(n)) { if ((G.turn + x.id) % 2) continue; /* each village plans every other season */ sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 2.4 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
+     if (qd > cap * .5) continue; /* plenty still queued */
+     for (let tries = 0; tries < 6 && qd < cap; tries++) { let best = null, bs = 0;
       for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = (1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d) * (STRUCTS[k].opt ? .35 : 1); if (sh > bs) { bs = sh; best = k; } } /* needs before nice-to-haves */
       if (best) { x.pq.push(best); qd += STRUCTS[best].hours; } else break; }
       if (x.pq.length) continue;
@@ -2996,7 +3003,7 @@ function endTurn() {
   if (G.year >= 2100 && !G.over) { const rank = ranking(); G.over = true; G.outcome = { win: rank[0].id === G.player, why: rank[0].id === G.player ? "The year 2100 arrives and your nation stands first among all nations." : `The year 2100 arrives. The ${nm(rank[0])} leads the world; you finished #${rank.findIndex(n => n.id === G.player) + 1}.` }; }
   G.event = G.over ? null : rollEvent();
   G.lastReport = G.news.slice();
-  save();
+  saveSoon();
 }
 function score(n) { const sets = setsOf(n); return Math.round(terrCount(n) * 25 + sets.reduce((a, s) => a + U(s.pop) * 2 + s.t * 4, 0) + n.techs.length * 8 + n.army); }
 function ranking() { return G.nations.filter(n => n.alive).sort((a, b) => score(b) - score(a)); }
@@ -3005,7 +3012,11 @@ function defeat() { G.fogAll = true; G.over = true; G.outcome = { win: false, wh
 
 // ================= SAVE =================
 const SAVE_KEY = "cradle-cosmos-save-v2";
-function save() { try { delete G.cells; localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch (e) {} }
+function save() { try { delete G.cells; localStorage.setItem(SAVE_KEY, JSON.stringify(G)); lastSave = Date.now(); } catch (e) {} }
+/* saving a big world every turn is slow: save at most every few seconds, and always when you leave */
+let lastSave = 0, saveT = null;
+function saveSoon() { if (Date.now() - lastSave > 4000) { clearTimeout(saveT); saveT = null; save(); } else if (!saveT) saveT = setTimeout(() => { saveT = null; save(); }, 4000); }
+addEventListener("pagehide", () => { if (G && !G.demo) save(); }); document.addEventListener("visibilitychange", () => { if (document.hidden && G && !G.demo) save(); });
 function restoreCells() {
   delete G.cells;
   for (const n of G.nations) if (!n.fields) n.fields = {};
