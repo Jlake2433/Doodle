@@ -2092,10 +2092,29 @@ function retireRoles(n, E) { const R = n.retired || (n.retired = {}), t = timeOf
         pop("🪣", "Water at hand", "For two years your cisterns, wells and springs have given everyone water. No one needs to carry it anymore, so the water carriers have become builders. They no longer appear in Who does what."); } }
     else if (setsOf(n).some(x => waterInfra(x) < x.pop * .9)) { R.water = false; n.waterOkT = 0; const w = carriersNeeded(n); t.water = w; t.build = Math.max(0, (t.build || 0) - w);
       pop("💧", "Water carriers needed again", "Your people have outgrown their cisterns and wells. Some families are carrying water again (Who does what); build more to free them."); } } }
+/* hard years: drought, a brutal winter, sickness or a failed hunt. Well-run tribes ride them out; poorly run ones bleed */
+const HARD = { drought: { icon: "🏜️", name: "Drought", d: "The rains have failed: streams shrink and plants wither.", help: "Storage pits and smokehouses, water stores and a food surplus soften it." },
+  winter: { icon: "🌨️", name: "A brutal winter", d: "Bitter cold and deep snow: game hides and families freeze.", help: "Fire pits, clothes, firewood and food stores soften it." },
+  sickness: { icon: "🤒", name: "Sickness", d: "A sickness moves from hut to hut.", help: "Refuse pits, sweat lodges and healers soften it; crowded villages suffer most." },
+  hunt: { icon: "🦌", name: "The game has gone", d: "The herds have moved on and the hunters come home empty-handed.", help: "Foragers, fishers, farms and food stores soften it." } };
+function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
+  if (!n.hard && rnd() < .1 / TPY) { const cN = coldNation(n), dryF = sets.filter(dry).length / sets.length, big = sets.reduce((a, x) => a + bigF(x), 0) / sets.length;
+    const w = { drought: .6 + 3 * dryF, winter: cN > .3 ? 2.5 * cN : 0, sickness: .8 + 2 * big, hunt: .5 + 3 * timeShare(n, "food") };
+    let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), k = "drought"; for (const q in w) { r -= w[q]; if (r <= 0) { k = q; break; } }
+    n.hard = { k, left: 1 + Math.floor(rnd() * 3) };
+    if (!n.ai) { const H = HARD[k]; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: H.icon, title: `A hard year: ${H.name.toLowerCase()}`, text: `${H.d} It will last ${n.hard.left === 1 ? "a season" : `about ${n.hard.left} seasons`}. ${H.help}` }); } }
+  if (!n.hard) return;
+  const k = n.hard.k, am = amenOf(n), stores = Math.min(1, .6 * structCov(n, "pit") + .5 * structCov(n, "smoke") + .3 * structCov(n, "rack")), fed = clamp((n._fedE || 0) * 2, 0, .5);
+  let f = 1.3 * (k === "drought" ? .05 * (1 - .7 * stores) * (1 - fed) * (1.2 - .4 * waterOf(n)) : k === "winter" ? .06 * coldNation(n) * (1 - .7 * am.warmth) * (1 - .5 * stores)
+    : k === "sickness" ? .05 * (1 - .5 * am.health) * (1 - .5 * healCov(n)) : .05 * timeShare(n, "food") * 2 * (1 - .7 * stores) * (1 - fed));
+  if (n.ai) { const sk = n.aiSkill == null ? 1 : n.aiSkill; f *= sk < .7 ? 1 + 7 * (.7 - sk) : 1.5 - sk; } /* poorly led peoples suffer far more */
+  let lost = 0; for (const x of sets) { const d = x.pop * f * (k === "sickness" ? Math.min(1.5, .5 + x.pop / 80) : 1); x.pop = Math.max(2, x.pop - d); lost += d; }
+  if (!n.ai && lost >= .5) alertLoss(n, Math.round(lost), HARD[k].icon, HARD[k].name, `${HARD[k].name} took ${Math.max(1, Math.round(lost))} famil${Math.round(lost) === 1 ? "y" : "ies"} this season. ${HARD[k].help}`);
+  if (--n.hard.left <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
 function collapseTribe(n) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
   const cand = G.nations.filter(o => o.alive && o !== n && setsOf(o).length).map(o => { const c = capSet(o) || setsOf(o)[0], d = Math.hypot(c.x - c0.x, c.y - c0.y), dd = dip(n.id, o.id);
-    return { o, d, sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 6).sort((a, b) => a.sc - b.sc), to = cand.length ? cand[0].o : null;
+    return { o, d, sc: d - dd.rel * .02 - (dd.met ? 1 : 0) + (dd.war ? 5 : 0) }; }).filter(z => z.d < 60).sort((a, b) => a.sc - b.sc), to = cand.length ? cand[0].o : null;
   const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
   whist("🍂", to ? `The ${nm(n)} faded away; its last families joined the ${nm(to)}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`, "fall", [n.id].concat(to ? [to.id] : []));
   if (to) { const tc = capSet(to) || setsOf(to)[0], f = fam * .7; tc.pop += f; addPeople(to, n, f, 0, tc); }
@@ -2194,8 +2213,9 @@ function processNation(n) {
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   if (tribal(n)) retireRoles(n, E);
-  if (n.ai && tribal(n)) { const p0 = popOf(n); n.pop0 = n.pop0 || Math.max(20, p0); n.lowT = p0 < .4 * n.pop0 ? (n.lowT || 0) + 1 : 0;
-    if (p0 < 12 || n.lowT > 20 * TPY) { collapseTribe(n); return; } } /* too few left to carry on */
+  if (tribal(n)) stepHardYear(n, E);
+  if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + 1 : 0;
+    if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; n._fedE = sr; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, G.nations.filter(o => o.alive && atWar(n.id, o.id)).length);
@@ -2569,7 +2589,7 @@ function bestVillageSpot(n, fromRi) {
 }
 function aiTurn(n) {
   if (!n.alive) return;
-  if (n.aiSkill == null) n.aiSkill = rnd() < .25 ? .25 + rnd() * .3 : .75 + rnd() * .25; /* hidden: how wisely this people is led */
+  if (n.aiSkill == null) n.aiSkill = rnd() < .3 ? .25 + rnd() * .3 : .75 + rnd() * .25; /* hidden: how wisely this people is led */
   const E = econ(n), sets = setsOf(n);
   const wars = G.nations.filter(o => atWar(n.id, o.id));
   // laws & government
@@ -3610,7 +3630,7 @@ function panelPeople() {
   let h = ph("Our people", `${fmtP(pop)} ${tr ? "families" : "people"} · ${esc(demonym(n))}`);
   if (tr) { const E1 = econM(n), am = amenOf(n), fed = E1.raw.surplus >= 0, pct = v => `${Math.round(v * 100)}%`, cls = v => v < .6 ? "bad" : v < .95 ? "warn" : "good";
     const hc = Math.min(1, structCov(n, "hut") + .5 * homeShares(n).shk);
-    h += `<div class="card"><h4>🏕️ Needs</h4><p class="small muted">Every family needs a home, water, food, and the comforts that make life bearable.</p>
+    h += `<div class="card"><h4>🏕️ Needs</h4>${n.hard ? `<p class="note warn">${HARD[n.hard.k].icon} <b>${HARD[n.hard.k].name}</b>: ${HARD[n.hard.k].d} ${n.hard.left} more season${n.hard.left === 1 ? "" : "s"}. ${HARD[n.hard.k].help}</p>` : ""}<p class="small muted">Every family needs a home, water, food, and the comforts that make life bearable.</p>
       ${line("🛖 Homes", pct(hc), cls(hc))}${line("💧 Water", pct(waterOf(n)), cls(waterOf(n)))}${line("🍖 Food", fed ? "Fed" : "Hungry", fed ? "good" : "bad")}
       ${Object.entries(AMEN).map(([k, a]) => k === "warmth" && coldNation(n) < .15 ? line(`${a.icon} ${a.name}`, `<span class="muted">Not needed: it's never cold here</span>`) : line(`${a.icon} ${a.name}`, pct(am[k]), cls(am[k]))).join("")}
       ${waterOf(n) < .98 ? `<p class="small muted">💧 Rivers, springs and rain give each place some water for free, more in wet lands and on great rivers, less in deserts and in summer. Beyond that, water carriers must fetch it (Who does what), or you can store and dig for it (Production › Water). Without it, families leave and bad water spreads sickness.</p>` : ""}

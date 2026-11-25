@@ -69,6 +69,14 @@ To do (later ages):
   - scourge: 5+ settlements sacked or raided, or great tribute taken, from much bigger peoples
   - defender: threw back a much larger invader
   - conqueror: the Alexander-level bar
+- **Tactics (later ages):** the leader decides how much of the army's quality gets used. A poor general blunders often: ambushed, outflanked or caught in bad ground, his army fights at half strength or worse. A brilliant one lands masterstrokes for double strength or more. A great general with a great army is your Alexander. Stone Age chiefs stay simple.
 - When they die, their people's power drops.
 - Organized armies and military buildings (barracks, armories) in later ages.
 - Expand the customs that shape a military.
+
+## Survival period (built)
+
+- The first ~400 years are about surviving. Tribes start far apart (the nearest neighbor is about 96 map units away on average), so wars are rare until peoples grow toward each other.
+- Hard years (about 10% a year per tribe, 1–3 seasons): drought, brutal winters (cold lands), sickness (worst in big villages), failed hunts. Stores, warmth, health, healers, water and a food surplus soften them.
+- AI tribes roll a hidden competence; about 30% are poorly led and suffer far more in hard years.
+- A tribe collapses if it falls below 45% of its peak for 6 years, or under 12 families. Its survivors join the nearest people within about 60 units (as a minority people), or vanish. In testing, 3–6 of 30 tribes collapse in the first 400 years.
