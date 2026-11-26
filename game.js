@@ -933,6 +933,7 @@ function nearSets(x, y, r) {
 }
 function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false, at = null) {
   const nn = G.nations[nid];
+  if (nn && from && !at && scripted(nn) && !nn.ancFree) return null; /* the old cultures keep the villages they have: their people refill them rather than found new ones */
   if (nn && from && !at && nn.ancCap && turnCache("ap" + nn.id, () => popOf(nn)) >= nn.ancCap * .97) return null; /* and once its land is full, no one leaves to found new villages */
   const pt = at ? [at.x, at.y] : from ? samplePoint(ri, from, G.nations.length > 1 ? nid : -1, settleRange(nn, directed), !(nn && (has(nn, "sailing") || setsOf(nn).some(x => builtAt(x, "canoe") > 0)))) : samplePoint(ri, from, G.nations.length > 1 ? nid : -1);
   if (!pt && from) return null;
@@ -1456,8 +1457,10 @@ function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m
 // It ends with the division of labor, once there are too many mouths for hunters and warriors to feed ----
 const STATE_POP = 2000;
 /* yearly births and everyday deaths per family, and how the ages change them: medicine and clean water cut deaths first, then families have fewer children as people move to cities */
-const BIRTH_RATE = .045, DEATH_RATE = .04;
+const BIRTH_RATE = .044, DEATH_RATE = .04;
 const BIRTH_ERA = [1, 1, 1, 1, .98, .92, .6, .45], DEATH_ERA = [1, 1, 1, .97, .93, .7, .4, .3], TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where people crowd */
+/* the old cultures' towns stand for whole stretches of farmland, so they live and sicken like the countryside; only real cities are cities */
+const tierEff = x => x.t < 2 && G.nations[x.o] && scripted(G.nations[x.o]) ? 0 : x.t;
 const LEAVE_RATE = .0015; /* a few families leave every year to live among other peoples */
 const tribal = n => !n.stateUp;
 // a tribe has no budget: it has people. You decide who does what: warriors, food-gatherers, builders, elders and scouts
@@ -2153,7 +2156,7 @@ function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
   let f = 1.3 * (k === "drought" ? .05 * (1 - .7 * stores) * (1 - fed) * (1.2 - .4 * waterOf(n)) : k === "winter" ? .06 * coldNation(n) * (1 - .7 * am.warmth) * (1 - .5 * stores)
     : k === "sickness" ? .05 * (1 - .5 * am.health) * (1 - .5 * healCov(n)) : .05 * timeShare(n, "food") * 2 * (1 - .7 * stores) * (1 - fed));
   if (n.ai) { const sk = n.aiSkill == null ? 1 : n.aiSkill; f *= sk < .7 ? 1 + 7 * (.7 - sk) : 1.5 - sk; } /* poorly led peoples suffer far more */
-  let lost = 0; for (const x of sets) { const d = x.pop * f * (k === "sickness" ? Math.min(1.5, .5 + x.pop / 80) : 1); x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost);
+  let lost = 0; for (const x of sets) { const d = x.pop * f * (k === "sickness" ? Math.min(1.5, .5 + x.pop / 80) : 1); x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost, HARD[k].name.toLowerCase());
   if (!n.ai && lost >= .5) alertLoss(n, Math.round(lost), HARD[k].icon, HARD[k].name, `${HARD[k].name} took ${Math.max(1, Math.round(lost))} famil${Math.round(lost) === 1 ? "y" : "ies"} this season. ${HARD[k].help}`);
   if (--n.hard.left <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
@@ -2322,9 +2325,48 @@ function placeAncient(c, avoid) {
   n.peak = popOf(n); n.ancCap = n.peak * 1.25; /* their homeland is already full: room for a little more, not for doubling */
   return n; }
 const andList = a => a.length > 1 ? a.slice(0, -1).join(", ") + " and " + a[a.length - 1] : a[0] || "";
+/* ================= BUSTS: sickness that spreads, regional droughts, failed harvests =================
+   Good years let a people grow; these are what held the long-run average down for most of history */
+const EPI_SEED = .012, EPI_SPREAD = .3, EPI_RANGE = 4, DROUGHTS_A_YEAR = 5, HARVEST_BAD = .1, HARVEST_DIRE = .03;
+const bustTell = (n, key, icon, title, text) => { if (!n || n.ai || n.id !== G.player) return; const at = n.bustT || (n.bustT = {}); if (at[key] != null && G.year - at[key] < 2) return; at[key] = G.year;
+  (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); hist(n, icon, title + "."); };
+/* how well a place holds off sickness: healers and clean living in a tribe, health spending in a nation; medicine later */
+function sickWard(n, x) { if (tribal(n)) return clamp(.4 * healCov(n) + .35 * amenAt(n, x).health, 0, .8); return clamp(.2 + .05 * bud(n).health, 0, .8); }
+/* food put by for bad times */
+function storesOf(n) { if (tribal(n)) return Math.min(1, .6 * structCov(n, "pit") + .5 * structCov(n, "smoke") + .3 * structCov(n, "rack")); return setsOf(n).some(x => builtAt(x, "granary")) ? .6 : .3; }
+function startEpi(x, sev) { x.epi = { sev, left: 2 + Math.floor(rnd() * 3) }; const n = G.nations[x.o];
+  bustTell(n, "epi", "🤒", "Sickness is spreading", `A sickness has broken out in ${x.name}, and it passes from house to house and village to village. Healers, refuse pits and clean water hold it back; crowded places suffer most.`); }
+function stepBusts() {
+  const yrs = 1 / TPY, season = Math.floor((G.month || 0) / 3);
+  /* sickness: it starts more often in big, crowded places, kills for a few seasons, jumps to nearby settlements, and leaves the survivors immune for a generation or so */
+  for (const x of G.sets) { if (!x.epi) continue; const n = G.nations[x.o]; if (!n || !n.alive) { delete x.epi; continue; }
+    const d = x.pop * x.epi.sev * (1 - sickWard(n, x)) * DEATH_ERA[Math.min(7, n.era)]; x.pop = Math.max(2, x.pop - d); tally(n, "c", d, "sickness");
+    for (const o of nearSets(x.x, x.y, EPI_RANGE)) if (o !== x && !o.epi && !(o.imm > G.year) && Math.hypot(o.x - x.x, o.y - x.y) < EPI_RANGE && rnd() < EPI_SPREAD * Math.min(2, Math.min(o.pop, 300) / 120) * TIER_DEATH[tierEff(o)]) startEpi(o, x.epi.sev * (.8 + .4 * rnd()));
+    if (--x.epi.left <= 0) { delete x.epi; x.imm = G.year + 15 + Math.floor(rnd() * 20); } }
+  for (const x of G.sets) if (!x.epi && !(x.imm > G.year) && rnd() < EPI_SEED * Math.pow(Math.min(300, Math.max(1, x.pop)) / 100, .8) * Math.pow(TIER_DEATH[tierEff(x)], 4) * (x.crowd ? 1.5 : 1) * yrs) startEpi(x, .04 + .06 * rnd());
+  /* droughts: the rains fail over a whole region for a few years. Everyone living there loses people, and farmers lose their harvests */
+  const D = G.droughts || (G.droughts = []);
+  if (season === 0 && G.sets.length) { let k = 0; const want = DROUGHTS_A_YEAR; while (k < want * 2 && D.filter(q => q.y0 === G.year).length < want) { k++;
+      const pn = G.nations[Math.floor(rnd() * G.nations.length)], pss = pn && pn.alive ? setsOf(pn) : []; if (!pss.length) continue; /* anywhere people live, not weighted by how many villages crowd there */
+      const c = pss[Math.floor(rnd() * pss.length)], wet = TER[W.regions[c.r].t].food; if (rnd() > 1.1 - .35 * wet) continue; /* dry lands fail more often */
+      const q = { x: c.x, y: c.y, R: 8 + rnd() * 14, y0: G.year, until: G.year + 2 + Math.floor(rnd() * 5), sev: .3 + .7 * rnd() }; D.push(q);
+      for (const o of nearSets(q.x, q.y, q.R)) if (Math.hypot(o.x - q.x, o.y - q.y) < q.R) { bustTell(G.nations[o.o], "dry", "🏜️", "A long drought", `The rains have failed across the whole region around ${o.name}, and it may be years before they return. Stores of food and water carry a people through; many will leave for wetter lands.`); } } }
+  G.droughts = D.filter(q => G.year < q.until);
+  for (const q of G.droughts) for (const o of nearSets(q.x, q.y, q.R)) { if (Math.hypot(o.x - q.x, o.y - q.y) >= q.R) continue; const n = G.nations[o.o]; if (!n) continue;
+    const d = o.pop * .012 * q.sev * (1 - .6 * storesOf(n)) * DEATH_ERA[Math.min(7, n.era)]; o.pop = Math.max(2, o.pop - d); o.dry = G.year; tally(n, "c", d, "drought"); }
+  /* harvests: farming peoples have bad years; food stores soften them, and two bad years running bring famine */
+  if (season === 3) for (const n of G.nations) { if (!n.alive || !has(n, "agriculture")) continue;
+    const dep = tribal(n) ? clamp(timeShare(n, "farm") * 2.5, 0, 1) : .8; if (dep < .1) { n.harv = 0; continue; }
+    const ss = setsOf(n), dry = ss.length && ss.filter(x => x.dry === G.year).length / ss.length > .5, r = rnd(), bad = dry || r < HARVEST_BAD, dire = r < HARVEST_DIRE;
+    const prev = n.harv || 0; n.harv = bad ? (dire ? 2 : 1) : 0;
+    if (!bad) continue;
+    const rate = dep * (dire ? .015 : .006) * (prev ? 2 : 1) * (1 - .7 * storesOf(n)); n.harvL = { left: TPY, rate, famine: !!prev };
+    bustTell(n, "harv", "🌾", prev ? "Famine" : "The harvest failed", prev ? "A second bad harvest in a row: the stores are gone and families are starving. Storage pits, smokehouses and granaries are what carry a people through." : `${dire ? "The harvest has failed almost completely." : "A poor harvest."} The coming year will be lean. Food put by in storage pits, smokehouses and granaries softens it.`); }
+  for (const n of G.nations) { const h = n.harvL; if (!h || !n.alive) continue; let lost = 0; for (const x of setsOf(n)) { const d = x.pop * h.rate; x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost, h.famine ? "famine" : "failed harvest"); if (--h.left <= 0) delete n.harvL; }
+}
 /* births and deaths balance once a people's land is full */
 /* the player's year in numbers: births, everyday deaths, crisis deaths, families who left and families who arrived */
-function tally(n, k, v) { if (!n || n.ai || n.id !== G.player || !(v > 0)) return; const y = n.yr || (n.yr = { b: 0, d: 0, c: 0, l: 0, a: 0 }); y[k] = (y[k] || 0) + v; }
+function tally(n, k, v, why) { if (!n || n.ai || n.id !== G.player || !(v > 0)) return; const y = n.yr || (n.yr = { b: 0, d: 0, c: 0, l: 0, a: 0 }); y[k] = (y[k] || 0) + v; if (why) { const c = y.cc || (y.cc = {}); c[why] = (c[why] || 0) + v; } }
 /* families leaving a people settle among a neighbor they know, chosen by how well the two peoples get along */
 function leaveTo(n, k) { const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
   const cand = metOf(n).map(o => { const c = capSet(o) || setsOf(o)[0]; return c && !atWar(n.id, o.id) && Math.hypot(c.x - c0.x, c.y - c0.y) < 25 ? { o, c, w: Math.max(5, dipR(n.id, o.id).rel + 60) } : null; }).filter(Boolean);
@@ -2498,7 +2540,7 @@ function processNation(n) {
   } else if (n.trust > 40) n.trustWarned = false;
   if (n.trust <= 0) civilWar(n);
   // growth: each settlement grows toward its limit. Full villages stop growing.
-  const sr = clamp(E.surplus / Math.max(1, E.need), -1, 3); // plenty of food means more children survive
+  const sr = scripted(n) ? Math.max(.05, clamp(E.surplus / Math.max(1, E.need), -1, 3)) : clamp(E.surplus / Math.max(1, E.need), -1, 3); // plenty of food means more children survive; the old cultures' land feeds them in ordinary years (droughts and failed harvests still strike)
   const sets = setsOf(n), FERT = fertility(n, E); n.fert = FERT.mult;
   // families without a hut throw up shacks of their own: they get through most winters, barely, and they resent it
   let H = 0;
@@ -2518,7 +2560,7 @@ function processNation(n) {
       if (x.homelessT > TPY && roof >= .5) { d = winter ? roof * .12 * cold : 0; l = roof * .05; }
       const tot = ds + ls + d + l, loss = Math.min(Math.max(0, x.pop - 2), tot); if (loss <= 0) continue; const k = loss / tot;
       x.pop -= loss; x.shk = Math.max(0, x.shk - (ds + ls) * k); died += (ds + d) * k; dS += ds * k; left += (ls + l) * k; }
-    tally(n, "c", died + sick + coldH); tally(n, "l", left + thirstL);
+    tally(n, "c", died + coldH, "cold"); tally(n, "c", sick, "sickness"); tally(n, "l", left + thirstL);
     n.lostThirst = (n.lostThirst || 0) + thirstL;
     if (!n.ai && n.lostThirst >= Math.max(1, .02 * popOf(n))) { const v = Math.floor(n.lostThirst); n.lostThirst -= v; alertLoss(n, v, "🏜️", "Not enough water", `${v} famil${v === 1 ? "y" : "ies"} left in search of water, and bad water is making others sick. Assign more water carriers (Who does what)${has(n, "pottery") ? ", build cisterns" : ""}${has(n, "mining") ? " and wells" : ""}, or expand toward rivers and springs.`); }
     n.lostSick = (n.lostSick || 0) + sick; n.lostColdH = (n.lostColdH || 0) + coldH;
@@ -2540,16 +2582,17 @@ function processNation(n) {
   /* births and everyday deaths, counted per real year. Children are born to every people; infancy, illness and age take many of them back.
      A thriving people gains a little each year, a poor one loses; crises (cold, sickness, thirst, hunger, hard years, war) come on top */
   const yrs = 1 / TPY, era = Math.min(7, n.era), TB = tribal(n);
-  const fertB = TB ? 1 + .25 * (FERT.mult - 1.2) : 1 + .5 * ((n.laws.focus === "grow" ? .05 : 0) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0));
+  const fertB = TB ? 1 + .15 * (FERT.mult - 1.2) : 1 + .5 * ((n.laws.focus === "grow" ? .05 : 0) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0));
   const birthE = BIRTH_ERA[era], deathE = DEATH_ERA[era], heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
   const wg = 1 - .3 * (1 - warGrowth(n));
+  const rebound = n.ancCap ? 1 + .5 * clamp(1 - popOf(n) / n.ancCap, 0, .6) : 1; /* a land emptied by hard times fills back up: more children survive */
   let bornY = 0, diedY = 0;
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
-    const b = s.pop * BIRTH_RATE * Math.max(.3, fertB) * (TB ? 1 + .1 * (birthF(s) - 1) : 1) * wg * birthE * (sr < 0 ? .5 : 1) * yrs;
-    const d = s.pop * DEATH_RATE * TIER_DEATH[s.t] * heal * hb * deathE * yrs;
+    const b = s.pop * BIRTH_RATE * Math.max(.3, fertB) * (TB ? 1 + .1 * (birthF(s) - 1) : 1) * wg * rebound * birthE * (sr < 0 ? .5 : 1) * yrs;
+    const d = s.pop * DEATH_RATE * TIER_DEATH[tierEff(s)] * heal * hb * deathE * yrs;
     s.pop += b - d + (sr >= 0 ? T.flat * (TB ? .5 : 1) * .01 * Math.max(0, 1 - s.pop / cap) : 0); bornY += b; diedY += d; s.g = b - d;
-    if (sr < 0) { const p0 = s.pop; s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); tally(n, "c", p0 - s.pop); }
+    if (sr < 0) { const p0 = s.pop; s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); tally(n, "c", p0 - s.pop, "hunger"); }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
     if (s.t === 0 && s.pop > cap) s.pop = cap;
     s.pop = Math.max(2, s.pop);
@@ -2557,7 +2600,7 @@ function processNation(n) {
   tally(n, "b", bornY); tally(n, "d", diedY);
   /* every year a few families leave to live among a neighboring people: more when the people are unhappy, hungry or crowded */
   { const mood = n.fac && n.fac.commoners != null ? clamp(2 - n.fac.commoners / 50, .4, 2.5) : 1, room = roomOf(n);
-    const rate = LEAVE_RATE * mood * (room < 1 ? 1 + 2 * (1 - room) : 1) * (sr < 0 ? 3 : 1) * ((n.laws.migr || "free") === "restrict" ? .3 : 1);
+    const rate = LEAVE_RATE * (scripted(n) ? .25 : 1) * mood * (room < 1 && !scripted(n) ? 1 + 2 * (1 - room) : 1) * (sr < 0 ? 3 : 1) * ((n.laws.migr || "free") === "restrict" ? .3 : 1);
     let lf = 0; for (const s of sets) { const l = s.pop * rate * yrs; s.pop = Math.max(2, s.pop - l); lf += l; }
     tally(n, "l", lf); n.leaveAcc = (n.leaveAcc || 0) + lf;
     if (n.leaveAcc >= 1) { const k = Math.floor(n.leaveAcc); n.leaveAcc -= k; leaveTo(n, k); } }
@@ -2568,7 +2611,7 @@ function processNation(n) {
     const cap = capOf(s, n), T = TIERS[s.t];
     // villages send people out when full; towns and cities start pushing people to the countryside as they get crowded
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
-    if (sr < 0 || (n.laws.migr || "free") === "restrict") { s.crowd = false; continue; }
+    if (sr < 0 || (n.laws.migr || "free") === "restrict" || (scripted(n) && !n.ancFree)) { s.crowd = false; continue; } /* the old cultures refill their own villages */
     if (s.t >= 1 && s.g > 0 && n.ai) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
     if (s.pop >= (n.ai && s.t === 0 ? Math.min(cap * start, 70) : cap * start)) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
     else if (s.t === 0) { s.crowd = false; continue; }
@@ -3356,6 +3399,7 @@ function endTurn() {
   if (G.year > -1400) faithFounders();
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
+  stepBusts();
   for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
   driftRelations();
   growBorders();
@@ -3479,7 +3523,10 @@ function linkOk(a, b, hw) {
   }
   return true;
 }
-const corrCache = new Map();
+const corrCache = new Map(), corrYC = new Map();
+/* a people's corridors for placing new villages: rebuilt when its settlements change, or every ten years as borders creep */
+const corrYear = n => { const ss = setsOf(n), sig = ss.length + ":" + ss.reduce((a, x) => a + x.id, 0); const c = corrYC.get(n.id);
+  if (c && c.G === G && (G.year - c.y < 4 + n.id % 4 || (c.sig === sig && G.year - c.y < 10))) return c.list; /* every few years, staggered between peoples */ const list = corridors(n, "y" + G.year + sig); corrYC.set(n.id, { y: G.year, G, sig, list }); return list; };
 function corridors(n, key = G.sv + ":" + G.turn) {
   const c = corrCache.get(n.id); if (c && c.key === key) return c.list;
   const S = setsOf(n), N = S.length, list = [];
@@ -3521,10 +3568,10 @@ function corridors(n, key = G.sv + ":" + G.turn) {
 let corrIdx = null, corrIdxTurn = -1;
 function inForeignCorridor(x, y, owner) {
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
-  if (corrIdxTurn !== G.turn || !corrIdx) {
-    corrIdxTurn = G.turn; corrIdx = new Map();
+  if (corrIdxTurn !== G.turn || !corrIdx || corrIdx.G !== G) { /* once a turn; each people's part is cached and only redone when its villages change */
+    corrIdxTurn = G.turn; corrIdx = new Map(); corrIdx.G = G;
     for (const n of G.nations) { if (!n.alive) continue;
-      for (const c of corridors(n, "t" + G.turn)) for (let gx = c.bb[0] / 4 | 0; gx <= (c.bb[2] / 4 | 0); gx++) for (let gy = c.bb[1] / 4 | 0; gy <= (c.bb[3] / 4 | 0); gy++) {
+      for (const c of corrYear(n)) for (let gx = c.bb[0] / 4 | 0; gx <= (c.bb[2] / 4 | 0); gx++) for (let gy = c.bb[1] / 4 | 0; gy <= (c.bb[3] / 4 | 0); gy++) {
         const k = gx + "," + gy; (corrIdx.get(k) || corrIdx.set(k, []).get(k)).push([n.id, c]); } }
   }
   const a = corrIdx.get((x / 4 | 0) + "," + (y / 4 | 0)); if (!a) return false;
@@ -4109,7 +4156,7 @@ function panelNation() {
       ${tf.map(x => line(esc(x[0]), `${x[1] >= 0 ? "+" : ""}${x[1].toFixed(1)}`, x[1] < 0 ? "bad" : "good")).join("")}${line("Each year", `${td >= 0 ? "+" : ""}${td.toFixed(1)}`, td < 0 ? "bad total" : "good total")}
       <p class="small muted">${n.gold < 0 ? `You owe ${fmt(-n.gold)} gold, growing ${((Math.pow(1.02, TD * TPY) - 1) * 100).toFixed(1)}% a year in interest. Debt drains trust faster the bigger it is compared with your income. ` : ""}Welfare raises trust every quarter. At zero, civil war breaks out and the nation splits in two.</p></div>`; }
   { const y = n.yrL, f = v => fmtP(Math.round(v || 0)); if (y) { const net = (y.b || 0) - (y.d || 0) - (y.c || 0) - (y.l || 0) + (y.a || 0), p0 = Math.max(1, popOf(n) - net);
-    h += `<div class="card"><h4>👪 Last year <span class="pill ${net < 0 ? "bad" : net > 0 ? "good" : ""}">${net >= 0 ? "+" : "−"}${(Math.abs(net) / p0 * 100).toFixed(1)}%</span></h4>${line("Born", f(y.b))}${line("Died", f(y.d))}${y.c >= .5 ? line("Lost to hard times", `<span class="bad">${f(y.c)}</span>`) : ""}${line("Left to live elsewhere", f(y.l))}${y.a >= .5 ? line("Arrived", `<span class="good">${f(y.a)}</span>`) : ""}
+    h += `<div class="card"><h4>👪 Last year <span class="pill ${net < 0 ? "bad" : net > 0 ? "good" : ""}">${net >= 0 ? "+" : "−"}${(Math.abs(net) / p0 * 100).toFixed(1)}%</span></h4>${line("Born", f(y.b))}${line("Died", f(y.d))}${y.c >= .5 ? line("Lost to hard times", `<span class="bad">${f(y.c)}</span>`) + (y.cc ? `<p class="small muted">${Object.entries(y.cc).filter(e => e[1] >= .5).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${f(v)}`).join(" · ")}</p>` : "") : ""}${line("Left to live elsewhere", f(y.l))}${y.a >= .5 ? line("Arrived", `<span class="good">${f(y.a)}</span>`) : ""}
       <p class="small muted">Counted in ${tribal(n) ? "families" : "people"}. Every year children are born and the old, the sick and many infants die; hard times take more. A few families always leave to live among neighbors, more when your people are unhappy, hungry or crowded.</p></div>`; } }
   if (tribal(n)) { const F = fertility(n, E.raw), room = roomOf(n);
     h += `<div class="card"><h4>👶 Fertility <span class="pill ${F.mult < .9 ? "bad" : F.mult > 1.05 ? "good" : ""}">${Math.round(F.mult * 100)}%</span></h4>${F.f.map(([k, v]) => line(k, `${v >= 1 ? "+" : "−"}${Math.round(Math.abs(v - 1) * 100)}%`, v < .97 ? "bad" : v > 1.02 ? "good" : "")).join("")}

@@ -156,10 +156,22 @@ Results of a 400-year test (3600 to 3200 BCE):
 ## Births, deaths and leaving (built)
 
 - Every settlement has births and everyday deaths, counted per real year (no longer tied to the calendar's pacing, which used to cut growth to a third after 3000 BCE).
-  - Births: 4.5% a year, raised or lowered by the tribe's fertility (food, homes, water, comforts, healers, midwives, room, mood), damped so the spread stays realistic. Small villages +2.5%. A warrior upbringing costs about 5% of births. Hungry peoples have half the children.
-  - Everyday deaths: 4% a year. Towns +6%, cities +15% (sickness spreads where people crowd). Healers cut deaths up to 6%. A nation's health spending cuts them too.
+  - Births: 4.4% a year, nudged by the tribe's fertility (food, homes, water, comforts, healers, midwives, room, mood): about 4.4% at a typical fertility of 1.2, about 4.9% for a well-developed tribe. Small villages +2.5%. A warrior upbringing costs about 5% of births. Hungry peoples have half the children.
+  - Everyday deaths: 4% a year. Towns +6%, cities +15% (sickness spreads where people crowd); the old cultures' towns count as countryside, since each stands for a stretch of farmland. Healers cut deaths up to 6%; a nation's health spending cuts them too.
   - Ages: medicine and clean water cut deaths first (Industrial ×0.7, Modern ×0.4, Information ×0.3); births fall later (Industrial ×0.92, Modern ×0.6, Information ×0.45).
-  - Crises still come on top: cold, sickness, thirst, hunger, hard years, war.
-- Leaving: about 0.15% of families a year leave to live among a neighbor they know (within about 25 units, chosen by relations), arriving as a minority people. More leave when the people are unhappy (up to 2.5×), crowded (up to 3×) or hungry (3×); a law restricting migration cuts it to 30%. With no one nearby, they're lost.
-- The Nation tab shows last year's births, deaths, losses to hard times, leavers and newcomers.
-- Measured: in the first century a typical tribe grows about 0.3–0.5% a year, the best about 0.8%, and the bottom tenth shrinks. Well-developed tribes later reach about 1%, so the world still grows fast between crises.
+- Leaving: about 0.15% of families a year leave to live among a neighbor they know (within about 25 units, chosen by relations), arriving as a minority people. More leave when the people are unhappy (up to 2.5×), crowded (up to 3×) or hungry (3×); a law restricting migration cuts it to 30%. With no one nearby they're lost. The old cultures lose a quarter as many.
+- The Nation tab shows last year's births, deaths, losses to hard times (by cause), leavers and newcomers.
+
+## Busts (built)
+
+- **Sickness that spreads:** outbreaks start more often in bigger, more crowded places (up to village-size crowds; towns and cities far more), kill 4–10% a season for 2–4 seasons, and jump to settlements within about 4 units, likelier the bigger they are. Healers and clean living (tribes) or health spending (nations) hold it back, and so does medicine in later ages. Survivors are immune for 15–35 years.
+- **Regional droughts:** about 5 a year worldwide, centered wherever people live (dry lands more often), 8–22 units across, lasting 2–6 years. Everyone inside loses people each season (up to about 1.2%), softened by food stores; farmers' harvests fail.
+- **Failed harvests:** farming peoples (by how much they depend on farming) have a bad harvest about 10% of years (3% dire) and always in a drought. The next year costs about 0.6% a season (1.5% when dire); two bad years running double it (famine). Storage pits, smokehouses and granaries soften it.
+- You get a popup when one reaches you (at most one of each kind every two years), and a line in your history.
+- The old cultures: a land emptied by hard times fills back up (more children survive while below what the homeland holds); their ordinary years feed them; they keep their villages rather than found new ones until a rise frees them.
+
+Measured over 400 years (3600 to 3200 BCE):
+- Ordinary tribes grow about 0.4–0.5% a year on average (57,000 to 277,000 families). That's down from about 0.8% without the busts, but still well above the real long-run average of about 0.05–0.1%.
+- The old cultures hold roughly steady between their historical pressures.
+- 346 of 2,000 tribes fell, almost all in the first 250 years; 79 joined neighbors.
+- Turn time: about 280 ms at the start, about 780 ms by 3200 BCE (desktop).
