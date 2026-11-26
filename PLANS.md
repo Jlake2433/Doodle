@@ -180,7 +180,10 @@ Measured over 400 years (3600 to 3200 BCE):
 ## Births: quality of life, women's work and schooling (built)
 
 - A better life raises births: in a tribe through its fertility (food, homes, water, comforts, healers); in a nation through food, wages, welfare and health spending, and homes (×0.9 to ×1.1).
-- Women in the workforce lower births, through the custom "Men's and women's work": separate roles ×1, side by side ×0.98 (farm women still raised large families), equal standing ×0.7.
+- **The trade-off of women's work** (the custom "Men's and women's work"): more hands at work means more output and fewer children.
+  - separate roles: output ×1, births ×1 (the most children)
+  - side by side (from farming on): food, materials, gold and research +5%, births ×0.98 (farm women still raised large families)
+  - equal standing (from Ideology on): output +15%, births ×0.7
 - Schooling lowers births: up to −40% as the people's education rises (from an education level of 30 to 90).
 - Together a modern, educated people with equal standing has about 60% fewer children (that's a little more than the 40% first proposed, to match real modern birthrates).
 - The fixed drop in births by age is gone.

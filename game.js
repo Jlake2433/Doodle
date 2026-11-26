@@ -604,9 +604,9 @@ const CUSTOMS = {
     guest:  { name: "Sacred hospitality", d: "A guest at your fire is protected, whoever they are.", lean: "open" },
     all:    { name: "One humanity", tech: "philosophy", d: "All peoples share the same nature; a stranger is owed what any person is owed.", lean: "open content" } } },
   work:    { name: "Men's and women's work", icon: "🧺", opts: {
-    split:  { name: "Separate roles", d: "Men hunt and fight; women gather, raise the children and keep the camp." },
-    shared: { name: "Side by side", tech: "agriculture", d: "Everyone works the fields and herds together.", lean: "industrious" },
-    equal:  { name: "Equal standing", tech: "ideology", d: "Men and women stand equal in work, property and voice.", lean: "open industrious" } } },
+    split:  { name: "Separate roles", d: "Men hunt and fight; women gather, raise the children and keep the camp. The most children." },
+    shared: { name: "Side by side", tech: "agriculture", d: "Everyone works the fields and herds together: +5% output, slightly fewer children (−2%).", lean: "industrious" },
+    equal:  { name: "Equal standing", tech: "ideology", d: "Men and women stand equal in work, property and voice: +15% output, but about 30% fewer children.", lean: "open industrious" } } },
   arts:    { name: "Arts and stories", icon: "🎨", opts: {
     oral:   { name: "Songs and stories", d: "The past lives on in songs, stories and dances passed down by mouth." },
     monument: { name: "Great monuments", tech: "masonry", d: "Carved stone and great buildings speak for the people.", lean: "devout" },
@@ -1480,7 +1480,7 @@ const STATE_POP = 2000;
 const BIRTH_RATE = .05, DEATH_RATE = .047; /* the old world: about 50 born and 47 dying for every 1,000 people each year */
 const TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where people crowd */
 /* fewer children: women working outside the home, and schooling. A better life on its own means more children survive */
-const WORK_BIRTH = { split: 1, shared: .98, equal: .7 };
+const WORK_BIRTH = { split: 1, shared: .98, equal: .7 }, WORK_OUT = { split: 1, shared: 1.05, equal: 1.15 };
 function birthLife(n, sr) { /* a nation's quality of life: food, wages, welfare and homes (a tribe's is its fertility) */
   if (tribal(n)) return 1;
   const food = clamp(sr + .3, 0, 1), wage = clamp(wageOf(n) / 2, 0, 1), B0 = bud(n), wel = Math.min(1, ((B0.inc || 0) + (B0.health || 0)) / 6), home = secUnlocked(n, "house") ? clamp((secF(n, "house") - .6) / .8, 0, 1) : .5;
@@ -1843,6 +1843,7 @@ function econ0(n) {
   }
   // how well each sector is supplied shapes the economy
   food *= (1 + thinkB(n, "food")) * (tribal(n) ? 1 : 1); mat *= 1 + thinkB(n, "crafts"); sci *= 1 + thinkB(n, "lore") * .6; tax *= 1 + thinkB(n, "trade");
+  { const w = WORK_OUT[(n.cus || {}).work] || 1; food *= w; mat *= w; tax *= w; sci *= w; } /* more hands at work: more output (and fewer children) */
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
