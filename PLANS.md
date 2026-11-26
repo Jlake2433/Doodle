@@ -156,8 +156,8 @@ Results of a 400-year test (3600 to 3200 BCE):
 ## Births, deaths and leaving (built)
 
 - Every settlement has births and everyday deaths, counted per real year (no longer tied to the calendar's pacing, which used to cut growth to a third after 3000 BCE).
-  - Births: 4.4% a year, nudged by the tribe's fertility (food, homes, water, comforts, healers, midwives, room, mood): about 4.4% at a typical fertility of 1.2, about 4.9% for a well-developed tribe. Small villages +2.5%. A warrior upbringing costs about 5% of births. Hungry peoples have half the children.
-  - Everyday deaths: 4% a year. Towns +6%, cities +15% (sickness spreads where people crowd); the old cultures' towns count as countryside, since each stands for a stretch of farmland. Healers cut deaths up to 6%; a nation's health spending cuts them too.
+  - Births: 5% a year (about 50 per 1,000), nudged by the tribe's fertility (food, homes, water, comforts, healers, midwives, room, mood): about 5% at a typical fertility of 1.2, about 5.5% for a well-developed tribe. Small villages +2.5%. A warrior upbringing costs about 5% of births. Hungry peoples have half the children.
+  - Everyday deaths: 4.7% a year (about 47 per 1,000): many children are born and many die young. Towns +6%, cities +15% (sickness spreads where people crowd); the old cultures' towns count as countryside, since each stands for a stretch of farmland. Healers cut deaths up to 6%; a nation's health spending cuts them too.
   - Ages: medicine and clean water cut deaths first (Industrial ×0.7, Modern ×0.4, Information ×0.3); births fall later (Industrial ×0.92, Modern ×0.6, Information ×0.45).
 - Leaving: about 0.15% of families a year leave to live among a neighbor they know (within about 25 units, chosen by relations), arriving as a minority people. More leave when the people are unhappy (up to 2.5×), crowded (up to 3×) or hungry (3×); a law restricting migration cuts it to 30%. With no one nearby they're lost. The old cultures lose a quarter as many.
 - The Nation tab shows last year's births, deaths, losses to hard times (by cause), leavers and newcomers.
@@ -171,7 +171,8 @@ Results of a 400-year test (3600 to 3200 BCE):
 - The old cultures: a land emptied by hard times fills back up (more children survive while below what the homeland holds); their ordinary years feed them; they keep their villages rather than found new ones until a rise frees them.
 
 Measured over 400 years (3600 to 3200 BCE):
-- Ordinary tribes grow about 0.4–0.5% a year on average (57,000 to 277,000 families). That's down from about 0.8% without the busts, but still well above the real long-run average of about 0.05–0.1%.
-- The old cultures hold roughly steady between their historical pressures.
-- 346 of 2,000 tribes fell, almost all in the first 250 years; 79 joined neighbors.
-- Turn time: about 280 ms at the start, about 780 ms by 3200 BCE (desktop).
+- The whole world grew about 22% (610,000 to 742,000 families), about 0.05% a year: the real long-run pace.
+- The old cultures, about three quarters of the world's people, hold roughly steady between their historical pressures.
+- Ordinary tribes shake out first, then boom: flat for the first century while about 20% of them fall, then about 0.5% a year as the survivors spread into empty land (53,000 to 244,000 families). That matches early farmers expanding into open country.
+- 406 of 2,000 tribes fell, almost all in the first 250 years; 80 joined neighbors.
+- Turn time: about 270 ms at the start, about 710 ms by 3200 BCE (desktop).

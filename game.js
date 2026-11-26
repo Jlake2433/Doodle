@@ -1457,7 +1457,7 @@ function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m
 // It ends with the division of labor, once there are too many mouths for hunters and warriors to feed ----
 const STATE_POP = 2000;
 /* yearly births and everyday deaths per family, and how the ages change them: medicine and clean water cut deaths first, then families have fewer children as people move to cities */
-const BIRTH_RATE = .044, DEATH_RATE = .04;
+const BIRTH_RATE = .05, DEATH_RATE = .047; /* the old world: about 50 born and 47 dying for every 1,000 people each year */
 const BIRTH_ERA = [1, 1, 1, 1, .98, .92, .6, .45], DEATH_ERA = [1, 1, 1, .97, .93, .7, .4, .3], TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where people crowd */
 /* the old cultures' towns stand for whole stretches of farmland, so they live and sicken like the countryside; only real cities are cities */
 const tierEff = x => x.t < 2 && G.nations[x.o] && scripted(G.nations[x.o]) ? 0 : x.t;
