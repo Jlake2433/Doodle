@@ -176,3 +176,43 @@ Measured over 400 years (3600 to 3200 BCE):
 - Ordinary tribes shake out first, then boom: flat for the first century while about 20% of them fall, then about 0.5% a year as the survivors spread into empty land (53,000 to 244,000 families). That matches early farmers expanding into open country.
 - 406 of 2,000 tribes fell, almost all in the first 250 years; 80 joined neighbors.
 - Turn time: about 270 ms at the start, about 710 ms by 3200 BCE (desktop).
+
+## Births: quality of life, women's work and schooling (built)
+
+- A better life raises births: in a tribe through its fertility (food, homes, water, comforts, healers); in a nation through food, wages, welfare and health spending, and homes (×0.9 to ×1.1).
+- Women in the workforce lower births, through the custom "Men's and women's work": separate roles ×1, side by side ×0.98 (farm women still raised large families), equal standing ×0.7.
+- Schooling lowers births: up to −40% as the people's education rises (from an education level of 30 to 90).
+- Together a modern, educated people with equal standing has about 60% fewer children (that's a little more than the 40% first proposed, to match real modern birthrates).
+- The fixed drop in births by age is gone.
+
+## Health advances (built)
+
+- New research, not needed to enter a new age:
+
+| Age | Advance | Effect |
+|---|---|---|
+| Bronze | Drains and Sanitation | the extra deaths of towns and cities ×0.6 |
+| Bronze | Physicians | everyday deaths ×0.97 |
+| Classical | Hippocratic Medicine | everyday deaths ×0.96 |
+| Classical | Baths and Sewers | towns and cities ×0.7; sickness spreads ×0.85 |
+| Medieval | Hospitals | outbreaks ×0.8; deaths ×0.98 |
+| Medieval | Quarantine | sickness spreads ×0.5 |
+| Renaissance | Anatomy | deaths ×0.97 |
+| Renaissance | Inoculation | smallpox ×0.5 |
+| Industrial | Vaccination | smallpox ×0.15; deaths ×0.97 |
+| Industrial | Germ Theory and Clean Water | deaths ×0.85; outbreaks ×0.7; spread ×0.7; towns and cities ×0.5 |
+| Industrial | Antiseptic Surgery | deaths ×0.96 |
+| Industrial | Medicine (existing) | deaths ×0.92 |
+| Modern | Antibiotics | deaths ×0.75; outbreaks ×0.5 |
+| Modern | Mass Vaccination | deaths ×0.85; outbreaks ×0.7; smallpox ×0.05 |
+| Information | Modern Medicine | deaths ×0.85; outbreaks ×0.6 |
+
+- With everything, everyday deaths fall to about a third and outbreaks to about an eighth. The fixed drop in deaths by age is gone: a people that lags in medicine keeps dying like the old world.
+- The Indus civilization gets drains and Egypt gets physicians with their history.
+
+## Historical diseases (built)
+
+- Real pandemics at their real times and places: the Plague of Athens (430 BCE), the Antonine Plague (165), the Plague of Cyprian (249), the Plague of Justinian (541, returning until 750), the Black Death (1338 in Central Asia, returning until 1720), cholera (1817, returning until 1923), the Third Plague (1855), the Spanish flu (1918), HIV (1981, slow) and COVID-19 (2020).
+- Smallpox reaches the Americas with the first contact between an American people and one from across the ocean, kills about half of those it reaches, and returns every 30 years.
+- Each strikes whoever lives in its homeland then (if no one does, the nearest people within three times the distance), spreads to neighbors and jumps along contacts (more along trade and war), and kills about its real share where it reaches, softened by health advances. Survivors are immune for a while.
+- World history records each outbreak; you get a popup when one reaches your people, and the "Last year" card names it.

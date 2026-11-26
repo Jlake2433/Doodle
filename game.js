@@ -166,7 +166,27 @@ const TECHS = [
   ["globalization", 7, "Globalization", "+40% trade income."],
   ["rocketry", 7, "Rocketry", "Build a Spaceport."],
   ["mars", 7, "Mars Colony", "Win the game. Needs a Spaceport."],
+  /* health: research that keeps people alive. Not needed to enter a new age */
+  ["drains", 1, "Drains and Sanitation", "Covered drains and clean wells: towns and cities lose far fewer people to sickness."],
+  ["physicians", 1, "Physicians", "Trained healers with written remedies: fewer everyday deaths."],
+  ["hippocratic", 2, "Hippocratic Medicine", "Physicians watch, record and treat the body, not the gods: fewer everyday deaths."],
+  ["baths", 2, "Baths and Sewers", "Public baths and sewers: cities less deadly, and sickness spreads less."],
+  ["hospitals", 3, "Hospitals", "Houses of healing with trained staff: sickness kills fewer."],
+  ["quarantine", 3, "Quarantine", "Ships and travelers from sick places wait forty days: outbreaks spread far less."],
+  ["anatomy", 4, "Anatomy", "Physicians study the body itself: fewer everyday deaths."],
+  ["inoculation", 4, "Inoculation", "A little smallpox, given on purpose, protects against the deadly kind."],
+  ["vaccination", 5, "Vaccination", "Cowpox protects against smallpox safely: smallpox almost loses its power."],
+  ["germtheory", 5, "Germ Theory and Clean Water", "Sickness comes from germs: sewers, filtered water and clean hands cut deaths of every kind."],
+  ["antisepsis", 5, "Antiseptic Surgery", "Clean wounds and instruments: surgery stops killing so many."],
+  ["antibiotics", 6, "Antibiotics", "Penicillin and its kin cure infections that used to kill."],
+  ["massvax", 6, "Mass Vaccination", "Whole peoples vaccinated: the old killers of children fade away."],
+  ["modernmed", 7, "Modern Medicine", "New vaccines, antivirals and intensive care: even pandemics are much milder."],
 ].map(([id, era, name, desc], i) => ({ id, era, name, desc, idx: i }));
+/* what each health advance does: d = everyday deaths, urban = the extra deaths of towns and cities, epi = how deadly outbreaks are, spread = how readily they spread, pox = smallpox */
+const HEALTH = { drains: { urban: .6 }, physicians: { d: .97 }, hippocratic: { d: .96 }, baths: { urban: .7, spread: .85 }, hospitals: { epi: .8, d: .98 }, quarantine: { spread: .5 },
+  anatomy: { d: .97 }, inoculation: { pox: .5 }, vaccination: { pox: .15, d: .97 }, germtheory: { d: .85, epi: .7, spread: .7, urban: .5 }, antisepsis: { d: .96 }, medicine: { d: .92 },
+  antibiotics: { d: .75, epi: .5 }, massvax: { d: .85, epi: .7, pox: .05 }, modernmed: { d: .85, epi: .6 } };
+const healthOf = n => turnCache("hm" + n.id, () => { const r = { d: 1, urban: 1, epi: 1, spread: 1, pox: 1 }; for (const k in HEALTH) if (has(n, k)) for (const f in HEALTH[k]) r[f] *= HEALTH[k][f]; return r; });
 const TECH = Object.fromEntries(TECHS.map(t => [t.id, t]));
 TECHS.forEach(t => { const k = TECHS.filter(x => x.era === t.era).indexOf(t); t.cost = Math.round(TECH_BASE[t.era] * (1 + 0.1 * k)); });
 TECH.mars.cost = 60000;
@@ -183,7 +203,7 @@ const STONE_DESC = { agriculture: "Some seeds, pushed into the earth, come back 
   mysticism: "The elders agree on the spirits of sky, river and ancestors, and the rites to honor them: healers, shrines and sweat lodges.", tribal: "Disputes are settled by custom, not by the strongest arm. The tribe has laws now." };
 const stoneDesc = t => STONE_DESC[t.id] || t.desc;
 const stoneNeed = () => Math.ceil(eraTechs(0).length * .85);
-const eraTechs = e => TECHS.filter(t => t.era === e && t.id !== "mars");
+const eraTechs = e => TECHS.filter(t => t.era === e && t.id !== "mars" && !(HEALTH[t.id] && t.id !== "medicine")); /* health advances are optional: they save lives, they don't open new ages */
 const eraNeed = e => eraTechs(e).length - 1;
 
 const BLD = [
@@ -1458,7 +1478,15 @@ function loseUnits(n, k) { for (const m of n.mercs || []) { const t = Math.min(m
 const STATE_POP = 2000;
 /* yearly births and everyday deaths per family, and how the ages change them: medicine and clean water cut deaths first, then families have fewer children as people move to cities */
 const BIRTH_RATE = .05, DEATH_RATE = .047; /* the old world: about 50 born and 47 dying for every 1,000 people each year */
-const BIRTH_ERA = [1, 1, 1, 1, .98, .92, .6, .45], DEATH_ERA = [1, 1, 1, .97, .93, .7, .4, .3], TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where people crowd */
+const TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where people crowd */
+/* fewer children: women working outside the home, and schooling. A better life on its own means more children survive */
+const WORK_BIRTH = { split: 1, shared: .98, equal: .7 };
+function birthLife(n, sr) { /* a nation's quality of life: food, wages, welfare and homes (a tribe's is its fertility) */
+  if (tribal(n)) return 1;
+  const food = clamp(sr + .3, 0, 1), wage = clamp(wageOf(n) / 2, 0, 1), B0 = bud(n), wel = Math.min(1, ((B0.inc || 0) + (B0.health || 0)) / 6), home = secUnlocked(n, "house") ? clamp((secF(n, "house") - .6) / .8, 0, 1) : .5;
+  return .9 + .2 * (food + wage + wel + home) / 4; }
+const birthWork = n => WORK_BIRTH[(n.cus || {}).work] || 1;
+const birthSchool = n => 1 - .4 * clamp((eduOf(n) - 30) / 60, 0, 1); /* the more schooling, the later and fewer the children */
 /* the old cultures' towns stand for whole stretches of farmland, so they live and sicken like the countryside; only real cities are cities */
 const tierEff = x => x.t < 2 && G.nations[x.o] && scripted(G.nations[x.o]) ? 0 : x.t;
 const LEAVE_RATE = .0015; /* a few families leave every year to live among other peoples */
@@ -2077,6 +2105,7 @@ function updateContacts() {
   const meet = (a, b) => { const d = dip(a.id, b.id);
     if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
     d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
+    contactDisease(a, b);
     if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝"); };
   for (const a of G.nations) { if (!a.alive) continue;
     const R = contactR(a), seen = new Set();
@@ -2246,7 +2275,7 @@ const ANCIENT = [
     note: "Chiefdoms strung along the Nile in Upper Egypt, rivals for trade, prestige and the river's floods.",
     sites: [["Hierakonpolis", 25.10, 32.78, 1], ["Naqada", 25.90, 32.72, 1], ["Abydos", 26.18, 31.92, 1], ["Elephantine", 24.09, 32.89, 0]],
     stages: [{ y: -3250, k: "unify", R: 40, why: "The chiefs of Upper Egypt set out to rule the whole river." },
-      { y: -3150, k: "become", name: "Egypt", title: "Kingdom of Egypt", people: "Egyptians", free: true, rise: true, learn: ["writing", "bronze"], era: 1, gov: "monarchy", why: "Upper and Lower Egypt are united under one king." }] },
+      { y: -3150, k: "become", name: "Egypt", title: "Kingdom of Egypt", people: "Egyptians", free: true, rise: true, learn: ["writing", "bronze", "physicians"], era: 1, gov: "monarchy", why: "Upper and Lower Egypt are united under one king." }] },
   { k: "susa", name: "Susa", title: "Susa culture", people: "Susians", lat: 32.2, lon: 48.4, R: 8, pop: [30000, 100000], color: "#b0905a",
     note: "Susa and the plain of Khuzestan, closely tied to the cities of Uruk.",
     sites: [["Susa", 32.19, 48.25, 1], ["Chogha Mish", 32.22, 48.55, 1]],
@@ -2259,7 +2288,7 @@ const ANCIENT = [
     note: "Early towns of Sindh on the lower Indus, with mud-brick walls and painted pottery.",
     sites: [["Amri", 26.15, 68.00, 1], ["Kot Diji", 27.34, 68.71, 1]],
     stages: [{ y: -3000, k: "become", name: "Early Harappan", title: "Early Harappan culture", people: "Harappans", free: true, why: "Towns spread across the Indus plain." },
-      { y: -2600, k: "become", name: "Harappa", title: "Indus civilization", people: "Harappans", rise: true, learn: ["bronze", "writing"], era: 1, why: "Great planned cities with drains, granaries and seals rise along the Indus." },
+      { y: -2600, k: "become", name: "Harappa", title: "Indus civilization", people: "Harappans", rise: true, learn: ["bronze", "writing", "drains"], era: 1, why: "Great planned cities with drains, granaries and seals rise along the Indus." },
       { y: -2600, k: "spread", why: "New cities rise at Harappa, Mohenjo-daro and Dholavira.", to: [[30.63, 72.86, 3, "Harappa"], [27.32, 68.14, 3, "Mohenjo-daro"], [23.89, 70.21, 2, "Dholavira"]] }] },
   { k: "yangshao", name: "Yangshao", title: "Yangshao culture", people: "Yangshao people", lat: 34.6, lon: 109.5, R: 26, pop: [200000, 500000], color: "#b8643c",
     note: "Millet farmers of the Yellow River valley, with painted pottery and large planned villages.",
@@ -2334,16 +2363,18 @@ const bustTell = (n, key, icon, title, text) => { if (!n || n.ai || n.id !== G.p
 function sickWard(n, x) { if (tribal(n)) return clamp(.4 * healCov(n) + .35 * amenAt(n, x).health, 0, .8); return clamp(.2 + .05 * bud(n).health, 0, .8); }
 /* food put by for bad times */
 function storesOf(n) { if (tribal(n)) return Math.min(1, .6 * structCov(n, "pit") + .5 * structCov(n, "smoke") + .3 * structCov(n, "rack")); return setsOf(n).some(x => builtAt(x, "granary")) ? .6 : .3; }
-function startEpi(x, sev) { x.epi = { sev, left: 2 + Math.floor(rnd() * 3) }; const n = G.nations[x.o];
+function startEpi(x, sev, dz) { if (dz) { x.epi = { sev, left: dz.len, dz: dz.k }; return; } x.epi = { sev, left: 2 + Math.floor(rnd() * 3) }; const n = G.nations[x.o];
   bustTell(n, "epi", "🤒", "Sickness is spreading", `A sickness has broken out in ${x.name}, and it passes from house to house and village to village. Healers, refuse pits and clean water hold it back; crowded places suffer most.`); }
 function stepBusts() {
   const yrs = 1 / TPY, season = Math.floor((G.month || 0) / 3);
   /* sickness: it starts more often in big, crowded places, kills for a few seasons, jumps to nearby settlements, and leaves the survivors immune for a generation or so */
   for (const x of G.sets) { if (!x.epi) continue; const n = G.nations[x.o]; if (!n || !n.alive) { delete x.epi; continue; }
-    const d = x.pop * x.epi.sev * (1 - sickWard(n, x)) * DEATH_ERA[Math.min(7, n.era)]; x.pop = Math.max(2, x.pop - d); tally(n, "c", d, "sickness");
-    for (const o of nearSets(x.x, x.y, EPI_RANGE)) if (o !== x && !o.epi && !(o.imm > G.year) && Math.hypot(o.x - x.x, o.y - x.y) < EPI_RANGE && rnd() < EPI_SPREAD * Math.min(2, Math.min(o.pop, 300) / 120) * TIER_DEATH[tierEff(o)]) startEpi(o, x.epi.sev * (.8 + .4 * rnd()));
-    if (--x.epi.left <= 0) { delete x.epi; x.imm = G.year + 15 + Math.floor(rnd() * 20); } }
-  for (const x of G.sets) if (!x.epi && !(x.imm > G.year) && rnd() < EPI_SEED * Math.pow(Math.min(300, Math.max(1, x.pop)) / 100, .8) * Math.pow(TIER_DEATH[tierEff(x)], 4) * (x.crowd ? 1.5 : 1) * yrs) startEpi(x, .04 + .06 * rnd());
+    const H = healthOf(n), dz = x.epi.dz && DISEASE[x.epi.dz], d = x.pop * x.epi.sev * (1 - sickWard(n, x)) * H.epi * (dz && dz.pox ? H.pox : 1); x.pop = Math.max(2, x.pop - d); tally(n, "c", d, dz ? dz.name : "sickness");
+    if (dz) diseaseArrives(n, x, dz);
+    for (const o of nearSets(x.x, x.y, EPI_RANGE)) if (o !== x && !o.epi && !immune(o, dz) && Math.hypot(o.x - x.x, o.y - x.y) < EPI_RANGE && G.nations[o.o] && rnd() < EPI_SPREAD * Math.min(2, Math.min(o.pop, 300) / 120) * TIER_DEATH[tierEff(o)] * healthOf(G.nations[o.o]).spread * (dz ? dz.spread || 1 : 1)) startEpi(o, x.epi.sev * (dz ? 1 : .8 + .4 * rnd()), dz);
+    if (--x.epi.left <= 0) { if (dz) (x.immD || (x.immD = {}))[dz.k] = G.year + (dz.imm || 30); else x.imm = G.year + 15 + Math.floor(rnd() * 20); delete x.epi; } }
+  stepDiseases();
+  for (const x of G.sets) if (!x.epi && !(x.imm > G.year) && G.nations[x.o] && rnd() < healthOf(G.nations[x.o]).spread * EPI_SEED * Math.pow(Math.min(300, Math.max(1, x.pop)) / 100, .8) * Math.pow(TIER_DEATH[tierEff(x)], 4) * (x.crowd ? 1.5 : 1) * yrs) startEpi(x, .04 + .06 * rnd());
   /* droughts: the rains fail over a whole region for a few years. Everyone living there loses people, and farmers lose their harvests */
   const D = G.droughts || (G.droughts = []);
   if (season === 0 && G.sets.length) { let k = 0; const want = DROUGHTS_A_YEAR; while (k < want * 2 && D.filter(q => q.y0 === G.year).length < want) { k++;
@@ -2353,7 +2384,7 @@ function stepBusts() {
       for (const o of nearSets(q.x, q.y, q.R)) if (Math.hypot(o.x - q.x, o.y - q.y) < q.R) { bustTell(G.nations[o.o], "dry", "🏜️", "A long drought", `The rains have failed across the whole region around ${o.name}, and it may be years before they return. Stores of food and water carry a people through; many will leave for wetter lands.`); } } }
   G.droughts = D.filter(q => G.year < q.until);
   for (const q of G.droughts) for (const o of nearSets(q.x, q.y, q.R)) { if (Math.hypot(o.x - q.x, o.y - q.y) >= q.R) continue; const n = G.nations[o.o]; if (!n) continue;
-    const d = o.pop * .012 * q.sev * (1 - .6 * storesOf(n)) * DEATH_ERA[Math.min(7, n.era)]; o.pop = Math.max(2, o.pop - d); o.dry = G.year; tally(n, "c", d, "drought"); }
+    const d = o.pop * .012 * q.sev * (1 - .6 * storesOf(n)) * healthOf(n).d; o.pop = Math.max(2, o.pop - d); o.dry = G.year; tally(n, "c", d, "drought"); }
   /* harvests: farming peoples have bad years; food stores soften them, and two bad years running bring famine */
   if (season === 3) for (const n of G.nations) { if (!n.alive || !has(n, "agriculture")) continue;
     const dep = tribal(n) ? clamp(timeShare(n, "farm") * 2.5, 0, 1) : .8; if (dep < .1) { n.harv = 0; continue; }
@@ -2364,6 +2395,49 @@ function stepBusts() {
     bustTell(n, "harv", "🌾", prev ? "Famine" : "The harvest failed", prev ? "A second bad harvest in a row: the stores are gone and families are starving. Storage pits, smokehouses and granaries are what carry a people through." : `${dire ? "The harvest has failed almost completely." : "A poor harvest."} The coming year will be lean. Food put by in storage pits, smokehouses and granaries softens it.`); }
   for (const n of G.nations) { const h = n.harvL; if (!h || !n.alive) continue; let lost = 0; for (const x of setsOf(n)) { const d = x.pop * h.rate; x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost, h.famine ? "famine" : "failed harvest"); if (--h.left <= 0) delete n.harvL; }
 }
+/* ================= HISTORICAL DISEASES =================
+   real pandemics at their real times and places. Each strikes whoever lives there then, spreads to neighbors and along contacts and trade,
+   and kills about its real share of the people it reaches (sev, over len seasons in each place), less where medicine is better. Survivors are immune for a while */
+const DISEASES = [
+  { k: "athens", name: "the Plague of Athens", y: -430, at: [38.0, 23.7], R: 10, sev: .25, len: 6, jump: .12, imm: 40, note: "A plague came into the crowded city by sea; perhaps a quarter of its people died." },
+  { k: "antonine", name: "the Antonine Plague", y: 165, at: [33.1, 44.5], R: 14, sev: .1, len: 12, jump: .25, imm: 50, pox: true, note: "Soldiers coming home from the east brought a new sickness, probably smallpox, and it spread along the roads." },
+  { k: "cyprian", name: "the Plague of Cyprian", y: 249, at: [31.2, 29.9], R: 12, sev: .1, len: 12, jump: .2, imm: 40, note: "A plague out of Egypt swept the Mediterranean for over a decade." },
+  { k: "justinian", name: "the Plague of Justinian", y: 541, at: [31.0, 32.5], R: 12, sev: .3, len: 8, jump: .3, imm: 15, again: [558, 750, 15, .08], note: "Bubonic plague came through the ports of Egypt; it would return again and again for two hundred years." },
+  { k: "blackdeath", name: "the Black Death", y: 1338, at: [42.5, 77.0], R: 16, sev: .4, len: 8, jump: .35, imm: 12, again: [1360, 1720, 15, .08], note: "Plague came out of Central Asia along the trade roads; in places it killed half of everyone." },
+  { k: "smallpoxam", name: "smallpox", y: null, at: null, R: 12, sev: .5, len: 12, jump: .4, imm: 25, pox: true, again: [0, 0, 30, .15], note: "Newcomers from across the ocean brought diseases no one here had ever faced. Whole peoples were emptied." },
+  { k: "cholera", name: "cholera", y: 1817, at: [23.0, 90.0], R: 12, sev: .03, len: 6, jump: .4, imm: 8, again: [1830, 1923, 15, .02], note: "Cholera spread out of Bengal along the new trade and troop routes." },
+  { k: "thirdplague", name: "the Third Plague", y: 1855, at: [25.0, 102.0], R: 14, sev: .03, len: 10, jump: .3, imm: 15, note: "Plague spread out of Yunnan to the ports, and from them across the world." },
+  { k: "spanishflu", name: "the Spanish flu", y: 1918, at: [38.5, -97.0], R: 20, sev: .025, len: 4, jump: .8, imm: 30, note: "A new flu spread around the world with the soldiers of a world war." },
+  { k: "hiv", name: "HIV", y: 1981, at: [-4.3, 15.3], R: 16, sev: .05, len: 60, jump: .15, imm: 100, note: "A slow new virus spread for decades before anyone noticed it." },
+  { k: "covid", name: "COVID-19", y: 2020, at: [30.6, 114.3], R: 14, sev: .003, len: 6, jump: .9, imm: 3, note: "A new virus spread around the world within weeks." },
+];
+const DISEASE = Object.fromEntries(DISEASES.map(d => [d.k, d]));
+const isAmericas = x => W.regions[x.r].lon < -30;
+const immune = (x, dz) => dz ? !!(x.immD && x.immD[dz.k] > G.year) : x.imm > G.year;
+function diseaseArrives(n, x, dz) { if (!n || n.ai || n.id !== G.player) return; const seen = n.dzSeen || (n.dzSeen = {}), w = dz.k + ":" + Math.floor(G.year / 10);
+  if (seen[w]) return; seen[w] = 1; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "☠️", title: `${dz.name[0].toUpperCase() + dz.name.slice(1)} reaches ${x.name}`, text: `${dz.note} Physicians, hospitals, quarantine and clean water save lives.` }); hist(n, "☠️", `${dz.name[0].toUpperCase() + dz.name.slice(1)} reached ${x.name}.`); }
+function seedDisease(dz, cx, cy, R, sev) { let k = 0; const s1 = 1 - Math.pow(1 - sev, 1 / dz.len);
+  for (const x of nearSets(cx, cy, R)) if (Math.hypot(x.x - cx, x.y - cy) < R && !x.epi && !immune(x, dz)) { startEpi(x, s1, dz); k++; } return k; }
+function stepDiseases() {
+  const season = Math.floor((G.month || 0) / 3), on = G.dz || (G.dz = {});
+  if (season === 0) for (const dz of DISEASES) {
+    if (dz.y === G.year && !on[dz.k]) { on[dz.k] = 1; const [cx, cy] = llXY(dz.at[0], dz.at[1]); if (seedDisease(dz, cx, cy, dz.R, dz.sev) || seedDisease(dz, cx, cy, dz.R * 3, dz.sev)) whist("☠️", `${dz.name[0].toUpperCase() + dz.name.slice(1)} broke out. ${dz.note}`, "event", []); }
+    if (dz.again && on[dz.k] && dz.y != null && G.year >= dz.again[0] && G.year <= dz.again[1] && (G.year - dz.again[0]) % dz.again[2] === 0) { const [cx, cy] = llXY(dz.at[0], dz.at[1]); seedDisease(dz, cx, cy, dz.R, dz.again[3]); }
+    if (dz.k === "smallpoxam" && on.smallpoxam && (G.year - on.smallpoxam) % dz.again[2] === 0 && G.year > on.smallpoxam) { const xs = G.sets.filter(isAmericas); if (xs.length) { const x = xs[Math.floor(rnd() * xs.length)]; seedDisease(dz, x.x, x.y, dz.R, dz.again[3]); } }
+  }
+  /* named diseases travel along contacts: neighbors, trading partners, peoples at war */
+  const sick = new Map(); for (const x of G.sets) if (x.epi && x.epi.dz) { let a = sick.get(x.epi.dz); if (!a) sick.set(x.epi.dz, a = new Set()); a.add(x.o); }
+  for (const [k, owners] of sick) { const dz = DISEASE[k];
+    for (const id of owners) { const n = G.nations[id]; if (!n || !n.alive) continue;
+      for (const o of metOf(n)) { if (owners.has(o.id)) continue; const d = dipR(n.id, o.id);
+        if (rnd() < dz.jump * (d.trade || d.war ? 1.5 : .6) * healthOf(o).spread / TPY) { const ts = setsOf(o).filter(x => !x.epi && !immune(x, dz)); if (ts.length) startEpi(ts[Math.floor(rnd() * ts.length)], 1 - Math.pow(1 - dz.sev, 1 / dz.len), dz); } } } }
+}
+/* the first contact between the Americas and the rest of the world brings smallpox */
+function contactDisease(a, b) { const on = G.dz || (G.dz = {}); if (on.smallpoxam) return;
+  const am = n => setsOf(n).some(isAmericas), old = n => setsOf(n).some(x => !isAmericas(x));
+  const t = am(a) && old(b) && !old(a) ? a : am(b) && old(a) && !old(b) ? b : null; if (!t) return;
+  on.smallpoxam = G.year; const dz = DISEASE.smallpoxam, c = capSet(t) || setsOf(t)[0]; if (!c) return;
+  seedDisease(dz, c.x, c.y, dz.R, dz.sev); whist("☠️", `Smallpox reached the Americas with the first newcomers from across the ocean. ${dz.note}`, "event", [t.id]); }
 /* births and deaths balance once a people's land is full */
 /* the player's year in numbers: births, everyday deaths, crisis deaths, families who left and families who arrived */
 function tally(n, k, v, why) { if (!n || n.ai || n.id !== G.player || !(v > 0)) return; const y = n.yr || (n.yr = { b: 0, d: 0, c: 0, l: 0, a: 0 }); y[k] = (y[k] || 0) + v; if (why) { const c = y.cc || (y.cc = {}); c[why] = (c[why] || 0) + v; } }
@@ -2583,14 +2657,14 @@ function processNation(n) {
      A thriving people gains a little each year, a poor one loses; crises (cold, sickness, thirst, hunger, hard years, war) come on top */
   const yrs = 1 / TPY, era = Math.min(7, n.era), TB = tribal(n);
   const fertB = TB ? 1 + .15 * (FERT.mult - 1.2) : 1 + .5 * ((n.laws.focus === "grow" ? .05 : 0) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0));
-  const birthE = BIRTH_ERA[era], deathE = DEATH_ERA[era], heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
+  const HM = healthOf(n), birthE = birthLife(n, sr) * birthWork(n) * birthSchool(n), deathE = HM.d, heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
   const wg = 1 - .3 * (1 - warGrowth(n));
   const rebound = n.ancCap ? 1 + .5 * clamp(1 - popOf(n) / n.ancCap, 0, .6) : 1; /* a land emptied by hard times fills back up: more children survive */
   let bornY = 0, diedY = 0;
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
     const b = s.pop * BIRTH_RATE * Math.max(.3, fertB) * (TB ? 1 + .1 * (birthF(s) - 1) : 1) * wg * rebound * birthE * (sr < 0 ? .5 : 1) * yrs;
-    const d = s.pop * DEATH_RATE * TIER_DEATH[tierEff(s)] * heal * hb * deathE * yrs;
+    const d = s.pop * DEATH_RATE * (1 + (TIER_DEATH[tierEff(s)] - 1) * HM.urban) * heal * hb * deathE * yrs;
     s.pop += b - d + (sr >= 0 ? T.flat * (TB ? .5 : 1) * .01 * Math.max(0, 1 - s.pop / cap) : 0); bornY += b; diedY += d; s.g = b - d;
     if (sr < 0) { const p0 = s.pop; s.pop *= Math.pow(1 - .05 * Math.min(1, -sr * 3) * (builtAt(s, "granary") ? .15 : 1 - .6 * Math.min(1, builtAt(s, "pit") / Math.max(1, needAt(n, s, "pit")))), TD); tally(n, "c", p0 - s.pop, "hunger"); }
     if (s.pop > cap) s.pop -= (s.pop - cap) * pr(.25);
@@ -4192,6 +4266,20 @@ function panelNation() {
 let prodTab = "housing", prodSet = null; const prodOpen = new Set(); // what you've expanded in Production (everything starts collapsed)
 /* who discovered it: one of your great minds if one fits, otherwise the people who would have */
 const TECH_STORY = {
+  drains: ["the town builders", "laid covered drains under the streets and lined the wells with brick. The sickness that lived in the filth goes with it."],
+  physicians: ["the healers of the temples", "wrote down which remedies helped which ills, and taught them to their students."],
+  hippocratic: ["a school of physicians", "taught that illness has natural causes: watch the patient, write down what you see, and treat the body."],
+  baths: ["the city's engineers", "built public baths and great sewers that carry the city's filth away."],
+  hospitals: ["the city's physicians", "opened a house of healing where the sick are cared for by trained hands, rich and poor alike."],
+  quarantine: ["the port's magistrates", "ordered ships from sick places to wait forty days before landing. The plague stays out."],
+  anatomy: ["the physicians", "opened the body itself to see how it works, and threw out a thousand years of guesses."],
+  inoculation: ["a mother who had seen the custom abroad", "had her children given a mild smallpox on purpose, and they never caught the deadly kind."],
+  vaccination: ["a country doctor", "noticed milkmaids who had caught cowpox never caught smallpox, and proved that cowpox protects."],
+  germtheory: ["the chemists and doctors", "proved that tiny living germs cause disease. Clean water, sewers and washed hands follow."],
+  antisepsis: ["a surgeon", "washed his instruments and wounds with carbolic acid, and his patients stopped dying of their operations."],
+  antibiotics: ["a scientist with a moldy dish", "noticed the mold killed the germs around it. Infections that killed for all of history can now be cured."],
+  massvax: ["the health service", "vaccinated every child against the old killers: measles, polio, diphtheria."],
+  modernmed: ["researchers around the world", "built new vaccines and medicines within months of a new disease appearing."],
   bronze: ["the copper workers", "melted copper with a little tin and poured a metal harder than either: bronze."],
   writing: ["the temple record-keepers", "turned their tally marks into signs for words. What is said can now outlive the one who said it."],
   masonry: ["the wall builders", "learned to cut and fit stone so walls stand without mud or timber."],
@@ -5158,7 +5246,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
