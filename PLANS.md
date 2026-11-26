@@ -219,3 +219,16 @@ Measured over 400 years (3600 to 3200 BCE):
 - Smallpox reaches the Americas with the first contact between an American people and one from across the ocean, kills about half of those it reaches, and returns every 30 years.
 - Each strikes whoever lives in its homeland then (if no one does, the nearest people within three times the distance), spreads to neighbors and jumps along contacts (more along trade and war), and kills about its real share where it reaches, softened by health advances. Survivors are immune for a while.
 - World history records each outbreak; you get a popup when one reaches your people, and the "Last year" card names it.
+
+## Death causes and research dangers (built)
+
+- Everyday deaths have causes, per 1,000 people a year in a typical early tribe:
+  - childhood illness about 31: always the largest. Herb Lore and Midwifery each cut it 7%; healers, clean water and good food lower it; hot, wet farmland adds fevers (+15%); towns and cities add more
+  - accidents about 4–5: more hunters means more accidents; tools lower it; mountains and tundra +30%; mines +2; factories +2 (+1 after germ theory)
+  - skirmishes and raids: near zero when isolated; about 3 more for each hostile neighbor whose land touches yours (up to 3), or at war; firearms ×1.3, rifles ×1.6; a warrior upbringing ×1.3
+  - old age about 9
+  - medicine cuts childhood illness fully and accidents and old age partly
+- Outbreaks need herds, crowds and contact: a tribe without herds ×0.3, without farming ×0.6, with few contacts down to ×0.3. Foragers almost never see one; farming villages and well-connected peoples see the most.
+- Research that brings dangers: Animal Husbandry (outbreaks more often), Agriculture (crowd sickness, fevers), Mining (accidents), Sailing, the Wheel, Navigation, Railroad and Flight (sickness travels farther and faster), Gunpowder and Rifling (deadlier fighting), Steam (factory accidents; slums breed sickness until Germ Theory). You get a popup when you gain one.
+- The "Last year" card lists deaths by cause.
+- Observed: every tribe farms by 3525 BCE (agriculture comes too easily through the elders' talks). Since sickness now rarely reaches small tribes, tribes grow faster: about 56,000 to 344,000 families by 3250 BCE.
