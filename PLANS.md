@@ -152,3 +152,14 @@ Results of a 400-year test (3600 to 3200 BCE):
 - Their heirs (the peoples they break into) follow history too: no research or policy changes. They have no stages of their own yet, so they stay as they are until their next chapters are written (for example Akkad conquering Sumer, Longshan to Erlitou, Corded Ware to Bell Beaker).
 - **Watching them:** world history records every rise and fall. You get a popup when it happens to a culture you've met, or when a regional squeeze reaches you. They're marked 🏛️ in the World tab, with a short real-history note, and labeled on the map. Successors show as "Heirs of …".
 - Speed: about 280 ms per turn at the start; about 800 ms by 3350 BCE (desktop).
+
+## Births, deaths and leaving (built)
+
+- Every settlement has births and everyday deaths, counted per real year (no longer tied to the calendar's pacing, which used to cut growth to a third after 3000 BCE).
+  - Births: 4.5% a year, raised or lowered by the tribe's fertility (food, homes, water, comforts, healers, midwives, room, mood), damped so the spread stays realistic. Small villages +2.5%. A warrior upbringing costs about 5% of births. Hungry peoples have half the children.
+  - Everyday deaths: 4% a year. Towns +6%, cities +15% (sickness spreads where people crowd). Healers cut deaths up to 6%. A nation's health spending cuts them too.
+  - Ages: medicine and clean water cut deaths first (Industrial ×0.7, Modern ×0.4, Information ×0.3); births fall later (Industrial ×0.92, Modern ×0.6, Information ×0.45).
+  - Crises still come on top: cold, sickness, thirst, hunger, hard years, war.
+- Leaving: about 0.15% of families a year leave to live among a neighbor they know (within about 25 units, chosen by relations), arriving as a minority people. More leave when the people are unhappy (up to 2.5×), crowded (up to 3×) or hungry (3×); a law restricting migration cuts it to 30%. With no one nearby, they're lost.
+- The Nation tab shows last year's births, deaths, losses to hard times, leavers and newcomers.
+- Measured: in the first century a typical tribe grows about 0.3–0.5% a year, the best about 0.8%, and the bottom tenth shrinks. Well-developed tribes later reach about 1%, so the world still grows fast between crises.
