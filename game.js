@@ -1483,7 +1483,7 @@ const TIER_DEATH = [1, 1.06, 1.15]; /* towns and cities: sickness spreads where 
    Research shifts them: herds and farms bring sickness, mines and factories accidents, better weapons deadlier fights; medicine cuts them */
 function deathRates(n) { return turnCache("dr" + n.id, () => {
   const HM = healthOf(n), TB = tribal(n), c = capSet(n) || setsOf(n)[0], R = c ? W.regions[c.r] : null, t = R ? R.t : "grass";
-  let child = .033 * (has(n, "herbs") ? .93 : 1) * (has(n, "midwifery") ? .93 : 1) * HM.d * (TB ? (1 - .06 * healCov(n)) * (1 + .3 * (1 - waterOf(n))) : 1 - .02 * bud(n).health);
+  let child = .033 * (tribal(n) && !has(n, "agriculture") ? .85 : 1) * (has(n, "herbs") ? .93 : 1) * (has(n, "midwifery") ? .93 : 1) * HM.d * (TB ? (1 - .06 * healCov(n)) * (1 + .3 * (1 - waterOf(n))) : 1 - .02 * bud(n).health);
   if (has(n, "agriculture") && R && Math.abs(R.lat) < 25 && (t === "jungle" || t === "grass")) child *= 1.15; /* fevers of hot, wet farmland */
   let acc = (TB ? (.003 + .012 * timeShare(n, "food")) * (1.15 - .15 * Math.min(1, toolF(n) / 1.04)) : .004) * (t === "mountain" || t === "tundra" ? 1.3 : 1)
     + (has(n, "mining") ? .002 : 0) + (has(n, "steam") ? (has(n, "germtheory") ? .001 : .002) : 0);
@@ -1563,7 +1563,21 @@ const timeIdle = n => { const t = timeOf(n); let sum = 0; for (const k in TIME) 
 // ---- elder discussions: before there is research, the elders talk things through, one subject after another.
 // The last talks turn to knowledge itself and to who the people are; then research truly begins ----
 function resOpen(n) { if (!n.resOpen && n.era >= 1) n.resOpen = true; return !!n.resOpen; }
-const stoneOpen = (n, t) => t && t.era === 0 && !has(n, t.id) && (STONE_REQ[t.id] || []).every(r => has(n, r));
+const stoneOpen = (n, t) => t && t.era === 0 && !has(n, t.id) && (STONE_REQ[t.id] || []).every(r => has(n, r)) && (t.id !== "agriculture" || agriOk(n));
+/* farming began in a few homelands and spread slowly to neighbors who saw it work. Elsewhere a people can only take it up from farmers it knows */
+const AGRI_HOMES = ["Levant", "Mesopotamia", "Anatolia", "Persia", "Lower Egypt", "Indus", "North China Plain", "Loess Plateau", "Jiangnan", "New Guinea", "Central Mexico", "Peru", "Bolivia", "Ethiopia", "Mali", "Midwest"];
+const FARMABLE = { grass: 1, plains: 1, forest: 1, jungle: 1, steppe: 1 };
+function farmLand(n) { const c = capSet(n) || setsOf(n)[0]; if (!c) return false; const R = W.regions[c.r]; return !!FARMABLE[R.t] && Math.abs(R.lat) < 58; }
+function agriOk(n) { if (n.agriOk) return true; const c = capSet(n) || setsOf(n)[0]; if (c && AGRI_HOMES.includes(W.regions[c.r].n)) { n.agriWhy = "home"; return (n.agriOk = true); } return false; }
+/* once a year a people that has met farmers may take up the idea, if its land can be farmed */
+function learnFarming(n) { if (agriOk(n) || has(n, "agriculture") || !farmLand(n)) return;
+  const f = metOf(n).filter(o => has(o, "agriculture")); if (!f.length || rnd() > 1 - Math.pow(.995, f.length)) return; /* farming spread about a kilometer a year: a century or two to reach the next people */
+  n.agriOk = true; n.agriWhy = "learned";
+  if (!n.ai && n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌾", title: "Farmers among our neighbors", text: `Our people have seen how the ${nm(f[0])} plant seeds and harvest grain. Your elders can now talk about Agriculture.` }); }
+/* foragers: their hunting lands feed only so many, and mothers on the move space their children further apart */
+function forageLimit(n) { return turnCache("fl" + n.id, () => { const ss = setsOf(n), c = capSet(n) || ss[0]; if (!c) return 1;
+  const r = Math.max(...ss.map(x => Math.hypot(x.x - c.x, x.y - c.y))) + huntR(n) + 1, /* bands roam about 25 km beyond their camps */ food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
+  const cap = Math.PI * r * r * 12 * food, /* about 0.1 people per km², as real foragers lived */ ratio = popOf(n) / Math.max(1, cap); return clamp(1.4 - .6 * ratio, .6, 1.1); }); }
 const talkCost = t => t.cost;
 function pickTalk(n) { const av = eraTechs(0).filter(t => stoneOpen(n, t)); if (!av.length) return null;
   const want = { agriculture: .6, husbandry: .7, mysticism: .8, tribal: .85, pottery: .85 }; /* advisors push for the big steps */
@@ -2697,11 +2711,12 @@ function processNation(n) {
   const HM = healthOf(n), birthE = birthLife(n, sr) * birthWork(n) * birthSchool(n), deathE = HM.d, heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
   const wg = 1 - .3 * (1 - warGrowth(n));
   const rebound = n.ancCap ? 1 + .5 * clamp(1 - popOf(n) / n.ancCap, 0, .6) : 1; /* a land emptied by hard times fills back up: more children survive */
-  checkDangers(n);
+  checkDangers(n); if (TB && Math.floor((G.month || 0) / 3) === 0) learnFarming(n);
+  const forage = TB && !has(n, "agriculture") ? .82 * forageLimit(n) : 1;
   let bornY = 0, diedY = 0, dCh = 0, dAc = 0, dWa = 0, dOl = 0; const DR = deathRates(n);
   for (const s of sets) {
     const cap = capOf(s, n), T = TIERS[s.t];
-    const b = s.pop * BIRTH_RATE * Math.max(.3, fertB) * (TB ? 1 + .1 * (birthF(s) - 1) : 1) * wg * rebound * birthE * (sr < 0 ? .5 : 1) * yrs;
+    const b = s.pop * BIRTH_RATE * forage * Math.max(.3, fertB) * (TB ? 1 + .1 * (birthF(s) - 1) : 1) * wg * rebound * birthE * (sr < 0 ? .5 : 1) * yrs;
     const ch = s.pop * DR.child * (1 + (TIER_DEATH[tierEff(s)] - 1) * DR.urban) * yrs, ac = s.pop * DR.acc * yrs, wa = s.pop * DR.war * yrs, ol = s.pop * DR.old * yrs, d = ch + ac + wa + ol;
     dCh += ch; dAc += ac; dWa += wa; dOl += ol;
     s.pop += b - d + (sr >= 0 ? T.flat * (TB ? .5 : 1) * .01 * Math.max(0, 1 - s.pop / cap) : 0); bornY += b; diedY += d; s.g = b - d;
@@ -2755,6 +2770,7 @@ function processNation(n) {
   let guard = resOpen(n) ? 0 : 99;
   while (guard++ < 5) {
     let it = resItem(n, n.research);
+    if (it && it.t && it.t.id === "agriculture" && !agriOk(n)) { n.research = null; it = null; } /* no farmers known yet: nothing to learn from */
     if (!it || it.done || ((it.mastery || it.develop) && n.autoResearch && !n.resManual && chooseTech(n)) || (it.mastery && n.autoResearch && !n.resManual && chooseDevelop(n))) { n.research = n.autoResearch || n.ai ? chooseResearch(n) : null; it = resItem(n, n.research); }
     if (!it) break;
     if (n.sciPts < it.cost) break;
@@ -2864,9 +2880,9 @@ function chooseMastery(n) {
   return "m:" + opts.sort((a, b) => sc(a) - sc(b))[0].k;
 }
 function chooseTech(n) {
-  const av = TECHS.filter(t => !has(n, t.id) && t.era <= n.era + techAhead(n, t) && (t.id !== "mars" || lv(n, "marsmission") >= 3));
+  const av = TECHS.filter(t => !has(n, t.id) && t.era <= n.era + techAhead(n, t) && (t.id !== "mars" || lv(n, "marsmission") >= 3) && (t.id !== "agriculture" || agriOk(n)));
   if (!av.length) return null;
-  if (!has(n, "agriculture")) return "agriculture";
+  if (!has(n, "agriculture") && agriOk(n)) return "agriculture";
   const milT = ["bronze", "iron", "mathematics", "chivalry", "gunpowder", "rifling", "combustion", "fission", "flight"];
   const pref = { aggressive: ["bronze", "iron", "mathematics", "chivalry", "gunpowder", "rifling", "masonry", "feudalism"], builder: ["pottery", "masonry", "construction", "guilds", "medicine", "steam"], trader: ["currency", "sailing", "wheel", "banking", "navigation", "globalization"], zealot: ["mysticism", "theology", "philosophy", "monarchy"] }[n.pers] || [];
   const sc = t => t.cost - (pref.includes(t.id) ? 15 * (t.era + 1) : 0) - (n.ai && milT.includes(t.id) ? 10 * (t.era + 1) : 0) - (t.id === "masonry" ? 20 : 0) - (t.id === "mars" ? 1e5 : 0);
@@ -4738,10 +4754,11 @@ function panelResearch() {
     if (e === n.era - 1) h += `<details class="past"><summary class="era-h">Earlier ages</summary>`;
     h += `<h4 class="era-h">${ERAS[e]}${e === n.era ? " · now" : e === n.era + 1 ? " · next" : " · ahead"}</h4><div class="techs">`;
     for (const t of TECHS.filter(t => t.era === e && (e <= n.era || e <= n.era + techAhead(n, t)))) {
-      const done = has(n, t.id), cur = n.research === t.id, early = e > n.era && e <= n.era + techAhead(n, t), locked = (e > n.era && !early) || (t.id === "mars" && lv(n, "marsmission") < 3);
+      const done = has(n, t.id), cur = n.research === t.id, early = e > n.era && e <= n.era + techAhead(n, t), noFarm = t.id === "agriculture" && !agriOk(n), locked = (e > n.era && !early) || (t.id === "mars" && lv(n, "marsmission") < 3) || noFarm;
       const tc = techCost(n, t), pct = cur ? Math.min(100, n.sciPts / tc * 100) : 0;
       h += `<button class="tech ${done ? "done" : cur ? "cur" : locked ? "locked" : ""}" data-act="tech" data-t="${t.id}" ${done || locked ? "disabled" : ""}>
-        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${etaTxt(tc - n.sciPts, E.sci)}` : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${diffusion(n, t) ? ` · ${Math.round(diffusion(n, t) * 100)}% from neighbors` : ""}${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
+        <b>${t.name}</b><small>${t.desc}</small><span class="tc">${done ? "✓ Known" : cur ? `${Math.floor(pct)}% · ${etaTxt(tc - n.sciPts, E.sci)}` 
+: noFarm ? "No farmers we know of yet" : locked ? (e > n.era ? (techChains(t.id).length ? "Later age (or emphasize its field)" : "Later age") : "Needs Mars Mission 3") : `${tc}${tc < t.cost ? ` <s>${t.cost}</s>` : ""} 🔬${diffusion(n, t) ? ` · ${Math.round(diffusion(n, t) * 100)}% from neighbors` : ""}${early ? " · reaching ahead" : ""}`}</span>${cur ? `<i class="tp" style="width:${pct}%"></i>` : ""}</button>`;
     }
     h += `</div>`;
   }

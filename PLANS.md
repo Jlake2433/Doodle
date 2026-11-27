@@ -232,3 +232,14 @@ Measured over 400 years (3600 to 3200 BCE):
 - Research that brings dangers: Animal Husbandry (outbreaks more often), Agriculture (crowd sickness, fevers), Mining (accidents), Sailing, the Wheel, Navigation, Railroad and Flight (sickness travels farther and faster), Gunpowder and Rifling (deadlier fighting), Steam (factory accidents; slums breed sickness until Germ Theory). You get a popup when you gain one.
 - The "Last year" card lists deaths by cause.
 - Observed: every tribe farms by 3525 BCE (agriculture comes too easily through the elders' talks). Since sickness now rarely reaches small tribes, tribes grow faster: about 56,000 to 344,000 families by 3250 BCE.
+
+## Farming spreads slowly; foragers live differently (built)
+
+- Agriculture can only arise on its own in the real farming homelands: the Levant, Mesopotamia, Anatolia, Persia, Lower Egypt, the Indus, the North China Plain, the Loess Plateau, Jiangnan, New Guinea, Central Mexico, Peru, Bolivia, Ethiopia, Mali and the Midwest.
+- Everywhere else a people can take it up only from farmers it knows (the ancient cultures count), on land that can be farmed (fertile lowlands, plains, forest, jungle or steppe, below 58° latitude): about a 0.5% chance a year per farming contact, roughly the real pace of a kilometer a year. You get a popup when your elders can discuss it; until then it's locked ("No farmers we know of yet").
+- Fixed: every people started with Agriculture preset as its research, and the research chooser always picked it first, so all tribes farmed within 75 years.
+- Foragers:
+  - births ×0.82 (mothers on the move space their children further apart)
+  - childhood illness ×0.85 (fewer crowd sicknesses)
+  - their hunting lands feed only so many: about 0.1 people per km² (12 families per map square of food-average land) across their camps plus about 25 km of range; births fall as they approach that (×1.1 at low density down to ×0.6 when full)
+- Measured over 350 years: foragers fill their land (a typical tribe from 30 to about 60 families) and level off around 70% of what it feeds; about 170 farming tribes (the homelands plus about 30 that learned from neighbors in 200 years) grow and spread at about 0.5% a year; the whole world grows about 0.05% a year.
