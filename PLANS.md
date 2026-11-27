@@ -262,3 +262,17 @@ What the world did:
 - By 2500 BCE most peoples are in the Bronze Age and about 56 in the Classical Age.
 - Turn time still grows with settlements: about 0.8 s at 3000 BCE, 1.7 s at 2500 BCE (desktop; a phone would be slower). This is the main thing left to work on.
 - Repetitive history: when a tribe loses several villages in a row, each one is recorded as "took X, capital of …" because the capital moves each time.
+
+## Speed on phones (built)
+
+Measured with the CPU slowed 4× to stand in for a mid-range phone:
+- 3600 BCE: about 0.4 s a turn
+- 2500 BCE (about 1,500 peoples, 10,800 settlements): about 2.3 s a turn, down from about 6 s, with no long freezes
+
+What changed:
+- **Level of detail.** A faraway people you've never met, at peace, and not one of the old cultures or their heirs, is updated every fifth turn in one five-quarter step. Turns rotate through the seasons. Rates are scaled to the step; losses compound so a big step never takes more than everything; hard years count only the seasons they last; big steps use the year's average harvest. Anyone you know, anyone at war, and the old cultures update every turn. Checked against a run without it: the world's population matches; somewhat more tribes fall early (about 17% more by 3500 BCE) and tribes total about 7% less.
+- Borders of quiet peoples grow every fifth turn, by five turns' worth.
+- Which peoples' lands touch is worked out once a year (and whenever you build or found); each people looks for new contacts once a year, a quarter of them each season.
+- New villages only check the land corridors of peoples living nearby (this caused an 8-second freeze).
+- Territory counts are worked out once for everyone.
+- Autosave at most once a minute, when the phone is idle; always when you leave or switch apps.

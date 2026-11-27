@@ -24,7 +24,11 @@ const calEra = y => { let e = 0; while (e < 7 && y >= ERA_YEAR[e + 1]) e++; retu
 let TD = 1 / (TPY * YEARS_PER_TURN[0]);
 const yrsT = y => y / YEARS_PER_TURN[calEra(G.year)]; /* a span of years in the units timers count in */
 function setTD() { if (G && G.year != null) TD = 1 / (TPY * YEARS_PER_TURN[calEra(G.year)]); return TD; }
-const pr = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), TD); // a chance (or drift rate) per span, as a chance each quarter
+const pr = p => 1 - Math.pow(1 - Math.min(1, Math.max(0, p)), TD);
+/* how many quarters this update covers: 1 normally; quiet faraway peoples are updated every few turns in one bigger step (TD is scaled with it) */
+let STEP = 1;
+/* a loss rate per quarter, over this update's quarters: compounded, so a big step never takes more than everything */
+const stepF = (r, q = STEP) => q === 1 ? r : 1 - Math.pow(1 - Math.min(.95, Math.max(0, r)), q); // a chance (or drift rate) per span, as a chance each quarter
 const dec = x => { const v = (x || 0) - TD; return v < 1e-6 ? 0 : v; }; // count down a timer measured in spans
 const turnsOf = t => Math.max(1, Math.round(t / TD));
 const durTxt = t => { const q = turnsOf(t); return q < 8 ? `${q} quarter${q > 1 ? "s" : ""}` : `${Math.round(q / TPY)} years`; };
@@ -752,7 +756,7 @@ function expelGroup(n, i) { const E = ethOf(n), g = E[i]; if (!g) return; let fa
   if (n.id === G.player) hist(n, "🚶", `The ${g.name} were driven out${to ? ` to the ${nm(to)}` : ""}.`);
   if (n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🚶", title: `The ${g.name} are driven out`, text: `${Math.max(1, Math.round(fam))} families leave for ${where}.${d.long ? ` After ${Math.round(yrsAmong(g))} years among you, they take your ways with them: there they will be known as the ${d.name}.` : ""}` });
   G.sv++; }
-function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const pol = ASSIM[n.laws.assim || "free"] || ASSIM.free, yrs = 1 / TPY, ss = setsOf(n);
+function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const pol = ASSIM[n.laws.assim || "free"] || ASSIM.free, yrs = STEP / TPY, ss = setsOf(n);
   for (const g of E) g.k = String(g.k);
   if (!n.ethV) { n.ethV = 1; if (!ss.some(x => x.eth && Object.keys(x.eth).length)) for (const g of E) for (const x of ss) setEth(x)[g.k] = g.share; } /* older saves: spread evenly */
   recalcShares(n);
@@ -802,7 +806,7 @@ function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(
     open: 15 + 6 * Math.min(8, metCount(n)) + 40 * minor + (tr ? 100 * sh("scout") : 3 * Math.min(6, ((E && E.partners) || []).length)) + (cu === "mercantile" ? 10 : 0),
     con: mood };
 }
-function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = 1 / TPY;
+function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = STEP / TPY;
   if (!n.trait) { n.trait = {}; for (const k in TRAITS) n.trait[k] = clamp(tg[k], 0, 100); n.trait.res = Math.max(n.trait.res, 55); }
   const T = n.trait;
   for (const k in TRAITS) tg[k] += relNudge(n, k) + cusNudge(n, k);
@@ -868,7 +872,8 @@ const setById = id => { if (byIdK !== G.sv || byIdL !== G.sets.length || !byIdM 
 const capSet = n => setById(n.cap);
 const popOf = n => setsOf(n).reduce((a, s) => a + s.pop, 0);
 function pres(n) { const p = new Set(); for (const s of setsOf(n)) p.add(s.r); return p; }
-const terrCount = n => G.regions.reduce((a, r) => a + (r.ctrl === n.id ? 1 : 0), 0);
+let terrT = null, terrM = null;
+const terrCount = n => { const k = G.turn + ":" + G.sv; if (terrT !== k || !terrM || terrM.G !== G) { terrT = k; terrM = new Map(); terrM.G = G; for (const r of G.regions) if (r.ctrl >= 0) terrM.set(r.ctrl, (terrM.get(r.ctrl) || 0) + 1); } return terrM.get(n.id) || 0; }; /* territories held, counted once for everyone */
 const territories = n => G.regions.filter(r => r.ctrl === n.id);
 const rankOf = n => rankIdx(terrCount(n));
 const nm = n => n.title || RANKS[rankOf(n)].t(n.name); /* ancient cultures and their heirs keep their own names */
@@ -988,12 +993,14 @@ function growBorders() {
   for (const s of G.sets) { if (s.hp == null) s.hp = HP[s.t];
     if (s.hp < HP[s.t] && G.tt - (s.hit || 0) > 3) s.hp++;
     if (s.h == null) s.h = hOf(s) * .6; }
+  const qm = new Map(); /* quiet faraway peoples: their borders grow every few turns, by that many turns' worth */
   for (const s of G.sets) {
+    let qs = qm.get(s.o); if (qs == null) { const n = G.nations[s.o]; qs = n && lodQuiet(n) ? ((G.turn + n.id) % LOD === 0 ? LOD : 0) : 1; qm.set(s.o, qs); } if (!qs) continue;
     let target = hOf(s) * 1.9 * (1 + (s.expDir == null ? .25 * (s.exp || 0) : 0)); // worked land plus the free hunting and grazing land around it, and any land you've chosen to claim
     const near = nearSets(s.x, s.y, 9);
     let gapMin = 1e9; for (const o of near) if (o.o !== s.o) gapMin = Math.min(gapMin, chebGap(s, o));
     if (gapMin < 4) target = Math.max(target, Math.min(hOf(s) * 6, s.h + gapMin)); // frontier: push the claim out toward the neighbors
-    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD), wall = 1e9;
+    let lim = Math.min(target, s.h + Math.max(.03, s.h * .2) * TD * qs), wall = 1e9;
     for (const o of near) { if (o.o === s.o) continue;
       wall = Math.min(wall, (Math.hypot(o.x - s.x, o.y - s.y) - radTo(o, s.x, s.y) - .01) / lobe(s, Math.atan2(o.y - s.y, o.x - s.x))); }
     s.wall = wall < target ? Math.max(.04, wall) : null; // hemmed in by a neighbor: the land can't grow past here
@@ -1016,7 +1023,7 @@ const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) 
 const huntR = n => n && tribal(n) ? turnCache("hr" + n.id, () => .4 * scoutSight(n)) : 0; /* tribes range over hunting lands beyond their borders */
 function touchesSet(n, s) { const r = .25 + huntR(n) + huntR(G.nations[s.o]); return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < r); }
 let touchKey = null, touchPairs = new Map();
-const touchKeyOf = me => G.turn * 1e9 + (G.bv || 0) * 1e5 + G.nations.length * 7 + (me ? ownCount(me.id) : 0);
+const touchKeyOf = me => G.year * 1e9 + (G.bv || 0) * 1e5 + G.nations.length * 7 + (me ? ownCount(me.id) : 0); /* borders move slowly: once a year (and when you build or found) */
 const ownCount = id => { setsOf({ id }); const a = sIx.get(id); return a ? a.length : 0; };
 function bordersTouch(a, b) {
   const me = G.nations[G.player], key = touchKeyOf(me); /* worked out once a turn (and when you build): with thousands of peoples, villages are founded all the time */
@@ -1745,11 +1752,11 @@ function upkeepAt(n, x) { let h = 0; const sz = clamp(x.pop / 150, .2, 1); /* a 
   if (x.id === n.cap && n.prod && n.prod.done) for (const g of GREAT) if (n.prod.done[g.id]) h += g.hours * .02; return h * sz * (has(n, "wattle") ? .8 : 1); }
 function workProjects(n) { // each settlement's builders work through its own queue, one thing at a time
   if (!tribal(n)) return; const P0 = prodState(n);
-  for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x), guard = 0;
+  for (const x of setsOf(n)) { sb(x); let hrs = builderHoursAt(n, x) * STEP, guard = 0;
     /* upkeep comes first: builders' time, and materials from your stores */
-    { const up = upkeepAt(n, x), hU = Math.min(hrs, up), mN = hU * MAT_H * .3, /* repairs use a third of the materials new building does */ mU = Math.min(Math.max(0, n.mat), mN); n.mat -= mU; hrs -= hU;
-      const cov = up > 0 ? (hU / up) * (mN > 0 ? mU / mN : 1) : 1; x.upCov = cov; x.upShare = builderHoursAt(n, x) > 0 ? Math.min(1, up / builderHoursAt(n, x)) : (up > 0 ? 1 : 0);
-      x.cond = clamp((x.cond == null ? 100 : x.cond) + (cov >= .999 ? 3 : -(1 - cov) * 10), 0, 100);
+    { const up = upkeepAt(n, x) * STEP, hU = Math.min(hrs, up), mN = hU * MAT_H * .3, /* repairs use a third of the materials new building does */ mU = Math.min(Math.max(0, n.mat), mN); n.mat -= mU; hrs -= hU;
+      const cov = up > 0 ? (hU / up) * (mN > 0 ? mU / mN : 1) : 1; x.upCov = cov; x.upShare = builderHoursAt(n, x) > 0 ? Math.min(1, up / (builderHoursAt(n, x) * STEP)) : (up > 0 ? 1 : 0);
+      x.cond = clamp((x.cond == null ? 100 : x.cond) + STEP * (cov >= .999 ? 3 : -(1 - cov) * 10), 0, 100);
       if (x.cond < 35) decay(n, x); }
     x.waitMat = false;
     /* builders finish everything that fits this season, in order; a big job that doesn't fit soaks up whatever time is left over */
@@ -1897,7 +1904,7 @@ function econ0(n) {
   const strat = stratStatus(n);
   const imports = strat.reduce((a, s) => a + s.cost, 0);
   if (tribal(n)) {
-    const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = [1 - .35 * coldNation(n), 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)];
+    const room = roomOf(n), hunt = timeShare(n, "food"), farm = roleOpen(n, "farm") ? timeShare(n, "farm") : 0, season = STEP > 1 ? (4.35 - .35 * coldNation(n)) / 4 : [1 - .35 * coldNation(n), 1, 1.05, 1.3][Math.floor((G.month || 0) / 3)] /* a big step covers the whole year: average the seasons */;
     const game = Math.min(1, room / Math.max(.2, hunt * 2.2)); // too many hunters for the land and the game runs out
     { const q = Math.floor((G.month || 0) / 3), cN = coldNation(n), fo = timeShare(n, "forage"), fi = timeShare(n, "fish");
       const cal = has(n, "calendar") ? 1.05 : 1, plants = [1 - .6 * cN + (q === 0 ? .4 * structCov(n, "smoke") * cN : 0), 1, 1.15, 1.25][q], pRoom = Math.min(1, room / Math.max(.2, fo * 2.5)); /* foragers strip the land too, but less than hunters */
@@ -2134,14 +2141,14 @@ const CONTACT_WALK = 8;
 const landMemo = new Map(); /* villages don't move: whether there's dry land between two of them never changes */
 function landBetween(s, o) { const k = s.id < o.id ? s.id * 1e6 + o.id : o.id * 1e6 + s.id; let v = landMemo.get(k); if (v === undefined) { v = overLand(s.x, s.y, o.x, o.y); if (landMemo.size > 2e5) landMemo.clear(); landMemo.set(k, v); } return v; }
 const contactR = n => CONTACT_WALK + 2 * scoutSight(n) + (has(n, "sailing") ? 12 : 0);
-function updateContacts() {
+function updateContacts(part) {
   const lateL = G.nations.filter(a => a.alive && (has(a, "navigation") || a.era >= 6));
   const meet = (a, b) => { const d = dip(a.id, b.id);
     if (a.id === G.player || b.id === G.player) { const o = a.id === G.player ? b : a; hist(G.nations[G.player], "🤝", `First contact with the ${nm(o)}.`); }
     d.met = true; d.rel = (a.era + b.era < 2 ? -12 : a.era + b.era < 4 ? -4 : 0) + Math.round((rnd() - .5) * 10); // strangers start out wary
     contactDisease(a, b);
     if (a.id === G.player || b.id === G.player) log(`First contact with the ${nm(a.id === G.player ? b : a)}. They're wary of strangers at first.`, "🤝"); };
-  for (const a of G.nations) { if (!a.alive) continue;
+  for (const a of G.nations) { if (!a.alive || (part != null && a.id % 4 !== part && a.id !== G.player)) continue;
     const R = contactR(a), seen = new Set();
     for (const s of setsOf(a)) for (const o of nearSets(s.x, s.y, R)) { if (o.o === a.id || seen.has(o.o)) continue;
       if (Math.hypot(o.x - s.x, o.y - s.y) >= R) continue; seen.add(o.o);
@@ -2194,11 +2201,11 @@ function alertLoss(n, lost, icon, title, text) {
 /* as technology advances and needs are met for good, some work stops being necessary and leaves the allocation */
 function retireRoles(n, E) { const R = n.retired || (n.retired = {}), t = timeOf(n), pop = (icon, title, text) => { if (!n.ai) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); };
   if (!R.food && has(n, "agriculture") && has(n, "husbandry")) {
-    n.huntOkT = E.food * (n._noHuntR || 1) >= E.need * 1.02 && t.farm > 0 ? (n.huntOkT || 0) + 1 : 0;
+    n.huntOkT = E.food * (n._noHuntR || 1) >= E.need * 1.02 && t.farm > 0 ? (n.huntOkT || 0) + STEP : 0;
     if (n.huntOkT >= 2 * TPY) { R.food = true; R.forage = true; t.farm = (t.farm || 0) + (t.food || 0) + (t.forage || 0); t.food = 0; t.forage = 0;
       pop("🌾", "The last hunt", "For two years your fields and herds have fed everyone on their own. Hunting and foraging are no longer needed to survive, so your hunters and foragers have become farmers and herders. They no longer appear in Who does what."); } }
   if (has(n, "pottery") || has(n, "mining")) { const ok = setsOf(n).every(x => waterInfra(x) >= x.pop);
-    if (!R.water) { n.waterOkT = ok ? (n.waterOkT || 0) + 1 : 0;
+    if (!R.water) { n.waterOkT = ok ? (n.waterOkT || 0) + STEP : 0;
       if (n.waterOkT >= 2 * TPY) { R.water = true; t.build = (t.build || 0) + (t.water || 0); t.water = 0;
         pop("🪣", "Water at hand", "For two years your cisterns, wells and springs have given everyone water. No one needs to carry it anymore, so the water carriers have become builders. They no longer appear in Who does what."); } }
     else if (setsOf(n).some(x => waterInfra(x) < x.pop * .9)) { R.water = false; n.waterOkT = 0; const w = carriersNeeded(n); t.water = w; t.build = Math.max(0, (t.build || 0) - w);
@@ -2209,7 +2216,7 @@ const HARD = { drought: { icon: "🏜️", name: "Drought", d: "The rains have f
   sickness: { icon: "🤒", name: "Sickness", d: "A sickness moves from hut to hut.", help: "Refuse pits, sweat lodges and healers soften it; crowded villages suffer most." },
   hunt: { icon: "🦌", name: "The game has gone", d: "The herds have moved on and the hunters come home empty-handed.", help: "Foragers, fishers, farms and food stores soften it." } };
 function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
-  if (!n.hard && rnd() < .1 / TPY * YEARS_PER_TURN[0] / YEARS_PER_TURN[calEra(G.year)]) { /* in step with how fast peoples grow in each age of the calendar */ const cN = coldNation(n), dryF = sets.filter(dry).length / sets.length, big = sets.reduce((a, x) => a + bigF(x), 0) / sets.length;
+  if (!n.hard && rnd() < STEP * .1 / TPY * YEARS_PER_TURN[0] / YEARS_PER_TURN[calEra(G.year)]) { /* in step with how fast peoples grow in each age of the calendar */ const cN = coldNation(n), dryF = sets.filter(dry).length / sets.length, big = sets.reduce((a, x) => a + bigF(x), 0) / sets.length;
     const w = { drought: .6 + 3 * dryF, winter: cN > .3 ? 2.5 * cN : 0, sickness: .8 + 2 * big, hunt: .5 + 3 * timeShare(n, "food") };
     let r = rnd() * Object.values(w).reduce((a, v) => a + v, 0), k = "drought"; for (const q in w) { r -= w[q]; if (r <= 0) { k = q; break; } }
     n.hard = { k, left: 1 + Math.floor(rnd() * 3) };
@@ -2219,9 +2226,9 @@ function stepHardYear(n, E) { const sets = setsOf(n); if (!sets.length) return;
   let f = 1.3 * (k === "drought" ? .05 * (1 - .7 * stores) * (1 - fed) * (1.2 - .4 * waterOf(n)) : k === "winter" ? .06 * coldNation(n) * (1 - .7 * am.warmth) * (1 - .5 * stores)
     : k === "sickness" ? .05 * (1 - .5 * am.health) * (1 - .5 * healCov(n)) : .05 * timeShare(n, "food") * 2 * (1 - .7 * stores) * (1 - fed));
   if (n.ai) { const sk = n.aiSkill == null ? 1 : n.aiSkill; f *= sk < .7 ? 1 + 7 * (.7 - sk) : 1.5 - sk; } /* poorly led peoples suffer far more */
-  let lost = 0; for (const x of sets) { const d = x.pop * f * (k === "sickness" ? Math.min(1.5, .5 + x.pop / 80) : 1); x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost, HARD[k].name.toLowerCase());
+  const q = Math.min(STEP, n.hard.left); let lost = 0; for (const x of sets) { const d = x.pop * stepF(f * (k === "sickness" ? Math.min(1.5, .5 + x.pop / 80) : 1), q); x.pop = Math.max(2, x.pop - d); lost += d; } tally(n, "c", lost, HARD[k].name.toLowerCase());
   if (!n.ai && lost >= .5) alertLoss(n, Math.round(lost), HARD[k].icon, HARD[k].name, `${HARD[k].name} took ${Math.max(1, Math.round(lost))} famil${Math.round(lost) === 1 ? "y" : "ies"} this season. ${HARD[k].help}`);
-  if (--n.hard.left <= 0) n.hard = null; }
+  if ((n.hard.left -= STEP) <= 0) n.hard = null; }
 /* a tribe that dwindles away: its last families walk to the nearest people they can live with, and its villages go back to the wild */
 // ================= ANCIENT CULTURES =================
 /* real peoples of the time, placed in their homelands at their real size (people ÷ 4 = families).
@@ -2679,16 +2686,16 @@ function processNation(n) {
     let sick = 0, coldH = 0, thirstL = 0;
     for (const x of sets) { sb(x); const am = amenAt(n, x), cf = coldOf(x), cold = cold0 * (1.4 - .6 * am.warmth) * (.15 + .85 * cf); /* winters are mild in hot lands */
       /* without fire and clothes, even families in huts suffer in winter; without clean ways, sickness spreads where people crowd */
-      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * (1 - am.warmth) * cold0 * cf * (1 - .3 * healCov(n)); x.pop -= d; coldH += d; }
-      { const wc = waterAt(n, x); if (wc < .98) { const th = x.pop * (1 - wc), lv = th * .03, sk = th * .015 * (1 - .4 * healCov(n)); x.pop = Math.max(2, x.pop - lv - sk); thirstL += lv; sick += sk; } }
-      if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * (1 - am.health) * (1 - .6 * healCov(n)) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
+      if (winter && am.warmth < .95 && x.pop > 4) { const d = x.pop * .01 * STEP * (1 - am.warmth) * cold0 * cf * (1 - .3 * healCov(n)); x.pop -= d; coldH += d; }
+      { const wc = waterAt(n, x); if (wc < .98) { const th = x.pop * (1 - wc), lv = th * .03 * STEP, sk = th * .015 * STEP * (1 - .4 * healCov(n)); x.pop = Math.max(2, x.pop - lv - sk); thirstL += lv; sick += sk; } }
+      if (am.health < .95 && x.pop > 15) { const d = x.pop * .004 * STEP * (1 - am.health) * (1 - .6 * healCov(n)) * Math.min(2, x.pop / 40); x.pop -= d; sick += d; }
       const need = Math.max(0, x.pop - builtAt(x, "hut") - 1e-6);
       x.shk = Math.min(x.shk || 0, need); /* families move out of shacks into new huts */
       let roof = need - x.shk;
-      if (roof < .5) x.homelessT = 0; else { x.homelessT = (x.homelessT || 0) + 1; x.shk += roof * .5; roof = need - x.shk; }
-      const ds = winter ? x.shk * .025 * cold : 0, ls = x.shk * .004;
+      if (roof < .5) x.homelessT = 0; else { x.homelessT = (x.homelessT || 0) + STEP; x.shk += roof * .5; roof = need - x.shk; }
+      const ds = winter ? x.shk * .025 * STEP * cold : 0, ls = x.shk * .004 * STEP;
       let d = 0, l = 0;
-      if (x.homelessT > TPY && roof >= .5) { d = winter ? roof * .12 * cold : 0; l = roof * .05; }
+      if (x.homelessT > TPY && roof >= .5) { d = winter ? roof * stepF(.12 * cold) : 0; l = roof * stepF(.05); }
       const tot = ds + ls + d + l, loss = Math.min(Math.max(0, x.pop - 2), tot); if (loss <= 0) continue; const k = loss / tot;
       x.pop -= loss; x.shk = Math.max(0, x.shk - (ds + ls) * k); died += (ds + d) * k; dS += ds * k; left += (ls + l) * k; }
     tally(n, "c", died + coldH, "cold"); tally(n, "c", sick, "sickness"); tally(n, "l", left + thirstL);
@@ -2704,20 +2711,20 @@ function processNation(n) {
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
   if (tribal(n)) retireRoles(n, E);
   if (tribal(n)) stepHardYear(n, E);
-  if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + 1 : 0;
+  if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + STEP : 0;
     if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
-  n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + 1 : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
+  n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + STEP : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
   stepTraits(n, E, H); stepPeoples(n);
   /* births and everyday deaths, counted per real year. Children are born to every people; infancy, illness and age take many of them back.
      A thriving people gains a little each year, a poor one loses; crises (cold, sickness, thirst, hunger, hard years, war) come on top */
-  const yrs = 1 / TPY, era = Math.min(7, n.era), TB = tribal(n);
+  const yrs = STEP / TPY, era = Math.min(7, n.era), TB = tribal(n);
   const fertB = TB ? 1 + .15 * (FERT.mult - 1.2) : 1 + .5 * ((n.laws.focus === "grow" ? .05 : 0) + fb(n, "grow") + (cul(n).grow || 0) + subGrowOf(n) + .01 * (secF(n, "house") - 1) + ((n.laws.migr || "free") === "free" && secUnlocked(n, "ships") ? .006 * secF(n, "ships") * Math.min(1, suitOf(n).ships) : 0));
   const HM = healthOf(n), birthE = birthLife(n, sr) * birthWork(n) * birthSchool(n), deathE = HM.d, heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
   const wg = 1 - .3 * (1 - warGrowth(n));
   const rebound = n.ancCap ? 1 + .5 * clamp(1 - popOf(n) / n.ancCap, 0, .6) : 1; /* a land emptied by hard times fills back up: more children survive */
-  checkDangers(n); if (TB && Math.floor((G.month || 0) / 3) === 0) learnFarming(n);
+  checkDangers(n); if (TB && (STEP > 1 ? rnd() < STEP / TPY : Math.floor((G.month || 0) / 3) === 0)) learnFarming(n);
   const forage = TB && !has(n, "agriculture") ? .82 * forageLimit(n) : 1;
   let bornY = 0, diedY = 0, dCh = 0, dAc = 0, dWa = 0, dOl = 0; const DR = deathRates(n);
   for (const s of sets) {
@@ -3067,7 +3074,7 @@ function mergeWoes(n) { const p = popOf(n); return p < .75 * (n.peak || p) || (n
 function seekMerge(n) {
   if (!n.ai || !n.alive || scripted(n) || popOf(n) >= MERGE_SMALL || !mergeWoes(n)) return false;
   if (n.mergeAsk != null && G.year - n.mergeAsk < 10) return false; /* asking again so soon would shame them */
-  if (rnd() > .3 / TPY) return false; /* about a 30% chance a year while they struggle */
+  if (rnd() > STEP * .3 / TPY) return false; /* about a 30% chance a year while they struggle */
   const c0 = capSet(n) || setsOf(n)[0]; if (!c0) return false;
   const cand = metOf(n).filter(o => { const d = dipR(n.id, o.id), c = capSet(o) || setsOf(o)[0];
     return c && !d.war && d.rel >= MERGE_REL && popOf(o) > popOf(n) && Math.hypot(c.x - c0.x, c.y - c0.y) < MERGE_NEAR && (o.id === G.player || !mergeWoes(o)); })
@@ -3526,20 +3533,27 @@ function rollEvent() {
 }
 
 // ================= END TURN =================
+/* level of detail: a faraway people you've never met, at peace and outside the old cultures' history, is updated every few turns in one bigger step.
+   Turns rotate through the seasons, so over time each season is covered fairly. Anyone you know, anyone at war, and the old cultures update every turn */
+const LOD = 5; /* not a multiple of 4, so each people's updates rotate through the seasons */
+let lqT = -1, lqM = new Map();
+const lodQuiet = n => { if (lqT !== G.turn || lqM.G !== G) { lqT = G.turn; lqM = new Map(); lqM.G = G; } let q = lqM.get(n.id); if (q === undefined) { q = !!(n.ai && n.alive && !scripted(n) && !dipR(n.id, G.player).met && !warsOf(n).length); lqM.set(n.id, q); } return q; }; /* worked out once a turn; the old cultures and their heirs update every turn */
+function lod(n, fn) { if (!lodQuiet(n)) { fn(n); return; } if ((G.turn + n.id) % LOD !== 0) return;
+  const td0 = TD; STEP = LOD; TD = td0 * LOD; try { fn(n); } finally { TD = td0; STEP = 1; } }
 function endTurn() {
   if (G.over) return;
   G.news = [];
   if (G.tt == null) G.tt = G.turn; if (G.month == null) G.month = 0;
   setTD();
   if (G.year > -1400) faithFounders();
-  for (const n of G.nations) if (n.ai) aiTurn(n);
-  for (const n of G.nations) processNation(n);
+  for (const n of G.nations) if (n.ai) lod(n, aiTurn);
+  for (const n of G.nations) lod(n, processNation);
   stepBusts();
   for (const x of G.sets) if (!(x.pop >= 0) || !isFinite(x.pop)) x.pop = 2; /* safety net: a broken number must never spread */
   for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
   driftRelations();
   growBorders();
-  updateContacts(); updateExplore();
+  updateContacts(Math.floor((G.month || 0) / 3)); updateExplore(); /* each people looks for new contacts once a year, a quarter of them each season (and all whenever you found a village) */
   G.turn++; G.tt += TD;
   G.month = Math.floor((G.month || 0) / 3) * 3 + 3; // months 0, 3, 6, 9 start each quarter
   if (G.month >= 12) { G.month = 0; G.year++; if (G.year === 0) G.year = 1; const me = G.nations[G.player]; if (me) { me.yrL = me.yr || { b: 0, d: 0, c: 0, l: 0, a: 0 }; me.yr = { b: 0, d: 0, c: 0, l: 0, a: 0 }; } } // there is no year 0
@@ -3591,7 +3605,9 @@ function clearSave() { saveSeq++; try { localStorage.removeItem(SAVE_KEY); local
 function saveMetaRead() { try { const m = localStorage.getItem(META_KEY); if (m) return JSON.parse(m); const old = localStorage.getItem(SAVE_KEY); if (old) { const g = JSON.parse(old); return g && g.v === 2 ? { name: g.nations[g.player].name, year: g.year } : null; } } catch (e) {} return null; }
 /* saving a big world every turn is slow: save at most every few seconds, and always when you leave */
 let lastSave = 0, saveT = null;
-function saveSoon() { if (Date.now() - lastSave > 4000) { clearTimeout(saveT); saveT = null; save(); } else if (!saveT) saveT = setTimeout(() => { saveT = null; save(); }, 4000); }
+const AUTOSAVE_MS = 60000; /* a big world takes a moment to save: at most once a minute, when the phone is idle (and always when you leave or switch apps) */
+function saveSoon() { if (saveT) return; const wait = Math.max(0, AUTOSAVE_MS - (Date.now() - lastSave));
+  saveT = setTimeout(() => { const go = () => { saveT = null; save(); }; if (window.requestIdleCallback) requestIdleCallback(go, { timeout: 5000 }); else go(); }, wait); }
 addEventListener("pagehide", () => { if (G && !G.demo) save(true); }); document.addEventListener("visibilitychange", () => { if (document.hidden && G && !G.demo) save(true); });
 function restoreCells() {
   delete G.cells;
@@ -3702,16 +3718,11 @@ function corridors(n, key = G.sv + ":" + G.turn) {
 }
 // spatial index of every people's corridors, rebuilt once per turn
 let corrIdx = null, corrIdxTurn = -1;
-function inForeignCorridor(x, y, owner) {
+function inForeignCorridor(x, y, owner) { /* only peoples with villages nearby can have a corridor here: look at theirs alone */
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
-  if (corrIdxTurn !== G.turn || !corrIdx || corrIdx.G !== G) { /* once a turn; each people's part is cached and only redone when its villages change */
-    corrIdxTurn = G.turn; corrIdx = new Map(); corrIdx.G = G;
-    for (const n of G.nations) { if (!n.alive) continue;
-      for (const c of corrYear(n)) for (let gx = c.bb[0] / 4 | 0; gx <= (c.bb[2] / 4 | 0); gx++) for (let gy = c.bb[1] / 4 | 0; gy <= (c.bb[3] / 4 | 0); gy++) {
-        const k = gx + "," + gy; (corrIdx.get(k) || corrIdx.set(k, []).get(k)).push([n.id, c]); } }
-  }
-  const a = corrIdx.get((x / 4 | 0) + "," + (y / 4 | 0)); if (!a) return false;
-  for (const [o, c] of a) if (o !== owner && x > c.bb[0] && x < c.bb[2] && y > c.bb[1] && y < c.bb[3] && sampler.isPointInPath(c.path, x, y)) return true;
+  const seen = new Set();
+  for (const o of nearSets(x, y, 8)) { if (o.o === owner || seen.has(o.o)) continue; seen.add(o.o); const n = G.nations[o.o]; if (!n || !n.alive) continue;
+    for (const c of corrYear(n)) if (x > c.bb[0] && x < c.bb[2] && y > c.bb[1] && y < c.bb[3] && sampler.isPointInPath(c.path, x, y)) return true; }
   return false;
 }
 function drawBorders(k, me) {
@@ -5309,7 +5320,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
