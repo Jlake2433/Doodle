@@ -1576,7 +1576,7 @@ function learnFarming(n) { if (agriOk(n) || has(n, "agriculture") || !farmLand(n
   if (!n.ai && n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌾", title: "Farmers among our neighbors", text: `Our people have seen how the ${nm(f[0])} plant seeds and harvest grain. Your elders can now talk about Agriculture.` }); }
 /* foragers: their hunting lands feed only so many, and mothers on the move space their children further apart */
 function forageLimit(n) { return turnCache("fl" + n.id, () => { const ss = setsOf(n), c = capSet(n) || ss[0]; if (!c) return 1;
-  const r = Math.max(...ss.map(x => Math.hypot(x.x - c.x, x.y - c.y))) + huntR(n) + 1, /* bands roam about 25 km beyond their camps */ food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
+  const r = Math.min(.75, Math.max(...ss.map(x => Math.hypot(x.x - c.x, x.y - c.y)))) + huntR(n) + 1, /* bands roam about 25 km beyond their camps; new camps fill the range more than they widen it */ food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
   const cap = Math.PI * r * r * 12 * food, /* about 0.1 people per km², as real foragers lived */ ratio = popOf(n) / Math.max(1, cap); return clamp(1.4 - .6 * ratio, .6, 1.1); }); }
 const talkCost = t => t.cost;
 function pickTalk(n) { const av = eraTechs(0).filter(t => stoneOpen(n, t)); if (!av.length) return null;
@@ -2978,7 +2978,7 @@ function upheaval(n) {
 // ================= WAR =================
 
 /* odds follow the strength ratio: at 2 to 1 the stronger side wins about 85% of the time */
-const battleOdds = r => { const q = Math.pow(Math.max(.01, r), 2.5); return q / (1 + q); };
+const battleOdds = r => { const q = Math.pow(Math.max(.01, r), 2.5); return isFinite(q) ? q / (1 + q) : 1; }; /* an undefended place: certain */
 function defenseOf(s) {
   const d = G.nations[s.o], R = W.regions[s.r], b = B(d.id, s.r);
   const units = forces(d) * .8 / Math.sqrt(Math.max(1, sizeOf(d) * 2)) + .5;
@@ -3529,6 +3529,7 @@ function endTurn() {
   for (const n of G.nations) if (n.ai) aiTurn(n);
   for (const n of G.nations) processNation(n);
   stepBusts();
+  for (const x of G.sets) if (!(x.pop >= 0) || !isFinite(x.pop)) x.pop = 2; /* safety net: a broken number must never spread */
   for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
   driftRelations();
   growBorders();
