@@ -858,11 +858,13 @@ function log(text, icon = "•", who = null) { G.news.push({ t: AW(text), i: ico
 
 // settlements & territories
 let sIx = null, sIxK = null;
-const setsOf = n => { const k = G.sv + ":" + G.sets.length; if (sIxK !== k || !sIx || sIx.G !== G) { sIx = new Map(); sIx.G = G; sIxK = k; for (const s of G.sets) { let a = sIx.get(s.o); if (!a) sIx.set(s.o, a = []); a.push(s); } } const a = sIx.get(n.id); return a ? a.slice() : []; };
+let sIxL = -1;
+const setsOf = n => { if (sIxK !== G.sv || sIxL !== G.sets.length || !sIx || sIx.G !== G) { sIx = new Map(); sIx.G = G; sIxK = G.sv; sIxL = G.sets.length; for (const s of G.sets) { let a = sIx.get(s.o); if (!a) sIx.set(s.o, a = []); a.push(s); } } const a = sIx.get(n.id); return a ? a.slice() : []; };
 let rIx = null, rIxK = null;
 const setsIn = ri => { const k = G.sid + ":" + G.sets.length; if (rIxK !== k || !rIx || rIx.G !== G) { rIx = new Map(); rIx.G = G; rIxK = k; for (const s of G.sets) { let a = rIx.get(s.r); if (!a) rIx.set(s.r, a = []); a.push(s); } } const a = rIx.get(ri); return a ? a.slice() : []; }; /* settlements never move between territories */
 let byIdM = null, byIdK = null;
-const setById = id => { const k = G.sv + ":" + G.sets.length; if (byIdK !== k || !byIdM || byIdM.G !== G) { byIdM = new Map(); byIdM.G = G; byIdK = k; for (const s of G.sets) byIdM.set(s.id, s); } return byIdM.get(id); };
+let byIdL = -1;
+const setById = id => { if (byIdK !== G.sv || byIdL !== G.sets.length || !byIdM || byIdM.G !== G) { byIdM = new Map(); byIdM.G = G; byIdK = G.sv; byIdL = G.sets.length; for (const s of G.sets) byIdM.set(s.id, s); } return byIdM.get(id); };
 const capSet = n => setById(n.cap);
 const popOf = n => setsOf(n).reduce((a, s) => a + s.pop, 0);
 function pres(n) { const p = new Set(); for (const s of setsOf(n)) p.add(s.r); return p; }
@@ -944,9 +946,9 @@ function smoothPoly(path, pts) { // closed curve through midpoints
   path.closePath();
 }
 // spatial lookup of settlements near a point
-let gridKey = null, grid = null;
+let gridKey = null, grid = null, gridL = -1;
 function nearSets(x, y, r) {
-  if (gridKey !== G.sv + ":" + G.sets.length || !grid) { grid = new Map(); for (const s of G.sets) { const k = (s.x / 4 | 0) + "," + (s.y / 4 | 0); (grid.get(k) || grid.set(k, []).get(k)).push(s); } gridKey = G.sv + ":" + G.sets.length; }
+  if (gridKey !== G.sv || gridL !== G.sets.length || !grid || grid.G !== G) { grid = new Map(); grid.G = G; gridL = G.sets.length; for (const s of G.sets) { const k = (s.x / 4 | 0) + "," + (s.y / 4 | 0); (grid.get(k) || grid.set(k, []).get(k)).push(s); } gridKey = G.sv; }
   const out = [], gx0 = (x - r) / 4 | 0, gx1 = (x + r) / 4 | 0, gy0 = (y - r) / 4 | 0, gy1 = (y + r) / 4 | 0;
   for (let gx = gx0; gx <= gx1; gx++) for (let gy = gy0; gy <= gy1; gy++) { const a = grid.get(gx + "," + gy); if (a) for (const s of a) out.push(s); }
   return out;
@@ -1014,8 +1016,10 @@ const chebGap = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) - radTo(a, b.x, b.y) 
 const huntR = n => n && tribal(n) ? turnCache("hr" + n.id, () => .4 * scoutSight(n)) : 0; /* tribes range over hunting lands beyond their borders */
 function touchesSet(n, s) { const r = .25 + huntR(n) + huntR(G.nations[s.o]); return nearSets(s.x, s.y, 9).some(m => m.o === n.id && chebGap(m, s) < r); }
 let touchKey = null, touchPairs = new Map();
+const touchKeyOf = me => G.turn * 1e9 + (G.bv || 0) * 1e5 + G.nations.length * 7 + (me ? ownCount(me.id) : 0);
+const ownCount = id => { setsOf({ id }); const a = sIx.get(id); return a ? a.length : 0; };
 function bordersTouch(a, b) {
-  const key = G.turn + ":" + (G.bv || 0) + ":" + G.nations.length + ":" + (G.nations[G.player] ? setsOf(G.nations[G.player]).length : 0); /* worked out once a turn (and when you build): with thousands of peoples, villages are founded all the time */
+  const me = G.nations[G.player], key = touchKeyOf(me); /* worked out once a turn (and when you build): with thousands of peoples, villages are founded all the time */
   if (touchKey !== key || touchPairs.G !== G) { touchKey = key; touchPairs = new Map(); touchPairs.G = G;
     const add = (x, y) => { let m = touchPairs.get(x); if (!m) touchPairs.set(x, m = new Set()); m.add(y); };
     for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) { add(s.o, o.o); add(o.o, s.o); } } /* borders, or hunting lands, meet */
@@ -1840,7 +1844,9 @@ const welfareGap = (n, k) => Math.max(0, welfareExpect(n, k) - bud(n)[k] - propS
 const welfareWork = n => .02 * welfareLv(n); // healthier, steadier people work better
 const FLOWS = ["govWages", "pubWages", "secImp", "secExp", "secTar", "secSub", "secState", "secInv", "secNet", "natTar", "tax", "routeGold", "luxGold", "foodGold", "bUp", "armyUp", "imports", "govUp", "goldNet", "mat", "sci", "resGold", "resMat", "resSci", "acadUp", "sciPay", "offPay", "gross", "fixed", "spend", "milGold", "qtyGold", "qualGold", "prodGold", "travelGold", "subGold", "propGold", "incGold", "healthGold", "spare"];
 function econM(n) { setTD(); const E = econ(n), M = { ...E, raw: E }; for (const k of FLOWS) M[k] = E[k] * TD; return M; } // what a quarter brings in and costs
-function econ(n) { return n.ai ? turnCache("ec" + n.id, () => econ0(n)) : econ0(n); } /* other peoples' books are worked out once a turn */
+let ecT = -1, ecMap = new Map();
+function econ(n) { if (!n.ai) return econ0(n); /* other peoples' books are worked out once a turn, even as villages come and go around the world */
+  if (ecT !== G.turn || ecMap.G !== G) { ecT = G.turn; ecMap = new Map(); ecMap.G = G; } let e = ecMap.get(n.id); if (!e) { e = econ0(n); ecMap.set(n.id, e); } return e; }
 function econ0(n) {
   const gov = GOVS[n.gov], L = n.laws, sets = setsOf(n), P0 = pres(n);
   const stabM = 0.75 + 0.5 * n.stab / 100, anarchy = n.anarchy > 0 ? .6 : 1;
@@ -2741,7 +2747,7 @@ function processNation(n) {
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
     if (sr < 0 || (n.laws.migr || "free") === "restrict" || (scripted(n) && !n.ancFree)) { s.crowd = false; continue; } /* the old cultures refill their own villages */
     if (s.t >= 1 && s.g > 0 && n.ai) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
-    if (s.pop >= (n.ai && s.t === 0 ? Math.min(cap * start, 70) : cap * start)) s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
+    if (s.pop >= (n.ai && s.t === 0 && has(n, "agriculture") ? Math.min(cap * start, 70) : cap * start)) /* foragers keep one camp until it's full: splitting doesn't widen their hunting lands */ s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
     else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
     if (!n.ai) { s.ov = T.need; if (!s.moveAsk) { s.moveAsk = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🛖", title: `${s.name} is getting full`, text: `Some families of ${s.name} would like to found a new village. In Production, tap "Found a new village" and choose where, within your scouts' reach.` }); } continue; } /* you choose where your people settle */
