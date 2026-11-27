@@ -2746,17 +2746,17 @@ function processNation(n) {
     // villages send people out when full; towns and cities start pushing people to the countryside as they get crowded
     const start = s.t === 0 ? .94 : .6, push = s.t === 0 ? 1 : clamp((s.pop / cap - start) / (.97 - start), 0, 1);
     if (sr < 0 || (n.laws.migr || "free") === "restrict" || (scripted(n) && !n.ancFree)) { s.crowd = false; continue; } /* the old cultures refill their own villages */
-    if (s.t >= 1 && s.g > 0 && n.ai) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
-    if (s.pop >= (n.ai && s.t === 0 && has(n, "agriculture") ? Math.min(cap * start, 70) : cap * start)) /* foragers keep one camp until it's full: splitting doesn't widen their hunting lands */ s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
+    if (s.t >= 1 && s.g > 0 && n.ai && !scripted(n)) { const out = s.g * .3; s.pop -= out; s.ov = (s.ov || 0) + out; } // part of every town's growth heads for the countryside
+    if (s.pop >= (n.ai && s.t === 0 && has(n, "agriculture") && !scripted(n) ? Math.min(cap * start, 70) : cap * start)) /* foragers keep one camp until it's full: splitting doesn't widen their hunting lands */ s.ov = (s.ov || 0) + s.pop * T.emi * push * (n.laws.focus === "grow" ? 1.3 : 1) * TD; /* other peoples send settlers out once a village passes about 70 families */
     else if (s.t === 0) { s.crowd = false; continue; }
     if (s.ov < T.need) continue;
-    if (!n.ai) { s.ov = T.need; if (!s.moveAsk) { s.moveAsk = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🛖", title: `${s.name} is getting full`, text: `Some families of ${s.name} would like to found a new village. In Production, tap "Found a new village" and choose where, within your scouts' reach.` }); } continue; } /* you choose where your people settle */
+    if (!n.ai) { s.pop += Math.max(0, s.ov - T.need); s.ov = T.need; if (!s.moveAsk) { s.moveAsk = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🛖", title: `${s.name} is getting full`, text: `Some families of ${s.name} would like to found a new village. In Production, tap "Found a new village" and choose where, within your scouts' reach.` }); } continue; } /* you choose where your people settle */
     const ri = bestVillageSpot(n, s.r);
-    if (ri < 0) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
+    if (ri < 0) { s.pop += Math.max(0, s.ov - T.need); s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; } /* nowhere to go: they stay home */
     s.crowd = false;
     let nv = addSettlement(n.id, ri, Math.min(s.ov, 25), s);
     if (!nv && ri !== s.r) nv = addSettlement(n.id, s.r, Math.min(s.ov, 25), s); // the far land was out of reach: settle close to home instead
-    if (!nv) { s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
+    if (!nv) { s.pop += Math.max(0, s.ov - T.need); s.ov = T.need; if (!s.crowd) crowdedNow++; s.crowd = true; continue; }
     born.push([nv, s]); s.ov = 0;
   }
   if (!n.ai) {

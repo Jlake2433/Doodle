@@ -243,3 +243,22 @@ Measured over 400 years (3600 to 3200 BCE):
   - childhood illness ×0.85 (fewer crowd sicknesses)
   - their hunting lands feed only so many: about 0.1 people per km² (12 families per map square of food-average land) across their camps plus about 25 km of range; births fall as they approach that (×1.1 at low density down to ×0.6 when full)
 - Measured over 350 years: foragers fill their land (a typical tribe from 30 to about 60 families) and level off around 70% of what it feeds; about 170 farming tribes (the homelands plus about 30 that learned from neighbors in 200 years) grow and spread at about 0.5% a year; the whole world grows about 0.05% a year.
+
+## Long test: 3600 to 2500 BCE (1,100 years)
+
+Ran cleanly: no errors, no crash, memory steady (about 200–260 MB), save about 17 MB.
+
+Fixed along the way:
+- Broken ("not a number") populations when attacking an undefended place: infinite odds now count as certain; a safety net repairs any bad number at the end of each turn.
+- Would-be settlers who couldn't find room were deleted instead of staying home (this was shrinking Egypt and the rising cultures).
+- Forager camps split only when full, and new camps barely widen their hunting land; risen old cultures grow their towns and only send settlers out when full. Settlements at 3000 BCE fell from about 14,000 to 6,700.
+- AI economies are worked out once a turn; hot lookups use number keys. Turn time at 3000 BCE fell from about 2.2 s to 0.8 s.
+
+What the world did:
+- History played out: Michelsberg and Chasséen broke up (3500); Repin became the Yamnaya (3300), who raided their neighbors; Egypt united (3150) and took the Delta tribes; Uruk faded into Jemdet Nasr and Susa became Elam (3100); Cucuteni–Trypillia broke apart (3100); Sumer split into city-states (2900); Funnelbeaker gave way to Corded Ware (2800); the Indus cities rose (2600). Some went differently: Yangshao and Maykop held together against the odds.
+- Farming spread slowly: about 175 farming tribes at 3500 BCE, about 210 by 2500 BCE.
+- Tribes filled their land and leveled off around 300,000 families by 2800 BCE; the whole world stayed around 700,000–850,000 families.
+- Wars began around 3200 BCE as farmers and growing tribes met: usually 10–20 under way at once; about 430 battles by 2500 BCE. About 400 of 2,000 tribes fell (most in the first 300 years); 71 joined neighbors.
+- By 2500 BCE most peoples are in the Bronze Age and about 56 in the Classical Age.
+- Turn time still grows with settlements: about 0.8 s at 3000 BCE, 1.7 s at 2500 BCE (desktop; a phone would be slower). This is the main thing left to work on.
+- Repetitive history: when a tribe loses several villages in a row, each one is recorded as "took X, capital of …" because the capital moves each time.
