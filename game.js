@@ -806,7 +806,7 @@ function traitTargets(n, E, H) { const tr = tribal(n), sh = k => tr ? timeShare(
     open: 15 + 6 * Math.min(8, metCount(n)) + 40 * minor + (tr ? 100 * sh("scout") : 3 * Math.min(6, ((E && E.partners) || []).length)) + (cu === "mercantile" ? 10 : 0),
     con: mood };
 }
-function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = STEP / TPY;
+function stepTraits(n, E, H) { const tg = traitTargets(n, E, H), yrs = STEP / TPY; { const fx = founderFx(n); if (fx && fx.trait) for (const k in fx.trait) tg[k] = Math.min(100, tg[k] + fx.trait[k]); } /* a founder shapes the people's character */
   if (!n.trait) { n.trait = {}; for (const k in TRAITS) n.trait[k] = clamp(tg[k], 0, 100); n.trait.res = Math.max(n.trait.res, 55); }
   const T = n.trait;
   for (const k in TRAITS) tg[k] += relNudge(n, k) + cusNudge(n, k);
@@ -1473,6 +1473,7 @@ function unitPower(n) {
   m *= milMult(n.milFund == null ? 1 : n.milFund) * qualMult(n.milQual || 0);
   if (has(n, "combustion") && secUnlocked(n, "oil")) m *= .85 + .15 * Math.min(1, secF(n, "oil"));
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
+  { const fx = founderFx(n); if (fx && fx.pow) m *= fx.pow; }
   return gearOf(n) * m;
 }
 // ---- mercenaries: a one-time fee buys fighters on a fixed contract; they leave when it runs out ----
@@ -1884,7 +1885,8 @@ function econ0(n) {
   }
   // how well each sector is supplied shapes the economy
   food *= (1 + thinkB(n, "food")) * (tribal(n) ? 1 : 1); mat *= 1 + thinkB(n, "crafts"); sci *= 1 + thinkB(n, "lore") * .6; tax *= 1 + thinkB(n, "trade");
-  { const w = WORK_OUT[(n.cus || {}).work] || 1; food *= w; mat *= w; tax *= w; sci *= w; } /* more hands at work: more output (and fewer children) */
+  { const w = WORK_OUT[(n.cus || {}).work] || 1; food *= w; mat *= w; tax *= w; sci *= w; }
+  { const fx = founderFx(n); if (fx) { sci *= 1 + (fx.sci || 0); food *= 1 + (fx.food || 0); } } /* a founder at work */ /* more hands at work: more output (and fewer children) */
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
@@ -2390,6 +2392,8 @@ function placeAncient(c, avoid) {
     if (q.at && regAt(q.at[0], q.at[1]) && !avoid.some(p => Math.hypot(p[0] - q.at[0], p[1] - q.at[1]) < p[2])) sp = { x: q.at[0], y: q.at[1], r: regAt(q.at[0], q.at[1]).i };
     if (!sp) sp = landSpot(cx, cy, c.R, q.t ? 1.6 : 1.1, avoid, home); if (!sp) continue;
     const s = addSettlement(n.id, sp.r, q.p, null, q.name || null, q.t, false, { x: sp.x, y: sp.y });
+    s.h = hOf(s) * 1.6; /* an old, settled people: its land is already claimed */
+    if (q.name) s.real = true; /* one of the real historical sites */
     if (n.cap < 0 || q.t > (setById(n.cap) || { t: -1 }).t) n.cap = s.id; }
   n.gov = c.gov || (c.forager ? "tribe" : "chiefdom"); n.era = c.era || 0; n.resOpen = true; n.research = null; n.autoResearch = false;
   n.stateUp = true; bud(n).init = true; n.army = Math.max(1, econ(n).armyTarget || 1); /* a settled people with chiefs, trades and warriors of its own */
@@ -2731,7 +2735,7 @@ function processNation(n) {
   if (tribal(n)) stepHardYear(n, E);
   if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + STEP : 0;
     if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
-  stepThinkers(n);
+  stepThinkers(n); stepFounder(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + STEP : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
   if (!n.simple || Math.floor((G.month || 0) / 3) === 0) { const st0 = STEP; if (n.simple) STEP = TPY; stepTraits(n, E, H); stepPeoples(n); STEP = st0; } /* simple peoples: their character and peoples shift once a year */
@@ -3044,11 +3048,12 @@ function attack(n, s, units) {
     addWs(n.id, dn.id, s.id === dn.cap ? 15 : 5 + s.t * 3);
     chip(n.id, s);
     n.conq = (n.conq || 0) + 1;
-    if (s.id === dn.cap) whist("🏰", `The ${nm(n)} took ${s.name}, capital of the ${nm(dn)}.`, "war", [n.id, dn.id]);
+    if (s.id === dn.cap && !(dn.capLostY != null && G.year - dn.capLostY < 10)) { dn.capLostY = G.year; whist("🏰", `The ${nm(n)} took ${s.name}, capital of the ${nm(dn)}.`, "war", [n.id, dn.id]); } /* a people's fallen capital is news once; the stand-ins that follow are not */
     { const c = warlord(n); c.count++; c.until = G.year; if (c.land0 == null) c.land0 = Math.max(1, setsOf(n).length - 1);
       if (s.id === dn.cap && !(c.beat || (c.beat = [])).includes(dn.id)) { c.beat.push(dn.id); c.did.push(`took ${s.name}, capital of the ${nm(dn)}`); }
       legend(c, n); }
     if (n.id === G.player) hist(n, "🏳️", `We took ${s.name} from the ${nm(dn)}.`); else if (dn.id === G.player) hist(dn, "🏴", `The ${nm(n)} took ${s.name} from us.`);
+    { const fx = founderFx(n); if (fx && fx.conquest && dn.relig !== n.founder.k && !scripted(dn) && rnd() < fx.conquest) dn.relig = n.founder.k; } /* the faith spreads with conquest */
     s.pop *= .85; convertSet(n, dn, s); s.o = n.id; s.focus = null; recalcShares(n); recalcShares(dn); s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
     if (!setsOf(dn).some(x => x.r === ri)) { if (G.bld[ri]) delete G.bld[ri][dn.id]; setCons(dn.id, ri, null); }
@@ -3910,7 +3915,7 @@ function drawSettlements(k, me) {
     ctx.lineWidth = big ? 2.2 / k : z * .22; ctx.strokeStyle = shade(n.color, -.45); ctx.stroke();
     if (s.crowd && s.o === me) { shapePath(t, s.x, s.y, z * 1.55); ctx.lineWidth = z * .12; ctx.strokeStyle = "rgba(230,154,11,.95)"; ctx.stroke(); }
     if (n.cap === s.id) { const sz = big ? Math.max(z * .8, footR0(s) * .55) : z * .8; starPath(s.x, s.y, sz * .62); /* the capital's star sits at its heart */ ctx.fillStyle = "#ffc93c"; ctx.fill(); ctx.lineWidth = sz * .1; ctx.strokeStyle = "#7a4b00"; ctx.stroke(); }
-    if ((s.h || .05) * k > (t >= 1 ? 45 : 80)) {
+    if ((s.h || .05) * k > (t >= 1 ? 45 : 80) * (!s.real && n.ai && scripted(n) ? 3 : 1)) { /* the old cultures name their real sites first; the rest when you zoom in */
       const txt = `${s.name} · ${fmt(s.pop)}`, w = txt.length * 6.2, lx = sx - w / 2, ly = sy + px * 1.3 + 2;
       if (labels.some(b => lx < b[2] && lx + w > b[0] && ly < b[3] && ly + 13 > b[1])) continue;
       labels.push([lx, ly, lx + w, ly + 13]);
@@ -4448,9 +4453,38 @@ const curDom = n => { const id = !n.resOpen ? (curTalk(n) || {}).id : n.research
 const FAITH_FOUNDERS = { judaism: ["Moses", "semitic", "led his people out of bondage and gave them the law of Judaism"], zoro: ["Zarathustra", "persian", "taught the faith of Zoroastrianism"], jain: ["Mahavira", "indic", "taught the path of Jainism"],
   buddhism: ["Siddhartha Gautama", "indic", "found enlightenment and taught Buddhism"], confucian: ["Kong Fuzi (Confucius)", "chinese", "taught the way of Confucius"], taoism: ["Laozi", "chinese", "wrote of the Way, and Taoism began"],
   christian: ["Jesus of Nazareth", "semitic", "preached, and Christianity began"], islam: ["Muhammad", "semitic", "received the revelation of Islam"], sikh: ["Guru Nanak", "indic", "founded Sikhism"], protestant: ["Martin Luther", "germanic", "challenged the church, and the Protestant Reformation began"] };
+/* the founders appear where they really lived, belong to whoever holds that land, and shape that people while they teach */
+const FOUNDER_HOME = { judaism: [31.8, 35.2, 40], zoro: [36.7, 66.9, 35], jain: [25.6, 85.1, 30], buddhism: [24.7, 85.0, 45], confucian: [35.6, 117.0, 25], taoism: [34.6, 112.4, 30],
+  christian: [32.7, 35.3, 3], islam: [21.4, 39.8, 22], sikh: [31.5, 74.3, 30], protestant: [51.9, 12.6, 29] }; /* where, and the years they taught */
+const FOUNDER_FX = {
+  judaism: { title: "Lawgiver", d: "people are steadier, and customs and government change twice as easily", fac: { elders: 6, commoners: 4 }, cool: true },
+  zoro: { title: "Prophet of order", d: "people are steadier and lean devout", fac: { elders: 6, commoners: 4 }, trait: { pie: 15 } },
+  jain: { title: "Non-violence", d: "a much calmer people, but a weaker army (80%)", fac: { commoners: 8, elders: 6, warriors: -6 }, pow: .8 },
+  buddhism: { title: "Enlightened teacher", d: "a more content people, and the faith spreads to neighbors", fac: { commoners: 8 }, spread: .1 },
+  confucian: { title: "Teacher of order", d: "people are steadier, and research is 10% faster", fac: { elders: 6, nobles: 4 }, sci: .1 },
+  taoism: { title: "Sage of the Way", d: "a more content people, and 5% more food", fac: { commoners: 8 }, food: .05 },
+  christian: { title: "Preacher of mercy", d: "happier commoners, and the faith spreads widely", fac: { commoners: 10 }, spread: .15 },
+  islam: { title: "Prophet and war leader", d: "a far stronger army (150%), and the faith spreads with conquest", fac: { warriors: 8 }, pow: 1.5, conquest: .4 },
+  sikh: { title: "Teacher of equality", d: "happier commoners and a rising martial spirit", fac: { commoners: 8 }, trait: { mar: 15 } },
+  protestant: { title: "Reformer", d: "research 10% faster, but upheaval in the church", fac: { elders: -10, intellectuals: 8 }, sci: .1 },
+};
+const founderFx = n => n.founder && G.year < n.founder.until ? FOUNDER_FX[n.founder.k] : null;
 function faithFounders() { const F = G.faithSeen || (G.faithSeen = {});
-  for (const k in FAITH_FOUNDERS) { if (F[k] || !relOpen(k)) continue; F[k] = 1; const [who, lg, deed] = FAITH_FOUNDERS[k], o = G.nations.find(x => x.alive && langOf(x) === lg) || G.nations.find(x => x.alive && LANG_FAM[langOf(x)] === LANG_FAM[lg]);
-    const p = famous(o || null, "founder", `Founder of ${RELIGIONS[k].name}`, deed, RELIGIONS[k].icon, "people", who); p.among = true; } }
+  for (const k in FAITH_FOUNDERS) { if (F[k] || !relOpen(k)) continue; F[k] = 1; const [who, , deed] = FAITH_FOUNDERS[k], [la, lo, yrs] = FOUNDER_HOME[k] || [0, 0, 30], [cx, cy] = llXY(la, lo);
+    let best = null, bd = 1e9; for (const x of nearSets(cx, cy, 25)) { const d = Math.hypot(x.x - cx, x.y - cy); if (d < bd && G.nations[x.o] && G.nations[x.o].alive) { bd = d; best = x; } }
+    if (!best) for (const x of G.sets) { const d = Math.hypot(x.x - cx, x.y - cy); if (d < bd && G.nations[x.o] && G.nations[x.o].alive) { bd = d; best = x; } }
+    const o = best ? G.nations[best.o] : null, fx = FOUNDER_FX[k];
+    const p = famous(o, "founder", `Founder of ${RELIGIONS[k].name}`, deed, RELIGIONS[k].icon, "people", who); p.among = true;
+    if (!o || !fx) continue;
+    o.founder = { k, who, until: G.year + yrs }; p.until = G.year + yrs;
+    for (const f in fx.fac) o.facMods.push({ k: f, v: fx.fac[f], why: `${who}, ${fx.title.toLowerCase()}`, t: yrsT(yrs) });
+    if (o.ai && o.relig !== k && !scripted(o)) o.relig = k; /* the faith's birthplace takes it up */
+    if (o.id === G.player) { (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: RELIGIONS[k].icon, title: `${who} appears among us`, text: `${who} ${deed}. While ${who.split(" ")[0]} teaches (about ${yrs === 3 ? "three years" : yrs + " years"}): ${fx.d}.` }); hist(o, RELIGIONS[k].icon, `${who} appeared among us: ${fx.title.toLowerCase()}.`); } } }
+/* a founder's teaching years: the faith spreads, conquest carries it, and when they die their people remember */
+function stepFounder(n) { const f = n.founder; if (!f || f.done) return; const fx = FOUNDER_FX[f.k];
+  if (G.year >= f.until) { f.done = true; if (n.id === G.player) { (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: RELIGIONS[f.k].icon, title: `${f.who} has died`, text: `${f.who}'s teaching years are over. The faith lives on, but the people no longer feel the founder's presence.` }); hist(n, "🕯️", `${f.who} died.`); } return; }
+  if (fx.cool) { n.culCool = dec(n.culCool); n.govCool = dec(n.govCool); }
+  if (fx.spread) for (const o of metOf(n)) if (o.ai && !scripted(o) && o.relig !== f.k && (o.laws || {}).rel !== "sec" && rnd() < pr(fx.spread * 25)) { o.relig = f.k; if (dipR(o.id, G.player).met) log(`The ${nm(o)} have taken up ${RELIGIONS[f.k].name}.`, RELIGIONS[f.k].icon, -1); } }
 const GREAT_MINDS = false; /* parked until the early game is built out (see PLANS.md) */
 function stepThinkers(n) { if (!GREAT_MINDS) return; const T = n.thinkers || (n.thinkers = []);
   for (const t of T) if (!t.dead && G.year >= t.until) { t.dead = true; if (!n.ai) { log(`${t.name}, ${t.title.toLowerCase()} of ${t.from}, has died.`, "🕯️"); hist(n, "🕯️", `${t.name}, ${t.title.toLowerCase()} of ${t.from}, died.`); } }

@@ -21,20 +21,24 @@ Decisions we've agreed on but haven't built yet. We're finishing the Stone Age f
 - **Nation founders**: not notable (removed).
 - **Faith founders** (built, cosmetic): they appear in the place they really lived. They should **belong to whoever holds that land** and bring traits that matter while they live. The traits are still to be approved (see below); Muhammad will need special care.
 
-## Proposed founder traits (awaiting approval)
+## Founder traits (built)
 
-| Founder | Faith | Trait | Effect while alive, for the people holding their homeland |
+Each founder appears in the place they really lived, among whoever holds that land (or the nearest people), and shapes that people for their real years of teaching. You get a popup when one appears in your land and when they die.
+
+| Founder | Where | Years | While active |
 |---|---|---|---|
-| Moses | Judaism | Lawgiver | +stability; laws and customs change more easily |
-| Zarathustra | Zoroastrianism | Prophet of order | +stability; people lean devout |
-| Mahavira | Jainism | Non-violence | much calmer people; −army strength |
-| Siddhartha Gautama | Buddhism | Enlightened teacher | +contentment; faith spreads to neighbors |
-| Confucius | Confucianism | Teacher of order | +stability; +research (scholars, officials) |
-| Laozi | Taoism | Sage of the Way | +contentment; +harmony with the land (food) |
-| Jesus of Nazareth | Christianity | Preacher of mercy | +commoners' mood; faith spreads widely |
-| Muhammad | Islam | Prophet and war leader | **huge military boost**; faith spreads with conquest |
-| Guru Nanak | Sikhism | Teacher of equality | +commoners; +martial spirit |
-| Martin Luther | Protestantism | Reformer | +research (printing, literacy); church upheaval |
+| Moses | Canaan | 40 | Lawgiver: steadier people (elders +6, commoners +4); customs and government change twice as easily |
+| Zarathustra | Bactria | 35 | Prophet of order: steadier people; they lean devout |
+| Mahavira | Bihar | 30 | Non-violence: much calmer people; army at 80% |
+| Siddhartha Gautama | Bodh Gaya | 45 | Enlightened teacher: more content; the faith spreads to neighbors |
+| Confucius | Qufu | 25 | Teacher of order: steadier people; research +10% |
+| Laozi | Luoyang | 30 | Sage of the Way: more content; food +5% |
+| Jesus of Nazareth | Galilee | 3 | Preacher of mercy: happier commoners; the faith spreads widely |
+| Muhammad | Mecca | 22 | Prophet and war leader: army at 150%; conquered peoples often take up the faith |
+| Guru Nanak | Punjab | 30 | Teacher of equality: happier commoners; martial spirit rises |
+| Martin Luther | Wittenberg | 29 | Reformer: research +10%; upheaval in the church (elders −10) |
+
+The faith's birthplace takes it up (AI peoples). Muhammad will need more special care later.
 
 ## Military (Stone Age core built; the rest later)
 
@@ -287,3 +291,9 @@ What changed:
 - New games start every AI people simple; your first neighbors switch to full detail on the first turn.
 - Checked against a run with every people in full detail: falls, tribe populations and the world total match within normal variation.
 - Speed (CPU slowed 4× for a phone): about 0.2–0.4 s a turn at the start; about 2 s at 2500 BCE, with a slower turn once a year when the land-contact map is rebuilt. As the world consolidates into fewer, bigger countries, more of them can run in full detail.
+
+## Map and history clean-up (built)
+
+- The old cultures' towns start with their land already claimed, so a culture shows as one territory instead of a web of corridors.
+- At ordinary zoom an old culture names only its real historical sites; the other towns get names when you zoom in.
+- A people's fallen capital is world news once in ten years; the stand-in capitals that fall after it don't repeat the headline.
