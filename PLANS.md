@@ -305,3 +305,16 @@ What changed:
 - After contact they advance normally.
 - Held to tribal ways, they grow very skilled instead: as they master the Stone Age their warriors become up to 50% stronger and their hunting and farming up to 15% more productive. They keep this edge after contact.
 - Contact brings smallpox: about half of those it reaches die in the first wave, and it returns every 30 years (roughly a 75–80% decline over a century and a half). They meet the newcomers capable but few.
+- You can't start in the Americas.
+
+## Territory plots (built)
+
+Replaces Expand. The land is cut into invisible hex plots; you choose which to claim, the way the United States grew state by state.
+
+- A plot is about 30 km across, roughly one band's hunting range. Each first village owns its plot and the ring around it (its home range).
+- Claim size grows with the age: one plot in the Stone Age, a whole region of about 100 km in the Bronze and Classical Ages, about 250 km from the Middle Ages on.
+- Claim: Land card → Claim land. The free plots beside yours light up; tap one. Tribes pay materials, nations gold; the cost rises slowly with how much you hold.
+- Your people know your own land and what lies just past it, so the plots you can claim are never hidden by fog.
+- AI peoples claim too, when their land gets crowded, picking the richest free land beside them. Ancient cultures start with their real homelands.
+- Foragers are limited by the land they hold (about 0.1 people per km²). Other peoples' plots can't be settled. Plots pass on in merges, conquest and to heirs, and go back to the wild when a people falls.
+- Holding many more plots than settlements needs warriors guarding the borders.

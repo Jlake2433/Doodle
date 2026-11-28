@@ -929,6 +929,7 @@ function samplePoint(ri, nearPt, owner = -1, maxD = 40, needLand = false) {
       }
       if (!ok) continue;
       if (owner >= 0 && inForeignCorridor(x, y, owner)) continue;
+      if (owner >= 0) { const po = plotOwner(plotAt(x, y)); if (po >= 0 && po !== owner) continue; } /* not in another people's land */
       const sc = d + crowd * .02 + rnd() * .1;
       if (sc < bd) { bd = sc; best = [x, y]; }
     }
@@ -972,7 +973,7 @@ function addSettlement(nid, ri, pop, from, name, tier = 0, directed = false, at 
     for (let i = 1; i < steps; i++) addDisc(from.x + (x - from.x) * i / steps, from.y + (y - from.y) * i / steps, .9);
   }
   if (from && from.eth && from.o === nid) s.eth = { ...from.eth }; /* settlers carry their mix of peoples with them */
-  G.sets.push(s); G.sv++; return s;
+  G.sets.push(s); G.sv++; { const k = plotAt(x, y); if (plotOwner(k) < 0) setPlot(k, nid); } /* a village owns the plot it stands in */ return s;
 }
 // ---- borders: each settlement works a square of land sized by its population; squares stop at foreign borders ----
 const HP = [1, 2, 3];
@@ -1029,7 +1030,8 @@ function bordersTouch(a, b) {
   const me = G.nations[G.player], key = touchKeyOf(me); /* worked out once a turn (and when you build): with thousands of peoples, villages are founded all the time */
   if (touchKey !== key || touchPairs.G !== G) { touchKey = key; touchPairs = new Map(); touchPairs.G = G;
     const add = (x, y) => { let m = touchPairs.get(x); if (!m) touchPairs.set(x, m = new Set()); m.add(y); };
-    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) { add(s.o, o.o); add(o.o, s.o); } } /* borders, or hunting lands, meet */
+    for (const s of G.sets) for (const o of nearSets(s.x, s.y, 9)) if (o.o !== s.o && chebGap(s, o) < .1 + huntR(G.nations[s.o]) + huntR(G.nations[o.o])) { add(s.o, o.o); add(o.o, s.o); }
+    const M = plotsMap(); for (const k in M) { const a = M[k]; for (const j of plotNbrs(+k)) { const b = M[j]; if (b != null && b !== a) { add(a, b); add(b, a); } } } } /* plots that touch: neighboring lands */ /* borders, or hunting lands, meet */
   const m = touchPairs.get(a.id); return !!m && m.has(b.id);
 }
 // a won battle pushes the defender's border back; the attacker's land grows into the gap
@@ -1113,6 +1115,7 @@ function newGame(opts) {
       addTribe(reg.i, { x, y }); const q = [x, y]; (occ.get(key(x, y)) || occ.set(key(x, y), []).get(key(x, y))).push(q);
     }
   }
+  for (const x of G.sets) { const k = plotAt(x.x, x.y); for (const j of [k, ...plotNbrs(k)]) if (plotOwner(j) < 0 && plotLand(j)) setPlot(j, x.o); } /* each first village owns its home range */
   for (const n of G.nations) if (n.ai && !scripted(n)) { n.simple = true; n.L = .98; } /* peoples start simple; those around you switch to full detail on the first turn */
   G.exp = new Array(NR).fill(0); G.fog = [];
   for (let i = 0; i < 4; i++) growBorders();
@@ -1138,7 +1141,54 @@ function donorFor(n, ri) {
 const scoutSight = n => (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1) * (tribal(n) && setsOf(n).some(x => builtAt(x, "watch")) ? 1.15 : 1) * (tribal(n) && has(n, "signs") ? 1.1 : 1);
 const villageReach = n => clamp(scoutSight(n) * 1.1, .7, 2.2); /* how far families will walk to found a new village */
 let placeMode = null; /* choosing where a new village goes */
-function placeCheck(n, donor, x, y) { const R = villageReach(n); if (Math.hypot(x - donor.x, y - donor.y) > R) return { why: "Too far: families won't walk beyond your scouts' reach." };
+/* ================= LAND PLOTS =================
+   The land is divided into invisible plots: a hex grid about 100 km across. Every people owns the plots its villages stand in and claims
+   more next to its land. In the Stone Age a claim is one plot; from the Bronze Age on it takes the whole state-sized group (about 250 km) */
+const PLOT_R = .8, S3 = Math.sqrt(3), PLOT_AREA = 1.5 * S3 * PLOT_R * PLOT_R; /* a plot is about 30 km across: a band's hunting range */
+const claimLevel = n => n.era < 1 ? 0 : n.era < 3 ? 1 : 2, CLAIM_R = [0, PLOT_R * 3.2, PLOT_R * 8], CLAIM_KM = ["30", "100", "250"]; /* claims grow with the age: a plot, then a region of about 100 km, then about 250 km */
+function hexRound(q, r) { const x = q, z = r, y = -x - z; let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z); const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry; return [rx, rz]; }
+const pkey = (q, r) => (q + 5000) * 10000 + (r + 5000), pkQ = k => Math.floor(k / 10000) - 5000, pkR = k => k % 10000 - 5000;
+function plotAt(x, y, R = PLOT_R) { const [q, r] = hexRound((S3 / 3 * x - y / 3) / R, (2 / 3 * y) / R); return pkey(q, r); }
+function plotXY(k, R = PLOT_R) { const q = pkQ(k), r = pkR(k); return [R * S3 * (q + r / 2), R * 1.5 * r]; }
+const PLOT_NB = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const plotNbrs = k => { const q = pkQ(k), r = pkR(k); return PLOT_NB.map(([a, b]) => pkey(q + a, r + b)); };
+const plotGroup = (k, R) => { const [x, y] = plotXY(k); return plotAt(x, y, R); };
+const plotLand = k => { const [x, y] = plotXY(k); return onLand(x, y); };
+const plotsMap = () => G.plots || (G.plots = {});
+const plotOwner = k => { const o = plotsMap()[k]; return o == null ? -1 : o; };
+let poIx = null, poK = -1;
+function setPlot(k, id) { const M = plotsMap(), old = M[k], ok = poIx && poIx.G === G && poK === (G.pv || 0);
+  if (id == null || id < 0) delete M[k]; else M[k] = id; G.pv = (G.pv || 0) + 1;
+  if (ok) { /* keep the owner index current instead of rebuilding it */ if (old != null) { const a = poIx.get(old), i = a ? a.indexOf(+k) : -1; if (i >= 0) a.splice(i, 1); } if (id != null && id >= 0) { let a = poIx.get(id); if (!a) poIx.set(id, a = []); a.push(+k); } poK = G.pv; } }
+function plotsOf(n) { if (!poIx || poK !== (G.pv || 0) || poIx.G !== G) { poIx = new Map(); poIx.G = G; poK = G.pv || 0; const M = plotsMap(); for (const k in M) { let a = poIx.get(M[k]); if (!a) poIx.set(M[k], a = []); a.push(+k); } } return poIx.get(n.id) || []; }
+/* free land next to a people's plots */
+function claimable(n) { const own = plotsOf(n), out = new Set(); for (const k of own) for (const j of plotNbrs(k)) if (plotOwner(j) < 0 && plotLand(j)) out.add(j); return [...out]; }
+/* what one claim takes: a plot in the Stone Age, the whole free part of its state-sized group after */
+function claimSet(n, k) { const lv = claimLevel(n); if (!lv) return [k]; const R = CLAIM_R[lv], g = plotGroup(k, R), seen = new Set([k]), q = [k], out = [];
+  while (q.length) { const c = q.pop(); out.push(c); for (const j of plotNbrs(c)) if (!seen.has(j) && plotGroup(j, R) === g && plotOwner(j) < 0 && plotLand(j)) { seen.add(j); q.push(j); } } return out; }
+function claimCost(n, k) { const c = claimSet(n, k).length, more = 1 + plotsOf(n).length / 150; return tribal(n) ? { m: Math.ceil(1 * c * more), g: 0 } : { m: 0, g: Math.ceil(1.5 * c * more * (1 + .3 * n.era)) }; }
+function claimPlot(n, k) { if (plotOwner(k) >= 0 || !plotLand(k)) return { why: "That land isn't free." };
+  if (!claimable(n).includes(k)) return { why: "You can only claim land next to your own." };
+  const c = claimCost(n, k); if (n.mat < c.m || n.gold < c.g) return { why: `Claiming that takes ${c.m ? c.m + " materials" : c.g + " gold"}.` };
+  n.mat -= c.m; n.gold -= c.g; const ks = claimSet(n, k); for (const j of ks) setPlot(j, n.id); G.sv++; return { ok: true, n: ks.length }; }
+/* AI peoples claim land when theirs gets tight, choosing the richest free land beside them */
+function aiClaim(n) { const cand = claimable(n); if (!cand.length) return; const pop = popOf(n), have = plotsOf(n).length * PLOT_AREA;
+  const tight = !has(n, "agriculture") && tribal(n) ? pop / Math.max(1, have * 5.5) > .45 : roomOf(n) < 1.1 || pop / Math.max(1, have * 15) > .5;
+  if (!tight && rnd() > .1) return;
+  const food = k => { const [x, y] = plotXY(k), r = regAt(x, y); return r ? TER[r.t].food + rnd() * .2 : 0; };
+  const best = cand.sort((a, b) => food(b) - food(a))[0]; if (best != null && food(best) > .3) claimPlot(n, best); }
+/* when a people falls, its plots go back to the wild (or to whoever takes them in) */
+function releasePlots(n, to) { for (const k of plotsOf(n).slice()) setPlot(k, to ? to.id : -1); }
+/* claiming: the plots you can claim light up; tap one */
+let claimMode = false;
+function startClaim() { claimMode = true; closePanel(); dirty = true; const c = capSet(P()), lv = claimLevel(P()), span = lv ? CLAIM_R[lv] * S3 * 3.5 : PLOT_R * S3 * 9; if (c) centerOn(c.x, c.y, clamp(cw / span, minK(), MAXK)); /* zoom so the land around you fits */
+  let b = document.getElementById("placeBar"); if (!b) { b = document.createElement("div"); b.id = "placeBar"; document.body.appendChild(b); }
+  const n = P(), k0 = claimable(n)[0], c0 = k0 != null ? claimCost(n, k0) : null;
+  b.innerHTML = `<span>🗺️ Tap the land you want to claim (highlighted)${c0 ? `. ${claimLevel(n) === 0 ? "A plot" : "A region"} costs about ${c0.m ? c0.m + " materials" : c0.g + " gold"}` : ""}</span><button class="btn small ghost" id="placeX">Done</button>`; b.hidden = false;
+  document.getElementById("placeX").onclick = () => endClaim(); }
+function endClaim() { claimMode = false; const b = document.getElementById("placeBar"); if (b) b.hidden = true; dirty = true; }
+function placeCheck(n, donor, x, y) { { const po = plotOwner(plotAt(x, y)); if (po >= 0 && po !== n.id) return { why: `That land belongs to the ${nm(G.nations[po])}.` }; } const R = villageReach(n); if (Math.hypot(x - donor.x, y - donor.y) > R) return { why: "Too far: families won't walk beyond your scouts' reach." };
   if (!sampler) sampler = document.createElement("canvas").getContext("2d");
   if (!sampler.isPointInPath(getLandPath(), x, y, "evenodd")) return { why: "That's water." };
   const ri = W.regions.findIndex(S => sampler.isPointInPath(S.path, x, y, "evenodd")); if (ri < 0) return { why: "Choose a spot on land." };
@@ -1590,8 +1640,8 @@ function learnFarming(n) { if (agriOk(n) || has(n, "agriculture") || !farmLand(n
   if (!n.ai && n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌾", title: "Farmers among our neighbors", text: `Our people have seen how the ${nm(f[0])} plant seeds and harvest grain. Your elders can now talk about Agriculture.` }); }
 /* foragers: their hunting lands feed only so many, and mothers on the move space their children further apart */
 function forageLimit(n) { return turnCache("fl" + n.id, () => { const ss = setsOf(n), c = capSet(n) || ss[0]; if (!c) return 1;
-  const r = Math.min(.75, Math.max(...ss.map(x => Math.hypot(x.x - c.x, x.y - c.y)))) + huntR(n) + 1, /* bands roam about 25 km beyond their camps; new camps fill the range more than they widen it */ food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
-  const cap = Math.PI * r * r * 12 * food, /* about 0.1 people per km², as real foragers lived */ ratio = popOf(n) / Math.max(1, cap); return clamp(1.4 - .6 * ratio, .6, 1.1); }); }
+  const food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
+  const cap = Math.max(1, plotsOf(n).length) * PLOT_AREA * 5.5 * food, /* their plots feed about 0.1 people per km², as real foragers lived */ /* about 0.1 people per km², as real foragers lived */ ratio = popOf(n) / Math.max(1, cap); return clamp(1.4 - .6 * ratio, .6, 1.1); }); }
 const talkCost = t => t.cost;
 function pickTalk(n) { const av = eraTechs(0).filter(t => stoneOpen(n, t)); if (!av.length) return null;
   const want = { agriculture: .6, husbandry: .7, mysticism: .8, tribal: .85, pottery: .85 }; /* advisors push for the big steps */
@@ -1787,7 +1837,7 @@ const QCAP = 60; /* things waiting in a settlement's queue */
 const seasonsTxt = q => q <= 1 ? "this season" : q < 1 ? "less than a season" : q <= 8 ? `about ${Math.ceil(q)} season${Math.ceil(q) === 1 ? "" : "s"}` : `about ${Math.round(q / 4)} years`;
 // ---- expanding borders: a settlement can claim a little more land, but it must be guarded ----
 const EXP_MAX = 2;
-const garrisonNeed = n => setsOf(n).reduce((a, x) => a + (x.exp || 0) * (1 + x.t), 0);
+const garrisonNeed = n => Math.floor(Math.max(0, plotsOf(n).length - setsOf(n).length) / 2); /* land beyond your villages needs guarding */
 const garrisonMult = n => { const need = garrisonNeed(n); return need > 0 ? clamp(.55 + .45 * forces(n) / need, .55, 1) : 1; };
 const popWord = n => n && tribal(n) ? "families" : "people";
 const MERC_DEALS = [{ id: "short", years: 2, mult: 1, name: "2-year contract" }, { id: "long", years: 5, mult: 2.2, name: "5-year contract" }];
@@ -2124,6 +2174,7 @@ function updateExplore() {
   if (has(n, "flight")) { G.fogAll = true; G.exp.fill(1); return; }
   const sight = (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n, "navigation") ? .8 : 0)) * (tribal(n) ? .9 + 2 * timeShare(n, "scout") : 1) * (tribal(n) && setsOf(n).some(x => builtAt(x, "watch")) ? 1.15 : 1) * (tribal(n) && has(n, "signs") ? 1.1 : 1);
   for (const s of setsOf(n)) addDisc(s.x, s.y, (s.h || .1) * 1.5 + sight * (1 + s.t * .6));
+  for (const k of plotsOf(n)) if (plotNbrs(k).some(j => plotOwner(j) !== n.id)) { const [x, y] = plotXY(k); addDisc(x, y, PLOT_R * 2.4); } /* our people know our own land and what lies just past it */
   // scouts walk out past the borders and map what they find, a few trips each season
   { const sets = setsOf(n), scouts = tribal(n) ? popOf(n) * timeShare(n, "scout") : popOf(n) * .002 * (bud(n).travel || 0);
     n.scoutAcc = Math.min(8, (n.scoutAcc || 0) + Math.min(6, scouts * .5));
@@ -2398,6 +2449,7 @@ function placeAncient(c, avoid) {
     if (q.name) s.real = true; /* one of the real historical sites */
     if (n.cap < 0 || q.t > (setById(n.cap) || { t: -1 }).t) n.cap = s.id; }
   n.gov = c.gov || (c.forager ? "tribe" : "chiefdom"); n.era = c.era || 0; n.resOpen = true; n.research = null; n.autoResearch = false;
+  { const [ax, ay, aR] = n.ancC; for (let q = -40; q <= 40; q++) for (let r = -40; r <= 40; r++) { const k = pkey(pkQ(plotAt(ax, ay)) + q, pkR(plotAt(ax, ay)) + r), [px, py] = plotXY(k); if (Math.hypot(px - ax, py - ay) < aR && plotOwner(k) < 0 && plotLand(k) && regAt(px, py) && home.has(regAt(px, py).i)) setPlot(k, n.id); } } /* their homeland is theirs */
   n.stateUp = true; bud(n).init = true; n.army = Math.max(1, econ(n).armyTarget || 1); /* a settled people with chiefs, trades and warriors of its own */
   n.peak = popOf(n); n.ancCap = n.peak * 1.25; /* their homeland is already full: room for a little more, not for doubling */
   return n; }
@@ -2618,6 +2670,7 @@ function splitAncient(n, st) {
     G.sv++; /* ownership changed: refresh who owns what */
     o.cap = h.sets.slice().sort((a, b) => b.pop - a.pop)[0].id; o.ancCap = popOf(o) * (st.rise ? 1.5 : 1.25); made.push(o); } /* heirs inherit a full land too */
   for (const a of made) for (const b of made) if (a.id < b.id) { const d = dip(a.id, b.id); d.met = true; d.rel = -10 + Math.round(rnd() * 20); }
+  { const hs = G.sets.filter(x => made.some(o => o.id === x.o)); for (const k of plotsOf(n).slice()) { const [px, py] = plotXY(k); let b = null, bd = 1e9; for (const x of hs) { const d = Math.hypot(x.x - px, x.y - py); if (d < bd) { bd = d; b = x; } } setPlot(k, b ? b.o : -1); } }
   n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   G.sv++; for (const ri of new Set(ss.map(x => x.r))) recomputeControl(ri);
   const list = made.map(o => `the ${nm(o)}`), lj = list.length > 1 ? list.slice(0, -1).join(", ") + " and " + list[list.length - 1] : list[0] || "no one";
@@ -2639,7 +2692,7 @@ function scatterFrom(n, left, c0) {
 /* a people that dwindles away or falls apart: its villages go back to the wild and its survivors scatter */
 function collapseTribe(n, why) { const fam = popOf(n), c0 = capSet(n) || setsOf(n)[0]; if (!c0) return;
   const to = scatterFrom(n, fam * .7, c0);
-  const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri);
+  const regs = new Set(setsOf(n).map(x => x.r)); G.sets = G.sets.filter(x => x.o !== n.id); for (const ri of regs) recomputeControl(ri); releasePlots(n);
   const names = to.map(t => `the ${nm(t.o)}`), list = names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1] : names[0];
   const text = (why ? why + " " : "") + (to.length ? `The ${nm(n)} fell apart; ${to.length > 1 ? "its survivors scattered, some to" : "its last families joined"} ${list}.` : `The ${nm(n)} faded away, and no one knows where its last families went.`);
   if (n.anc) ancTell(n, "💔", `The ${nm(n)} fall apart`, text); else whist("🍂", text, "fall", [n.id].concat(to.map(t => t.o.id)));
@@ -3061,6 +3114,7 @@ function attack(n, s, units) {
       legend(c, n); }
     if (n.id === G.player) hist(n, "🏳️", `We took ${s.name} from the ${nm(dn)}.`); else if (dn.id === G.player) hist(dn, "🏴", `The ${nm(n)} took ${s.name} from us.`);
     { const fx = founderFx(n); if (fx && fx.conquest && dn.relig !== n.founder.k && !scripted(dn) && rnd() < fx.conquest) dn.relig = n.founder.k; } /* the faith spreads with conquest */
+    setPlot(plotAt(s.x, s.y), n.id); /* the captured village's land goes with it */
     s.pop *= .85; convertSet(n, dn, s); s.o = n.id; s.focus = null; recalcShares(n); recalcShares(dn); s.u = 35; s.q = 30; s.hp = HP[s.t]; s.rad = 1; s.hit = G.tt; G.sv++;
     dn.ww += 3;
     if (!setsOf(dn).some(x => x.r === ri)) { if (G.bld[ri]) delete G.bld[ri][dn.id]; setCons(dn.id, ri, null); }
@@ -3086,7 +3140,7 @@ function legend(c, n) { if (c.notable) { if (c.did.length > (c.told || 0)) { whi
 function fame(c, n, deed) { whist(c.notable ? "⚔️" : "👑", `${c.name}, ${c.title.toLowerCase()} of the ${nm(n)}, ${deed}.`, "people", [n.id]); c.notable = true; }
 function eliminate(dn, by) {
   if (by) { const c = warlord(by); if (!(c.beat || (c.beat = [])).includes(dn.id)) c.beat.push(dn.id); c.did.push(`destroyed the ${nm(dn)}`); legend(c, by); }
-  dn.alive = false; dn.army = 0; whist("💀", `The ${nm(dn)} are no more${by ? `, destroyed by the ${nm(by)}` : ""}.`, "fall", [dn.id].concat(by ? [by.id] : []));
+  releasePlots(dn); dn.alive = false; dn.army = 0; whist("💀", `The ${nm(dn)} are no more${by ? `, destroyed by the ${nm(by)}` : ""}.`, "fall", [dn.id].concat(by ? [by.id] : []));
   G.sv++;
   for (const o of dealtAll(dn)) { const d = dip(dn.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   if (dn.id === G.player) { log("Your last settlement has fallen.", "☠️"); defeat(); }
@@ -3121,6 +3175,7 @@ function mergeInto(n, to) {
   for (const x of ss) { convertSet(to, n, x); x.o = to.id; x.focus = null; x.pq = []; x.qp = 0; }
   G.sv++; recalcShares(to);
   for (const ri of regs) { if (G.bld[ri]) delete G.bld[ri][n.id]; setCons(n.id, ri, null); recomputeControl(ri); }
+  releasePlots(n, to);
   n.alive = false; n.army = 0; for (const o of dealtAll(n)) { const d = dip(n.id, o.id); d.war = false; d.trade = false; d.ally = false; }
   whist("🤝", `The ${nm(n)} asked to join the ${nm(to)}, and became one of its peoples.`, "fall", [n.id, to.id]);
   if (to.id === G.player) { hist(to, "🤝", `The ${nm(n)} joined us: ${fam} famil${fam === 1 ? "y" : "ies"} in ${ss.length} ${ss.length === 1 ? "village" : "villages"}.`); log(`The ${nm(n)} have joined your people.`, "🤝"); }
@@ -3202,7 +3257,7 @@ function aiTurn(n) {
       if (x.pq.length) continue;
       else if (x.id === n.cap) { const g = GREAT.find(q => !P0.done[q.id] && itemOpen(n, q) && n.mat >= q.mat && !x.pq.includes(q.id)); if (g && rnd() < pr(.3)) { n.mat -= g.mat; x.pq.push(g.id); } } }
     const nearRival = setsOf(n).some(x => nearSets(x.x, x.y, 5).some(o => o.o !== n.id));
-    if (rnd() < pr(nearRival ? .6 : .2) && forces(n) >= garrisonNeed(n) + (nearRival ? 1 : 2)) { const x = pick(setsOf(n)); if (x && (x.exp || 0) < EXP_MAX) x.exp = (x.exp || 0) + 1; } }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
+    if (Math.floor((G.month || 0) / 3) === 0 && rnd() < (n.aiSkill == null ? 1 : n.aiSkill)) aiClaim(n); }  if (tribal(n)) { const t = timeOf(n), war = wars.length || n.pers === "aggressive";
     const ag = has(n, "agriculture");
     const fsh = fishable(n), fw = Math.ceil(firewoodNeed(n) * 100 / 5) * 5;
     const want = { warrior: war ? 28 : 15, food: (E.surplus < 0 ? 30 : 23) * (ag ? .5 : 1) * (1 - .4 * fsh), forage: (E.surplus < 0 ? 24 : 18) * (ag ? .5 : 1), fish: Math.round(14 * fsh), farm: ag ? (E.surplus < 0 ? 30 : 22) : 0, water: n.retired && n.retired.water ? 0 : carriersNeeded(n), firewood: fw, wood: crewFor(n).wood + (n.pers === "builder" ? 2 : 0), build: crewFor(n).build + (n.pers === "builder" ? 4 : 0), elder: n.cul === "scholarly" ? 15 : 8, scout: n.pers === "trader" ? 8 : 4, tools: pct5(toolNeed(n)), healer: has(n, "mysticism") ? pct5(healNeed(n)) : 0 };
@@ -3291,6 +3346,7 @@ function aiTurn(n) {
     const f = opts.sort((a, b) => score(a) - score(b))[0], c = fieldCost(n, f), reserve = saving ? villageCost(n).g + 5 : 5;
     if (n.gold > c.g + reserve && n.mat > c.m && E.goldNet - fieldUp(f) > -1) { expandField(n, f); builds++; } else break;
   }
+  if (!tribal(n) && Math.floor((G.month || 0) / 3) === 0 && rnd() < (n.aiSkill == null ? 1 : n.aiSkill)) aiClaim(n);
   } /* end of the full management */
   // diplomacy
   for (const o of metOf(n)) {
@@ -3644,6 +3700,7 @@ function saveSoon() { if (saveT) return; const wait = Math.max(0, AUTOSAVE_MS - 
 addEventListener("pagehide", () => { if (G && !G.demo) save(true); }); document.addEventListener("visibilitychange", () => { if (document.hidden && G && !G.demo) save(true); });
 function restoreCells() {
   delete G.cells;
+  if (!G.plots) { G.plots = {}; for (const x of G.sets) { const k = plotAt(x.x, x.y); if (plotOwner(k) < 0) setPlot(k, x.o); } } /* older saves: each village owns its plot */
   for (const n of G.nations) if (!n.fields) n.fields = {};
   if (G.sets.some(x => x.h == null)) { for (const x of G.sets) x.h = hOf(x) * .5; for (let i = 0; i < 6; i++) growBorders(); }
   if (!G.fog) { G.fog = []; updateExplore(); }
@@ -3759,10 +3816,11 @@ function inForeignCorridor(x, y, owner) { /* only peoples with villages nearby c
   return false;
 }
 function drawBorders(k, me) {
-  const key = G.sv + ":" + G.turn;
+  const key = G.sv + ":" + G.turn + ":" + (G.pv || 0);
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
     for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, s.exp && s.expDir != null ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
-    for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); } }
+    for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); }
+    const M = plotsMap(); for (const k in M) { const o = M[k]; const p = bordPaths.get(o) || (bordPaths.set(o, new Path2D()), bordPaths.get(o)); const [px, py] = plotXY(+k); p.moveTo(px + PLOT_R * 1.04 * Math.cos(Math.PI / 6), py + PLOT_R * 1.04 * Math.sin(Math.PI / 6)); for (let i = 1; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; p.lineTo(px + PLOT_R * 1.04 * Math.cos(a), py + PLOT_R * 1.04 * Math.sin(a)); } p.closePath(); } } /* claimed land */
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
   for (const [o, p] of bordPaths) { const n = G.nations[o]; if (!n || !n.alive) continue; const war = atWar(me, o);
@@ -3866,6 +3924,8 @@ function draw() {
   }
   // settlements: drawn at true map scale, so you zoom in to see their shapes
   drawSettlements(k, me);
+  if (claimMode) { ctx.save(); ctx.lineWidth = 2.2 / k; ctx.setLineDash([5 / k, 4 / k]); ctx.strokeStyle = "#ff7a3d"; ctx.fillStyle = "rgba(255,122,61,.14)";
+    for (const c of claimable(P())) { const [px, py] = plotXY(c); ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, X = px + PLOT_R * .96 * Math.cos(a), Y = py + PLOT_R * .96 * Math.sin(a); if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); } ctx.closePath(); ctx.fill(); ctx.stroke(); } ctx.restore(); }
   if (placeMode) { const d = setById(placeMode.from); if (d) { const R = villageReach(P()); ctx.save(); ctx.lineWidth = 2.5 / k; ctx.setLineDash([6 / k, 5 / k]); ctx.strokeStyle = "#ff7a3d"; ctx.fillStyle = "rgba(255,122,61,.10)";
     ctx.beginPath(); ctx.arc(d.x, d.y, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); } }
   if (k < 3.2 && seeAll()) {
@@ -3967,6 +4027,7 @@ function tapMap(e) {
   let hit = -1; for (const s of W.regions) if (ctx.isPointInPath(s.path, mx, my, "evenodd")) { hit = s.i; break; }
   ctx.restore();
   if (G.setup) { if (hit >= 0) setupPick(hit); return; }
+  if (claimMode) { const n = P(), r = claimPlot(n, plotAt(mx, my)); if (r.ok) { toast(claimLevel(n) === 0 ? "Land claimed" : `Claimed a region of ${r.n} plots`); hist(n, "🗺️", claimLevel(n) === 0 ? "We claimed new land." : "We claimed a new region."); updateExplore(); hud(); } else toast(r.why); dirty = true; return; }
   if (placeMode) { const n = P(), d = setById(placeMode.from); if (!d) { endPlace(); return; } const r = foundAt(n, d, mx, my);
     if (r.ok) { toast(`${r.s.name} is founded`); endPlace(); hud(); updateContacts && updateContacts(); } else toast(r.why); dirty = true; return; }
   sel = hit; dirty = true;
@@ -4581,14 +4642,11 @@ function panelProduction(n) {
       <p class="small muted">Everything built here, and every stretch of claimed border, needs upkeep: builders' time and materials. Without it the place wears down; badly worn, buildings collapse and borders shrink back.</p></details>`; }
   // borders
   { const e = x.exp || 0, need = garrisonNeed(n), have = forces(n);
-    h += `<details class="card pcol" data-pk="b" ${prodOpen.has("b") ? "open" : ""}><summary><span>🚩 <b>Borders</b></span><span class="psum">${e ? `Expanded ${e}/${EXP_MAX} ${x.expDir == null ? "all around" : "one way"}` : "Natural reach"}${need > have ? ' · <span class="bad">under-guarded</span>' : ""}</span></summary>${line("Claimed land", e ? `Expanded ${e} of ${EXP_MAX}` : "Its natural reach")}${line("Warriors needed to guard all your land", `${need} <small class="muted">(you have ${have})</small>`, need > have ? "bad" : "")}
-      ${need > have ? `<p class="small bad">Too few warriors to guard what you claim: defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker everywhere.</p>` : ""}
-      <p class="small muted">Expanding claims a little more land around ${esc(x.name)} for hunting, fields and new villages. Each step raises the warriors you need on guard by ${1 + x.t}. You don't have to field them, but your defense suffers if you don't.</p>
-      <p class="small"><b>Which way?</b></p>
-      <div class="compass">${[["NW", -.75], ["N", -.5], ["NE", -.25], ["W", 1], ["ALL", null], ["E", 0], ["SW", .75], ["S", .5], ["SE", .25]].map(([lab, a]) => { const ang = a == null ? null : a * Math.PI, on = (x.expDir == null && ang == null) || (x.expDir != null && ang != null && Math.abs(x.expDir - ang) < .01);
-        return `<button class="${on ? "on" : ""}" data-act="pdir" data-v="${ang == null ? "all" : ang}">${lab === "ALL" ? "All around" : { NW: "↖", N: "↑", NE: "↗", W: "←", E: "→", SW: "↙", S: "↓", SE: "↘" }[lab]}</button>`; }).join("")}</div>
-      <p class="small muted">${x.expDir == null ? "All around: a modest ring of extra land on every side." : "One direction: reaches much further that way, and no further elsewhere."}</p>
-      <div class="row wrap"><button class="btn small" data-act="pexp" data-v="1" ${e >= EXP_MAX ? "disabled" : ""}>🚩 Expand borders</button><button class="btn small ghost" data-act="pexp" data-v="-1" ${e <= 0 ? "disabled" : ""}>Pull back</button></div></details>`; }
+    const own = plotsOf(n).length, cand = claimable(n), c0 = cand.length ? claimCost(n, cand[0]) : null;
+    h += `<details class="card pcol" data-pk="b" ${prodOpen.has("b") ? "open" : ""}><summary><span>🗺️ <b>Land</b></span><span class="psum">${own} plot${own === 1 ? "" : "s"}${need > have ? ' · <span class="bad">under-guarded</span>' : ""}</span></summary>${line("Your land", `${own} plot${own === 1 ? "" : "s"} (about ${fmt(own * PLOT_AREA * 484)} km²)`)}${line("Warriors on guard", `${have} of ${need} needed`)}
+      ${need > have ? `<p class="small bad">Too few warriors to guard what you hold: defense is ${Math.round((1 - garrisonMult(n)) * 100)}% weaker everywhere.</p>` : ""}
+      <p class="small muted">Your land is made of plots. Claim the free land next to yours for hunting grounds, fields and new villages. ${claimLevel(n) === 0 ? "In the Stone Age each claim is one plot, about 30 km across." : `In this age a claim takes a whole region, about ${CLAIM_KM[claimLevel(n)]} km across.`} No one else can settle in your land.</p>
+      <div class="row wrap"><button class="btn small" data-act="claim" ${cand.length ? "" : "disabled"}>🗺️ Claim land${c0 ? ` (about ${c0.m ? c0.m + " materials" : c0.g + " gold"})` : ""}</button></div></details>`; }
   return h;
 }
 function panelDevelop() {
@@ -4984,6 +5042,7 @@ panel.addEventListener("click", e => {
       toast(`${it.icon} ${it.repeat ? (cnt > 1 ? `${cnt} ${it.name.toLowerCase()}` : capW(it.one)) : it.name} queued in ${x.name}`); hud(); refresh(); break; }
     case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, c = Math.max(1, +b.dataset.c || 1), id = x.pq[i], it = itemOf(id); x.pq.splice(i, c); if (x.qpId && !x.pq.includes(x.qpId)) { x.qp = 0; x.qpId = null; } if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
     case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
+    case "claim": startClaim(); break;
     case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
     case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; saveSoon(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
@@ -5336,7 +5395,7 @@ function renderSetup() {
   const st = setupState, ri = RID[st.start], s = W.regions[ri];
   $("sName").value = st.name;
   $("sColors").innerHTML = COLORS.slice(0, 12).map(c => `<button class="sw pick ${c === st.color ? "on" : ""}" style="background:${c}" data-c="${c}" aria-label="Color ${c}"></button>`).join("");
-  $("sStarts").innerHTML = CRADLES.filter(c => RID[c] !== undefined).map(c => `<button class="${c === st.start ? "on" : ""}" data-s="${esc(c)}">${esc(c)}</button>`).join("");
+  $("sStarts").innerHTML = CRADLES.filter(c => RID[c] !== undefined && W.regions[RID[c]].lon >= -30) /* no starting in the Americas */.map(c => `<button class="${c === st.start ? "on" : ""}" data-s="${esc(c)}">${esc(c)}</button>`).join("");
   $("sInfo").innerHTML = `<b>${esc(s.n)}</b> · ${TER[s.t].name}${s.r ? ` · ${RES[s.r].icon} ${RES[s.r].name}` : ""}${s.c ? " · Coastal" : ""} · room for ${s.slots} settlements and ${s.urban} towns or cities`;
   $("sDiff").querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.d === st.diff));
   $("sCul").innerHTML = Object.entries(CULTURES).map(([k, c]) => `<button class="${st.cul === k ? "on" : ""}" data-cu="${k}">${c.icon} ${c.name}</button>`).join("");
@@ -5349,7 +5408,7 @@ $("sStarts").onclick = e => { const b = e.target.closest("[data-s]"); if (b) { s
 $("sCul").onclick = e => { const b = e.target.closest("[data-cu]"); if (b) { setupState.cul = b.dataset.cu; renderSetup(); } };
 $("sDiff").onclick = e => { const b = e.target.closest("[data-d]"); if (b) { setupState.diff = +b.dataset.d; renderSetup(); } };
 $("sRandomName").onclick = () => { setupState.name = placeName(langOfRegion(RID[setupState.start])); setupState.autoName = true; renderSetup(); };
-function setupPick(ri) { setupState.start = W.regions[ri].n; if (setupState.autoName) setupState.name = placeName(langOfRegion(ri)); renderSetup(); }
+function setupPick(ri) { if (W.regions[ri].lon < -30) { toast("Your people can't start in the Americas."); return; } setupState.start = W.regions[ri].n; if (setupState.autoName) setupState.name = placeName(langOfRegion(ri)); renderSetup(); }
 $("sBack").onclick = () => { $("setup").hidden = true; G.setup = false; sel = -1; showTitle(); };
 $("sGo").onclick = () => {
   const st = setupState; const name = (st.name || "").trim() || placeName(langOfRegion(RID[st.start]));
@@ -5382,7 +5441,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { structCov: (n, k) => structCov(n, k), healCov: n => healCov(n), toolCov: n => toolCov(n), lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { claimPt: () => { const n = P(), r = cv.getBoundingClientRect(), sc = k => { const [x, y] = plotXY(k); return [r.left + view.x + x * view.k, r.top + view.y + y * view.k]; }, ks = claimable(n).sort((a, b) => { const A = sc(a), B = sc(b); return Math.hypot(A[0] - cw / 2, A[1] - ch * .42) - Math.hypot(B[0] - cw / 2, B[1] - ch * .42); }); return ks.length ? sc(ks[0]) : [0, 0]; }, structCov: (n, k) => structCov(n, k), healCov: n => healCov(n), toolCov: n => toolCov(n), lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
