@@ -1694,6 +1694,30 @@ function learnFarming(n) { if (agriOk(n) || has(n, "agriculture") || !farmLand(n
   const f = metOf(n).filter(o => has(o, "agriculture")); if (!f.length || rnd() > 1 - Math.pow(.995, f.length)) return; /* farming spread about a kilometer a year: a century or two to reach the next people */
   n.agriOk = true; n.agriWhy = "learned";
   if (!n.ai && n.id === G.player) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌾", title: "Farmers among our neighbors", text: `Our people have seen how the ${nm(f[0])} plant seeds and harvest grain. Your elders can now talk about Agriculture.` }); }
+/* ---- Metal: the Bronze Age needs bronze-working, not just the old matters settled.
+   It arose on its own only where it really did (Anatolia, the Caucasus, Iran, the Levant, Mesopotamia, the Balkans, from about 3300 BCE)
+   and spread from there through contact, as farming did. Smiths need copper or tin in their land, or a trading partner who has it.
+   Foragers take it up far more slowly. Where there was never a Bronze Age (Africa south of the Sahara, Australia, New Guinea, New Zealand)
+   only ironworkers of the Classical Age bring metal. */
+const METAL_HOMES = ["Anatolia", "Armenia", "Caucasus", "Persia", "Levant", "Mesopotamia", "Western Balkans", "Wallachia", "Thrace"];
+const ORE_LANDS = new Set([...METAL_HOMES, "Khorasan", "Afghanistan", "Oman", "Baluchistan", "Punjab", "Deccan", "Lower Egypt", "Nubia", "Greece", "Alps", "Bohemia", "Castile", "Portugal", "England", "Ireland", "Hungary",
+  "Urals", "Northern Kazakhstan", "Southern Kazakhstan", "Western Mongolia", "Dzungaria", "Yunnan", "Loess Plateau", "Sichuan", "Jiangnan", "Lingnan", "Siam", "Malaya", "Katanga", "Bolivia", "Atacama", "Peru", "Great Basin", "Southwest", "Ontario"]);
+const NO_BRONZE = new Set(["Senegambia", "Mali", "Guinea Coast", "Gold Coast", "Niger Delta", "Hausaland", "Lake Chad", "Darfur", "Ethiopia", "Somalia", "Cameroon", "Western Congo", "Eastern Congo", "Katanga", "Great Lakes Africa", "Kenya", "Tanganyika",
+  "Mozambique", "Angola", "Namibia", "Kalahari", "Zimbabwe", "Highveld", "Cape", "Natal", "Madagascar", "Western Australia", "Northern Territory", "Queensland", "New South Wales", "Victoria", "South Australia", "Tasmania", "New Guinea", "North Island", "South Island"]);
+const homeReg = n => { const c = capSet(n) || setsOf(n)[0]; return c ? W.regions[c.r].n : ""; };
+const metalOk = n => !!(n.metal || n.era >= 1);
+const hasOre = n => setsOf(n).some(x => ORE_LANDS.has(W.regions[x.r].n));
+function learnMetal(n) { if (metalOk(n) || americasHeld(n) || scripted(n)) return;
+  const home = homeReg(n), lone = NO_BRONZE.has(home);
+  let why = null, from = null;
+  if (!lone && METAL_HOMES.includes(home) && G.year >= -3300 && rnd() < .02) why = "home"; /* their own smiths learn to smelt copper and alloy it */
+  else { const src = metOf(n).filter(o => lone ? o.era >= 2 : metalOk(o)); if (!src.length) return;
+    const ore = hasOre(n) || tradePartners(n).some(o => hasOre(o)) || lone; if (!ore) return; /* no copper or tin to work, and no one to trade for it */
+    let p = .0035 * (has(n, "agriculture") ? 1 : .25) * (has(n, "husbandry") ? 1.3 : 1) * (tradePartners(n).some(o => src.includes(o)) ? 1.5 : 1); /* foragers take far longer to take it up */
+    if (rnd() > 1 - Math.pow(1 - p, src.length)) return; why = "learned"; from = src[0]; }
+  n.metal = true; n.metalWhy = why; (G.metalFirst || (G.metalFirst = {}))[home] ??= G.year;
+  if (n.id === G.player && !n.ai) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🔥", title: "Metalworking", text: why === "home" ? "Our smiths have learned to melt copper from green stone and harden it with tin. Bronze is within reach: once the elders have settled the old matters, a new age can begin." : `Smiths of the ${nm(from)} have shown our people how to melt copper and harden it with tin. Once the elders have settled the old matters, a new age can begin.` });
+  else if (G.player != null && dipR(n.id, G.player).met) { log(`The ${nm(n)} have learned to work bronze.`, "🔥", -1); if (!G.metalSeen) { G.metalSeen = true; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🔥", title: "Bronze among our neighbors", text: `The ${nm(n)} have learned to melt copper and harden it with tin. Bronze-working can spread to peoples who know them and have copper or tin of their own, or trade for it.` }); } } }
 /* foragers: their hunting lands feed only so many, and mothers on the move space their children further apart */
 function forageLimit(n) { return turnCache("fl" + n.id, () => { const ss = setsOf(n), c = capSet(n) || ss[0]; if (!c) return 1;
   const food = ss.reduce((a, x) => a + TER[W.regions[x.r].t].food, 0) / ss.length;
@@ -1710,7 +1734,7 @@ function migrateStone(n) { if (n.stoneV) return; n.stoneV = 1;
 function elderTalks(n) {
   migrateStone(n); let guard = 0;
   while (!n.resOpen && guard++ < 6) {
-    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && !americasHeld(n) && !holdAge(n)) { /* enough of the old questions settled: a new age (not in the Americas before contact, nor while mastering this one) */
+    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && metalOk(n) && !americasHeld(n) && !holdAge(n)) { /* enough of the old questions settled: a new age (not in the Americas before contact, nor while mastering this one) */
       n.resOpen = true; if (n.era < 1) n.era = 1; onNewAge(n); n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
       hist(n, "🌅", `Your people entered the ${ERAS[1]}.`); firstAge(n);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
@@ -2584,7 +2608,7 @@ const colonized = () => !!(G.dz && G.dz.smallpoxam);
    The Americas, held in the Stone Age until contact, earn it as they settle the old matters. */
 const PREST_FULL = 100, skillOf = n => Math.min(1, (n.prest || 0) / PREST_FULL);
 const americasSkill = n => skillOf(n); /* older name, kept for the places that use it */
-const ageReady = n => !resOpen(n) ? eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() : n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length;
+const ageReady = n => !resOpen(n) ? eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && metalOk(n) : n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length;
 function holdAge(n) { /* ready for the next age: go on, or stay and master this one? */
   if (n.stay === n.era) return true; if (n.go === n.era || scripted(n)) return false;
   if (!n.ai) { n.stay = n.era; G.pendingAge = { era: n.era }; return true; } /* the player chooses */
@@ -2728,9 +2752,97 @@ function ancStage(n, c, st) {
     for (const x of setsOf(n)) if (Math.hypot(x.x - cx, x.y - cy) > R + 2 && x !== cap) { back += x.pop * .5; k++; G.sets.splice(G.sets.indexOf(x), 1); }
     if (k) { if (cap) cap.pop += back; G.sv++; for (const ri of new Set(setsOf(n).map(x => x.r))) recomputeControl(ri); ancTell(n, "🏚️", "Colonies abandoned", st.why); }
     return; }
+  if (st.k === "war") { n.noWar = false; for (const o of G.nations.filter(o => o.alive && o !== n && st.names.includes(o.name))) { const d = dip(n.id, o.id); d.met = true; if (!d.war) declareWar(n, o, st.why); }
+    ancTell(n, "⚔️", `The ${nm(n)} march`, st.why, "war"); return; }
+  if (st.k === "absorb") { const got = [];
+    for (const o of G.nations.filter(o => o.alive && o !== n && o.id !== G.player && st.names.includes(o.name))) { const c = capSet(o) || setsOf(o)[0]; if (c && Math.hypot(c.x - cx, c.y - cy) < st.R) { got.push(nm(o)); const w0 = (G.whist || []).length; mergeInto(o, n); if (G.whist) G.whist.length = Math.min(G.whist.length, w0); } } /* taken by force, not asked: the story is told below */
+    const old = nm(n); if (st.name) { n.name = st.name; n.title = st.title || st.name; if (st.people) n.people = st.people; }
+    if (st.free) n.ancFree = true; if (st.war) n.noWar = false; if (st.pers) n.pers = st.pers; n.ancFree = true; n.ancCap = Math.max(n.ancCap || 0, popOf(n) * 1.5);
+    ancTell(n, "👑", got.length ? `The ${old} take in ${andList(got.map(g => `the ${g}`))}` : `The ${nm(n)} rise`, st.why, "event");
+    return; }
+  if (st.k === "found") { const [tx, ty] = llXY(...st.at), fam = popOf(n) * st.f;
+    const o = newNation(st.name, shade(n.color, .18), -1, true, st.war ? "aggressive" : "builder", n.cul);
+    Object.assign(o, { lang: n.lang, title: st.title, people: st.people, techs: n.techs.concat((st.learn || []).filter(t => !n.techs.includes(t))), era: Math.max(n.era, st.era || 0), cus: { ...(n.cus || {}) }, relig: n.relig, stateUp: true, gov: st.gov || n.gov, laws: { ...n.laws }, resOpen: true,
+      aiSkill: .5 + rnd() * .5, disp: "wary", heir: nm(n), research: null, autoResearch: false, sciPts: 0, peak: 0, ancFree: true, noWar: !st.war, ancC: [tx, ty, 6], ancStrain: [], gold: 10, mat: 10, metal: true });
+    bud(o).init = true; let made = 0;
+    for (let i = 0; i < st.n; i++) { const sp = landSpot(tx, ty, 4, 1.2); if (!sp) continue; const s2 = addSettlement(o.id, sp.r, Math.max(10, fam / st.n), null, null, 0, false, { x: sp.x, y: sp.y }); if (s2) { made++; if (o.cap < 0) o.cap = s2.id; } }
+    if (!made) { o.alive = false; return; }
+    for (const x of setsOf(n)) x.pop = Math.max(2, x.pop * (1 - st.f)); /* the families who left */
+    o.ancCap = popOf(o) * 2; { const d = dip(n.id, o.id); d.met = true; d.rel = 20; } G.sv++;
+    ancTell(o, "🧭", `The ${nm(o)}`, st.why, "event"); return; }
   if (st.k === "end") { if (rnd() < (weak ? Math.max(st.p, .9) : st.p)) collapseTribe(n, st.why);
     else ancTell(n, "🏛️", `The ${nm(n)} endure`, `Others gave up the old ways, but the ${nm(n)} carried on.`); }
 }
+/* ================= HISTORY'S NEXT CHAPTERS =================
+   What became of the ancient cultures' heirs, through the Bronze Age collapse (about 1000 BCE). Each stage names who acts; if that people
+   is gone, whoever holds its land takes up the chapter (never you). Stage kinds are the ancient cultures' own, plus:
+   absorb (one people takes in its rivals, then may take a new name), found (a new people goes out from this one), war. */
+const CHAPTERS = [
+  { k: "egypt", at: [27.5, 31.5], R: 14, stages: [
+    { y: -2686, who: ["Egypt"], k: "become", name: "Egypt", title: "Old Kingdom of Egypt", people: "Egyptians", rise: true, why: "Kings rule from Memphis and raise the pyramids: the Old Kingdom begins." },
+    { y: -2200, who: ["Egypt"], k: "strain", yrs: 40, loss: .3, why: "The Nile floods fail year after year." },
+    { y: -2181, who: ["Egypt"], k: "test", p: .85, why: "Royal power crumbles and Egypt splits between rival kings.", into: [["Herakleopolis", 29.08, 30.93, "kingdom of Herakleopolis"], ["Thebes", 25.7, 32.65, "kingdom of Thebes"]] },
+    { y: -2055, who: ["Thebes"], k: "absorb", names: ["Herakleopolis"], R: 30, name: "Egypt", title: "Middle Kingdom of Egypt", people: "Egyptians", rise: true, why: "Mentuhotep II of Thebes reunites Egypt: the Middle Kingdom begins." },
+    { y: -1650, who: ["Egypt"], k: "test", p: 1, why: "The Hyksos, rulers of Levantine descent, take the Nile Delta and rule from Avaris; native kings hold on at Thebes.", into: [["Hyksos", 30.79, 31.82, "Hyksos kingdom"], ["Thebes", 25.7, 32.65, "kingdom of Thebes"]] },
+    { y: -1550, who: ["Thebes"], k: "absorb", names: ["Hyksos"], R: 30, name: "Egypt", title: "New Kingdom of Egypt", people: "Egyptians", rise: true, war: true, why: "Ahmose of Thebes drives out the Hyksos and reunites Egypt: the New Kingdom, Egypt's age of empire, begins." },
+    { y: -1100, who: ["Egypt"], k: "strain", yrs: 80, loss: .3, why: "The Bronze Age world collapses around Egypt: the Sea Peoples raid, trade fails and the harvests fall short." },
+    { y: -1070, who: ["Egypt"], k: "test", p: .85, why: "The New Kingdom ends: priests rule at Thebes and kings at Tanis.", into: [["Tanis", 30.97, 31.88, "kingdom of Tanis"], ["Thebes", 25.7, 32.65, "priest-kingdom of Thebes"]] }] },
+  { k: "sumer", at: [32.0, 45.5], R: 10, stages: [
+    { y: -2334, who: ["Kish"], k: "absorb", names: ["Uruk", "Ur", "Lagash", "Nippur"], R: 25, name: "Akkad", title: "Akkadian Empire", people: "Akkadians", rise: true, war: true, pers: "aggressive", why: "Sargon, a cupbearer of Kish, seizes power, founds Akkad and conquers every city of Sumer: the world's first empire." },
+    { y: -2200, who: ["Akkad"], k: "strain", yrs: 50, loss: .3, why: "A great drought grips the land, and Gutian raiders come down from the Zagros." },
+    { y: -2154, who: ["Akkad"], k: "test", p: .9, why: "The Akkadian Empire falls; Gutian raiders and the old cities divide the land.", into: [["Ur", 30.96, 46.10, "city of Ur"], ["Lagash", 31.41, 46.41, "city of Lagash"], ["Uruk", 31.32, 45.64, "city of Uruk"], ["Kish", 32.55, 44.60, "city of Kish"]] },
+    { y: -2112, who: ["Ur"], k: "absorb", names: ["Lagash", "Uruk", "Kish", "Nippur"], R: 25, name: "Ur", title: "Third Dynasty of Ur", people: "Sumerians", rise: true, why: "Ur-Nammu of Ur unites Sumer and Akkad again, with law codes, ziggurats and a vast bureaucracy." },
+    { y: -2004, who: ["Ur"], k: "test", p: .95, why: "Elam sacks Ur and carries its king away; the cities of the south go their own way.", into: [["Isin", 31.88, 45.27, "city of Isin"], ["Larsa", 31.28, 45.85, "city of Larsa"], ["Babylon", 32.54, 44.42, "city of Babylon"]] },
+    { y: -1792, who: ["Babylon"], k: "absorb", names: ["Isin", "Larsa"], R: 25, name: "Babylon", title: "Old Babylonian kingdom", people: "Babylonians", rise: true, war: true, why: "Hammurabi of Babylon conquers his rivals and rules all of Mesopotamia under one law code." }] },
+  { k: "elam", at: [32.2, 48.4], R: 8, stages: [
+    { y: -2010, who: ["Elam"], k: "war", names: ["Ur"], why: "Elam and its allies march on Ur." },
+    { y: -1200, who: ["Elam"], k: "become", name: "Elam", title: "Middle Elamite kingdom", people: "Elamites", rise: true, why: "Elam reaches its height: its kings raid Babylon and carry home its monuments, among them Hammurabi's law code." }] },
+  { k: "yamnaya", at: [48.0, 40.0], R: 14, stages: [
+    { y: -3000, who: ["Yamnaya"], k: "spread", why: "Yamnaya herders push up the Danube into the Hungarian plain; where they meet the farmers of the north, the Corded Ware peoples arise.", to: [[47.3, 20.5, 3]] },
+    { y: -2900, who: ["Yamnaya"], k: "found", name: "Afanasievo", title: "Afanasievo culture", people: "Afanasievo people", at: [50.5, 86.0], n: 3, f: .08, why: "Yamnaya herders cross 2,000 km of steppe to the Altai mountains and found the Afanasievo culture." },
+    { y: -2700, who: ["Yamnaya"], k: "test", p: .8, why: "The Yamnaya world settles into regional herding peoples.", into: [["Catacomb", 47.5, 38.5, "Catacomb culture"], ["Poltavka", 52.5, 50.0, "Poltavka culture"]] },
+    { y: -2100, who: ["Poltavka"], k: "become", name: "Sintashta", title: "Sintashta culture", people: "Sintashta people", rise: true, war: true, learn: ["bronze", "wheel"], era: 1, why: "Fortified bronze-working towns rise in the southern Urals, and their warriors drive the first spoke-wheeled chariots." },
+    { y: -2100, who: ["Sintashta"], k: "spread", why: "Ringed fortress towns rise at Sintashta and Arkaim.", to: [[52.65, 59.57, 2, "Sintashta"], [52.65, 59.57, 1, "Arkaim"]] },
+    { y: -1800, who: ["Sintashta"], k: "become", name: "Andronovo", title: "Andronovo culture", people: "Andronovo people", free: true, why: "The Sintashta way of life spreads across the steppe: the Andronovo culture stretches from the Urals to the Tian Shan." },
+    { y: -1800, who: ["Andronovo"], k: "spread", why: "Andronovo herders and miners settle the Kazakh steppe.", to: [[50.0, 70.0, 3], [47.0, 78.0, 3]] },
+    { y: -1500, who: ["Andronovo"], k: "found", name: "Indo-Aryans", title: "Indo-Aryans", people: "Indo-Aryans", at: [31.5, 73.0], n: 4, f: .15, era: 1, war: true, learn: ["bronze", "wheel"], why: "Herders speaking an early form of Sanskrit cross the mountains into the Punjab, bringing horses, chariots and the hymns of the Rigveda." }] },
+  { k: "cordedware", at: [51.5, 12.0], R: 10, stages: [
+    { y: -2300, who: ["Corded Ware"], k: "become", name: "Únětice", title: "Únětice culture", people: "Únětice people", learn: ["bronze"], era: 1, rise: true, why: "Bronze smiths in Bohemia and central Germany trade metal across Europe; their princes are buried in great mounds." }] },
+  { k: "indus", at: [27.3, 68.1], R: 14, stages: [
+    { y: -1900, who: ["Harappa"], k: "strain", yrs: 200, loss: .4, why: "The monsoon weakens and the Ghaggar-Hakra river dries up; trade with Mesopotamia fades." },
+    { y: -1900, who: ["Harappa"], k: "test", p: .85, why: "The great cities empty out; their people scatter into villages and move east.", into: [["Cemetery H", 30.6, 72.9, "Cemetery H culture"], ["Jhukar", 26.6, 68.0, "Jhukar culture"], ["Rangpur", 22.4, 71.9, "Late Harappan culture"]] }] },
+  { k: "longshan", at: [35.0, 113.0], R: 12, stages: [
+    { y: -2000, who: ["Longshan"], k: "strain", yrs: 100, loss: .35, why: "Great floods and a cooler, drier climate strike the Yellow River valley." },
+    { y: -1950, who: ["Longshan"], k: "test", p: .8, why: "The Longshan towns fall into decline.", into: [["Erlitou", 34.7, 112.7, "Erlitou culture"], ["Taosi", 35.9, 111.5, "Taosi culture"]] },
+    { y: -1900, who: ["Erlitou"], k: "become", name: "Erlitou", title: "Erlitou state", people: "Erlitou people", learn: ["bronze"], era: 1, gov: "monarchy", rise: true, free: true, why: "A palace city rises at Erlitou, with the first bronze ritual vessels: perhaps the Xia dynasty of legend." },
+    { y: -1600, who: ["Erlitou"], k: "absorb", names: ["Taosi"], R: 25, name: "Shang", title: "Shang dynasty", people: "Shang people", learn: ["writing"], rise: true, war: true, why: "The Shang take power and build walled cities at Zhengzhou; their kings consult oracle bones." },
+    { y: -1100, who: ["Shang"], k: "found", name: "Zhou", title: "Zhou state", people: "Zhou people", at: [34.3, 108.9], n: 3, f: .12, war: true, why: "In the Wei valley to the west, the Zhou grow strong under the Shang kings' eyes." },
+    { y: -1046, who: ["Zhou"], k: "absorb", names: ["Shang"], R: 40, name: "Zhou", title: "Zhou dynasty", people: "Zhou people", rise: true, why: "King Wu of Zhou defeats the last Shang king at Muye and claims the Mandate of Heaven." }] },
+  { k: "majiayao", at: [35.5, 103.5], R: 10, stages: [
+    { y: -2200, who: ["Majiayao"], k: "become", name: "Qijia", title: "Qijia culture", people: "Qijia people", learn: ["bronze"], era: 1, why: "Farmers of the upper Yellow River cast some of China's earliest bronzes, learned from the steppe." }] },
+  { k: "oxus", at: [37.5, 60.5], R: 10, stages: [
+    { y: -1800, who: ["Oxus"], k: "strain", yrs: 100, loss: .35, why: "Rivers shift and the oases shrink; herders from the north move in." },
+    { y: -1700, who: ["Oxus"], k: "end", p: .8, why: "The walled oasis towns are abandoned and the Oxus civilization fades." }] },
+];
+function chapterHolder(ch, st) {
+  const named = G.nations.filter(o => o.alive && o.id !== G.player && st.who.includes(o.name) && setsOf(o).length);
+  if (named.length) return named.sort((a, b) => popOf(b) - popOf(a))[0];
+  const [x, y] = llXY(...ch.at); let best = null, bd = ch.R * 1.5; /* gone: whoever holds the land takes up the chapter */
+  for (const o of G.nations) { if (!o.alive || o.id === G.player || !o.ai) continue; const c = capSet(o) || setsOf(o)[0]; if (!c) continue; const d = Math.hypot(c.x - x, c.y - y); if (d < bd) { bd = d; best = o; } }
+  return best; }
+function stepChapters() {
+  if (!G.chap) { G.chap = {}; for (const ch of CHAPTERS) { let i = 0; while (i < ch.stages.length && ch.stages[i].y < G.year) i++; G.chap[ch.k] = i; } } /* an older game: chapters already past are history */
+  for (const ch of CHAPTERS) { let i = G.chap[ch.k] || 0;
+    while (i < ch.stages.length && ch.stages[i].y <= G.year) { const st = ch.stages[i++], n = chapterHolder(ch, st); if (!n) continue;
+      if (!scripted(n)) n.heir = n.heir || nm(n); /* from now on it follows history */
+      if (!n.ancC) { const [x, y] = llXY(...ch.at); n.ancC = [x, y, ch.R]; } n.ancStrain = n.ancStrain || [];
+      ancStage(n, null, st); }
+    G.chap[ch.k] = i; } }
+/* long squeezes on peoples that follow history but aren't the ancient cultures themselves */
+function stepStrain(n) { n.ancStrain = (n.ancStrain || []).filter(st => G.year < st.until);
+  for (const st of n.ancStrain) { const f = st.rate / TPY, [cx, cy, R] = n.ancC;
+    for (const x of setsOf(n)) x.pop = Math.max(2, x.pop * (1 - f)); if (n.ancCap) n.ancCap *= 1 - f;
+    for (const x of nearSets(cx, cy, R)) if (x.o !== n.id && Math.hypot(x.x - cx, x.y - cy) < R) x.pop = Math.max(2, x.pop * (1 - f)); } }
 /* a culture breaks apart: each settlement goes with the successor whose heartland is nearest, and some of the people leave as refugees */
 function splitAncient(n, st) {
   const ss = setsOf(n), old = nm(n), heirs = st.into.map(([name, la, lo, title]) => ({ name, title: title || `${name} culture`, at: llXY(la, lo), sets: [] }));
@@ -2883,7 +2995,7 @@ function processNation(n) {
   const HM = healthOf(n), birthE = birthLife(n, sr) * birthWork(n) * birthSchool(n), deathE = HM.d, heal = TB && roleOpen(n, "healer") ? 1 - .06 * healCov(n) : 1, hb = TB ? 1 : 1 - .02 * bud(n).health;
   const wg = 1 - .3 * (1 - warGrowth(n));
   const rebound = n.ancCap ? 1 + .5 * clamp(1 - popOf(n) / n.ancCap, 0, .6) : 1; /* a land emptied by hard times fills back up: more children survive */
-  checkDangers(n); if (TB && (STEP > 1 ? rnd() < STEP / TPY : Math.floor((G.month || 0) / 3) === 0)) learnFarming(n);
+  checkDangers(n); if (TB && (STEP > 1 ? rnd() < STEP / TPY : Math.floor((G.month || 0) / 3) === 0)) { learnFarming(n); if (!resOpen(n)) learnMetal(n); }
   const forage = TB && !has(n, "agriculture") ? .82 * forageLimit(n) : 1;
   let bornY = 0, diedY = 0, dCh = 0, dAc = 0, dWa = 0, dOl = 0; const DR = deathRates(n);
   for (const s of sets) {
@@ -3708,7 +3820,8 @@ function endTurn() {
   if (Math.floor((G.month || 0) / 3) === 0 || G.turn <= 2) sortDetail(); /* who's around you is reviewed once a year */
   stepBusts();
   for (const x of G.sets) if (!(x.pop >= 0) || !isFinite(x.pop)) x.pop = 2; /* safety net: a broken number must never spread */
-  for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
+  for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.alive) { if (n.heir && n.ancStrain && n.ancStrain.length) stepStrain(n); if (n.ancCap) capHome(n); }
+  if (Math.floor((G.month || 0) / 3) === 0) stepChapters(); /* the heirs' next chapters, checked once a year */
   driftRelations();
   growBorders();
   updateContacts(Math.floor((G.month || 0) / 3)); updateExplore(); /* each people looks for new contacts once a year, a quarter of them each season (and all whenever you found a village) */
@@ -4932,7 +5045,8 @@ function panelElders(n) {
   const eta = c => seasonsTxt(Math.max(0, c - n.sciPts) / rate).replace("this season", "within a season");
   let h = ph("The elders", "Around the fire, the elders talk things through") + prestCard(n);
   h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, known.length / need * 100)}%;background:var(--accent)"></i></div><span>${known.length}/${need}</span></div>
-    <p class="small muted">Settle ${need} of the ${all.length} matters before the elders and your people enter the ${ERAS[1]}. More elders & shamans (Who does what) means faster talks.</p></div>`;
+    ${line("Bronze-working", metalOk(n) ? '<span class="good">✓ known</span>' : `<span class="muted">${NO_BRONZE.has(homeReg(n)) ? "only ironworkers can bring metal here" : "no smiths we know of yet"}</span>`)}
+    <p class="small muted">Settle ${need} of the ${all.length} matters and learn to work bronze before the elders and your people enter the ${ERAS[1]}. More elders & shamans (Who does what) means faster talks.</p></div>`;
   if (x) h += `<div class="card"><h4>🔥 ${esc(x.name)}</h4><p class="small">${esc(stoneDesc(x))}</p><div class="bar-row"><small>${Math.min(99, Math.floor(n.sciPts / x.cost * 100))}%</small><div class="bar"><i style="width:${Math.min(100, n.sciPts / x.cost * 100)}%;background:var(--accent)"></i></div><span class="small">${eta(x.cost)}</span></div></div>`;
   const av = all.filter(t => stoneOpen(n, t) && (!x || t.id !== x.id));
   if (av.length) h += `<h5 class="psec">💬 What to talk about next</h5><div class="opts">${av.map(t => `<button class="opt" data-act="talk" data-k="${t.id}"><span class="oi">🔥</span><span class="ot"><b>${esc(t.name)}</b><small>${esc(stoneDesc(t))} · ${seasonsTxt(t.cost / rate)}</small></span></button>`).join("")}</div>`;

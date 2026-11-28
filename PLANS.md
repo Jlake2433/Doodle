@@ -333,3 +333,26 @@ Mastering an age instead of rushing through it.
 - The trade-off: while you stay, peoples who move on gain the new age's knowledge and ways.
 - AI peoples choose too. Peoples who keep to themselves are likelier to stay (45%, wary 25%, open 12%) for 30 to 150 years; a war with a more advanced people can end it early (10% a year). The ancient cultures follow their history and never stay.
 - The Americas earn prestige while held in the Stone Age, replacing their earlier special skill rule.
+
+## Bronze comes from metal, and spreads (built)
+
+- Entering the Bronze Age needs bronze-working as well as the old matters settled. The Elders card shows whether your people know it.
+- It arises on its own only in the real homelands (Anatolia, Armenia, the Caucasus, Persia, the Levant, Mesopotamia, the Balkans), from 3300 BCE: about a 2% chance a year once a people's elders are ready.
+- Everywhere else it spreads through contact: about 0.35% a year per bronze-working people you know, ×1.5 if you trade with them, ×1.3 for herders. Foragers (no farming) take it up at a quarter of that rate.
+- Smiths need copper or tin: in your own land (the real ore lands: Anatolia, the Caucasus, Iran, Oman, the Balkans, the Alps, Bohemia, Iberia, Cornwall, Ireland, the Urals and Kazakh steppe, the Altai, Yunnan and south China, Malaya and others) or from a trading partner who has it.
+- Where there was never a Bronze Age (Africa south of the Sahara, Australia, New Guinea, New Zealand), only ironworkers of the Classical Age can bring metal.
+- You get a popup when your people learn it, and the first time it reaches a people you know.
+
+## The heirs' next chapters (built)
+
+Through the Bronze Age collapse (about 1000 BCE). Each stage names who acts; if that people is gone, whoever holds its land takes up the chapter (never you).
+
+- Egypt: Old Kingdom (2686) → drought and the First Intermediate split into Herakleopolis and Thebes (2181) → Middle Kingdom (2055) → Hyksos take the Delta (1650) → New Kingdom (1550) → collapse (1100) and split into Tanis and Thebes (1070).
+- Sumer: Sargon of Kish conquers the cities and founds the Akkadian Empire (2334) → drought and Gutians (2200), fall (2154) → Ur III reunites Sumer (2112) → Elam marches on Ur (2010) and sacks it; Isin, Larsa and Babylon (2004) → Hammurabi's Babylon (1792).
+- Elam: the march on Ur (2010) → the Middle Elamite peak (1200).
+- Yamnaya: up the Danube (3000) → found Afanasievo in the Altai (2900) → split into Catacomb and Poltavka (2700) → Sintashta with chariots (2100) → Andronovo across the steppe (1800) → Indo-Aryans reach the Punjab (1500).
+- Corded Ware → Únětice bronze culture (2300).
+- Indus: the river dries (1900) → the cities empty into Cemetery H, Jhukar and Late Harappan villages.
+- Longshan: floods (2000) → Erlitou and Taosi (1950) → the Erlitou palace state (1900) → Shang (1600) → Zhou founded in the Wei valley (1100), conquers Shang at Muye (1046).
+- Majiayao → Qijia bronze culture (2200).
+- Oxus: the oases shrink (1800) → fades (1700).
