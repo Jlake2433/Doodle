@@ -303,7 +303,7 @@ What changed:
 - AI peoples in the Americas (west of 30°W) stay tribes in the Stone Age until colonization: the first contact between an American people and one from across the ocean (the same moment smallpox arrives).
 - Until then they can still settle Stone Age matters (fire, tools, pottery, and farming in the real homelands of Mexico, the Andes and the Midwest), but they never enter the Bronze Age or grow into nations.
 - After contact they advance normally.
-- Held to tribal ways, they grow very skilled instead: as they master the Stone Age their warriors become up to 50% stronger and their hunting and farming up to 15% more productive. They keep this edge after contact.
+- Held to tribal ways, they grow very skilled instead: they earn prestige (below) as they settle the Stone Age's matters, so their warriors become up to 50% stronger and their hunting, farming and crafts up to 15% more productive. After contact it works as for everyone: half carries into the next age.
 - Contact brings smallpox: about half of those it reaches die in the first wave, and it returns every 30 years (roughly a 75–80% decline over a century and a half). They meet the newcomers capable but few.
 - You can't start in the Americas.
 
@@ -321,3 +321,15 @@ Replaces Expand. The land is cut into invisible plots, each with its own shape; 
 - AI peoples claim too, when their land gets crowded, picking the richest free land beside them. Ancient cultures start with their real homelands.
 - Foragers are limited by the land they hold (about 0.1 people per km²). Other peoples' plots can't be settled. Plots pass on in merges, conquest and to heirs, and go back to the wild when a people falls.
 - Holding many more plots than settlements needs warriors guarding the borders.
+
+## Prestige (built)
+
+Mastering an age instead of rushing through it.
+
+- When your people are ready for the next age, a popup asks: enter it now, or stay and master this one. If you stay, the Elders or Research tab shows your prestige and a button to enter the next age whenever you choose. A 10-year simulation pauses for this choice.
+- Each year you stay in an age you've completed adds 1 prestige, full at 100 (a century).
+- Prestige gives better skills: warriors up to +50%, food and materials up to +15%.
+- Entering the next age keeps half your prestige.
+- The trade-off: while you stay, peoples who move on gain the new age's knowledge and ways.
+- AI peoples choose too. Peoples who keep to themselves are likelier to stay (45%, wary 25%, open 12%) for 30 to 150 years; a war with a more advanced people can end it early (10% a year). The ancient cultures follow their history and never stay.
+- The Americas earn prestige while held in the Stone Age, replacing their earlier special skill rule.

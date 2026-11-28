@@ -1580,7 +1580,7 @@ function unitPower(n) {
   if (has(n, "combustion") && secUnlocked(n, "oil")) m *= .85 + .15 * Math.min(1, secF(n, "oil"));
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
   { const fx = founderFx(n); if (fx && fx.pow) m *= fx.pow; }
-  m *= 1 + .5 * americasSkill(n); /* skilled warriors of the Americas */
+  m *= 1 + .5 * skillOf(n); /* prestige: skilled warriors */
   return gearOf(n) * m;
 }
 // ---- mercenaries: a one-time fee buys fighters on a fixed contract; they leave when it runs out ----
@@ -1710,8 +1710,8 @@ function migrateStone(n) { if (n.stoneV) return; n.stoneV = 1;
 function elderTalks(n) {
   migrateStone(n); let guard = 0;
   while (!n.resOpen && guard++ < 6) {
-    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && !americasHeld(n)) { /* enough of the old questions settled: a new age (not in the Americas before contact) */
-      n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
+    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && !americasHeld(n) && !holdAge(n)) { /* enough of the old questions settled: a new age (not in the Americas before contact, nor while mastering this one) */
+      n.resOpen = true; if (n.era < 1) n.era = 1; onNewAge(n); n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
       hist(n, "🌅", `Your people entered the ${ERAS[1]}.`); firstAge(n);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
       else if (G.player != null && dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[1]}.`, "🌅", -1);
@@ -1994,7 +1994,7 @@ function econ0(n) {
   food *= (1 + thinkB(n, "food")) * (tribal(n) ? 1 : 1); mat *= 1 + thinkB(n, "crafts"); sci *= 1 + thinkB(n, "lore") * .6; tax *= 1 + thinkB(n, "trade");
   { const w = WORK_OUT[(n.cus || {}).work] || 1; food *= w; mat *= w; tax *= w; sci *= w; }
   { const fx = founderFx(n); if (fx) { sci *= 1 + (fx.sci || 0); food *= 1 + (fx.food || 0); } } /* a founder at work */
-  food *= 1 + .15 * americasSkill(n); /* skilled hunters and farmers of the Americas */ /* more hands at work: more output (and fewer children) */
+  { const sk = skillOf(n); food *= 1 + .15 * sk; mat *= 1 + .15 * sk; } /* prestige: skilled hunters, farmers and craftsmen */ /* more hands at work: more output (and fewer children) */
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
@@ -2579,7 +2579,28 @@ const isAmericas = x => W.regions[x.r].lon < -30;
 /* the Americas stay tribal and in the Stone Age until the first newcomers arrive from across the ocean */
 const colonized = () => !!(G.dz && G.dz.smallpoxam);
 /* held to tribal ways, the American peoples grew very skilled instead: the more of the Stone Age they master, the better their warriors, hunters and farmers */
-const americasSkill = n => { if (!tribal(n)) return 0; const c = capSet(n) || setsOf(n)[0]; if (!c || !isAmericas(c)) return 0; return eraTechs(0).filter(t => has(n, t.id)).length / Math.max(1, eraTechs(0).length); };
+/* ---- Prestige: a people that stays in an age it has completed masters it. Each year of mastery adds prestige (full after 100 years);
+   prestige makes warriors, hunters, farmers and craftsmen better. Entering the next age keeps half of it.
+   The Americas, held in the Stone Age until contact, earn it as they settle the old matters. */
+const PREST_FULL = 100, skillOf = n => Math.min(1, (n.prest || 0) / PREST_FULL);
+const americasSkill = n => skillOf(n); /* older name, kept for the places that use it */
+const ageReady = n => !resOpen(n) ? eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() : n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length;
+function holdAge(n) { /* ready for the next age: go on, or stay and master this one? */
+  if (n.stay === n.era) return true; if (n.go === n.era || scripted(n)) return false;
+  if (!n.ai) { n.stay = n.era; G.pendingAge = { era: n.era }; return true; } /* the player chooses */
+  const p = { iso: .45, wary: .25, open: .12 }[dispOf(n)] || .2; /* peoples who keep to themselves are likelier to hold to their ways */
+  if (rnd() < p) { n.stay = n.era; n.stayTill = G.year + 30 + Math.floor(rnd() * 120); return true; }
+  n.go = n.era; return false; }
+function stepPrestige(n) { const yrs = STEP / TPY;
+  if (americasHeld(n)) { n.prest = Math.min(PREST_FULL, (n.prest || 0) + yrs * eraTechs(0).filter(t => has(n, t.id)).length / Math.max(1, eraTechs(0).length)); return; }
+  if (n.stay !== n.era) return;
+  n.prest = Math.min(PREST_FULL, (n.prest || 0) + yrs);
+  if (n.ai && (G.year >= (n.stayTill || 0) || (rnd() < .1 * yrs && warsOf(n).some(o => o.era > n.era)))) { n.stay = -1; n.go = n.era; } } /* AI peoples move on when their time is up, or (in time) when a more advanced enemy presses them */
+function onNewAge(n) { if (n.prest) n.prest *= .5; n.stay = -1; } /* the new age's ways replace half of the old mastery */
+function advanceNow(n) { n.stay = -1; n.go = n.era; if (!resOpen(n)) elderTalks(n); else if (ageReady(n)) enterAge(n); }
+function enterAge(n) { n.era++; onNewAge(n); firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
+  if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
+  else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1); }
 const americasHeld = n => n.ai && !colonized() && (() => { const c = capSet(n) || setsOf(n)[0]; return !!c && isAmericas(c); })();
 const immune = (x, dz) => dz ? !!(x.immD && x.immD[dz.k] > G.year) : x.imm > G.year;
 function diseaseArrives(n, x, dz) { if (!n || n.ai || n.id !== G.player) return; const seen = n.dzSeen || (n.dzSeen = {}), w = dz.k + ":" + Math.floor(G.year / 10);
@@ -2851,7 +2872,7 @@ function processNation(n) {
   if (tribal(n)) stepHardYear(n, E);
   if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + STEP : 0;
     if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
-  stepThinkers(n); stepFounder(n);
+  stepThinkers(n); stepFounder(n); stepPrestige(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + STEP : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
   if (!n.simple || Math.floor((G.month || 0) / 3) === 0) { const st0 = STEP; if (n.simple) STEP = TPY; stepTraits(n, E, H); stepPeoples(n); STEP = st0; } /* simple peoples: their character and peoples shift once a year */
@@ -2946,17 +2967,9 @@ function processNation(n) {
     if (t.id === "mars") victory(n, "science");
     n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
     const ne = n.era;
-    if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length) {
-      n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
-      if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
-      else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
-    }
+    if (ne < 7 && eraTechs(ne).filter(x => has(n, x.id)).length >= eraNeed(ne) && !fieldsMissing(n).length && !holdAge(n)) enterAge(n);
   }
-  if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length) {
-    n.era++; firstAge(n); if (/^[md]:/.test(String(n.research || ""))) { n.research = null; n.resManual = false; }
-    if (!n.ai) { log(`Your people enter the ${ERAS[n.era]}!`, "🌅"); hist(n, "🌅", `Your people entered the ${ERAS[n.era]}.`); }
-    else if (dipR(n.id, G.player).met) log(`The ${nm(n)} entered the ${ERAS[n.era]}.`, "🌅", -1);
-  }
+  if (n.era < 7 && eraTechs(n.era).filter(x => has(n, x.id)).length >= eraNeed(n.era) && !fieldsMissing(n).length && !holdAge(n)) enterAge(n);
   }
   // politics
   n.facMods.forEach(m => m.t -= TD); n.facMods = n.facMods.filter(m => m.t > 0);
@@ -4910,10 +4923,14 @@ function panelTrade() {
       ${st.sub && !st.nat ? `<p class="small muted">Subsidies cost ${q(x.sub)} 🪙 a quarter.</p>` : ""}${st.nat ? `<p class="small muted">The state runs it: steady output whatever the cost. Sales minus materials ${x.stateNet < 0 ? `lose ${q(-x.stateNet)}` : `earn ${q(x.stateNet)}`} 🪙 a quarter, and you pay its workers ${q(x.stWage)} 🪙 in wages. Merchants dislike it; workers approve.</p>` : x.stWage ? `<p class="small muted">Public projects here employ workers: ${q(x.stWage)} 🪙 a quarter in wages.</p>` : ""}${open && eco(n, "tariffs") ? `<p class="small muted">${st.tar ? `Your tariff makes foreign ${S0.name.toLowerCase()} dearer so your own producers can compete and build up (it brings in ${q(x.tarRev)} 🪙). ${x.priv < x.D * .05 && !st.nat ? "<b>Even so, your land is too poor for private producers to compete: add subsidies or public investment.</b> " : ""}` : x.comp > x.suE ? "Cheaper foreign producers are undercutting yours; left alone, imports will hollow this industry out. A tariff lets your producers compete. " : ""}Every tariff raises production costs a little across your economy and prices for your people.</p>` : ""}</div>`; }
   return h;
 }
+function prestCard(n) { const st = n.stay === n.era && !americasHeld(n), sk = skillOf(n); if (!st && !n.prest) return "";
+  return `<div class="card"><h4>🏺 Prestige <span class="muted">${Math.round(n.prest || 0)} / ${PREST_FULL}</span></h4><div class="bar-row"><small>Skill</small><div class="bar"><i style="width:${sk * 100}%;background:var(--accent)"></i></div><span>${Math.round(sk * 100)}%</span></div>
+    ${line("Warriors", `+${Math.round(50 * sk)}%`)}${line("Food and materials", `+${Math.round(15 * sk)}%`)}
+    ${st ? `<p class="small muted">Your people are mastering the ${ERAS[n.era]}: each year adds prestige, full after ${PREST_FULL} years. Entering the ${ERAS[n.era + 1]} keeps half.</p><div class="row"><button class="btn small" data-act="advance">🌅 Enter the ${ERAS[n.era + 1]}</button></div>` : ""}</div>`; }
 function panelElders(n) {
   const E = econM(n), x = curTalk(n), all = eraTechs(0), known = all.filter(t => has(n, t.id)), need = stoneNeed(), rate = Math.max(1e-6, E.sci);
   const eta = c => seasonsTxt(Math.max(0, c - n.sciPts) / rate).replace("this season", "within a season");
-  let h = ph("The elders", "Around the fire, the elders talk things through");
+  let h = ph("The elders", "Around the fire, the elders talk things through") + prestCard(n);
   h += `<div class="card"><div class="bar-row"><small>Next age</small><div class="bar"><i style="width:${Math.min(100, known.length / need * 100)}%;background:var(--accent)"></i></div><span>${known.length}/${need}</span></div>
     <p class="small muted">Settle ${need} of the ${all.length} matters before the elders and your people enter the ${ERAS[1]}. More elders & shamans (Who does what) means faster talks.</p></div>`;
   if (x) h += `<div class="card"><h4>🔥 ${esc(x.name)}</h4><p class="small">${esc(stoneDesc(x))}</p><div class="bar-row"><small>${Math.min(99, Math.floor(n.sciPts / x.cost * 100))}%</small><div class="bar"><i style="width:${Math.min(100, n.sciPts / x.cost * 100)}%;background:var(--accent)"></i></div><span class="small">${eta(x.cost)}</span></div></div>`;
@@ -4925,7 +4942,7 @@ function panelElders(n) {
 function panelResearch() {
   if (!resOpen(P())) return panelElders(P());
   const n = P(), E = econM(n);
-  let h = ph("Research", `${fmt(E.sci)} science a quarter · ${ERAS[n.era]}`);
+  let h = ph("Research", `${fmt(E.sci)} science a quarter · ${ERAS[n.era]}`) + prestCard(n);
   { const links = knowledgeLinks(n), big = links.filter(x => x.w === 1).length;
     h += `<p class="small muted">Your research budget (${Math.round(budgetPct(n) * 100)}% of income, set in your budget) adds ${fmt(E.resSci)} science a quarter. Technologies your neighbors and allies already know are cheaper${links.length ? `: you learn from ${links.length} ${links.length === 1 ? "people" : "peoples"}${big ? `, ${big} larger than you` : ""}` : ""}.</p>`; }
   if (n.era < 7) { const got = eraTechs(n.era).filter(t => has(n, t.id)).length, miss = fieldsMissing(n);
@@ -5113,6 +5130,7 @@ panel.addEventListener("click", e => {
     case "pdel": { const x = setById(prodSet); if (!x) break; const i = +b.dataset.k, c = Math.max(1, +b.dataset.c || 1), id = x.pq[i], it = itemOf(id); x.pq.splice(i, c); if (x.qpId && !x.pq.includes(x.qpId)) { x.qp = 0; x.qpId = null; } if (it && !it.repeat) n.mat += it.mat; refresh(); break; }
     case "pdir": { const x = setById(prodSet); if (!x) break; x.expDir = b.dataset.v === "all" ? null : +b.dataset.v; G.sv++; dirty = true; refresh(); break; }
     case "claim": startClaim(); break;
+    case "advance": advanceNow(n); hud(); dirty = true; break;
     case "pexp": { const x = setById(prodSet); if (!x) break; x.exp = clamp((x.exp || 0) + +b.dataset.v, 0, EXP_MAX); toast(+b.dataset.v > 0 ? `${x.name} claims more land` : `${x.name} pulls its borders back`); G.sv++; dirty = true; refresh(); break; }
     case "prodAt": { prodSet = +b.dataset.s; closeSheet(); openPanel("develop"); break; }
     case "renameCity": { const x = setById(+b.dataset.s); showModal(`<h2>Rename ${esc(x.name)}</h2><label class="fld">New name<input id="nmCity" maxlength="18" value="${esc(x.name)}"></label><div class="row"><button class="btn ghost" data-m="no">Cancel</button><button class="btn" data-m="ok">Rename</button></div>`, a => { const v = (modal.querySelector("#nmCity").value || "").trim(); if (a === "ok" && v) { x.name = v.slice(0, 18); G.sv++; saveSoon(); dirty = true; toast(`Renamed to ${x.name}`); } }); break; }
@@ -5265,14 +5283,14 @@ function runSim(o, resume) {
     saveSoon(); hud(); dirty = true;
     const d = (a, b, f = fmt) => { const x = b - a; return `${f(b)} <small class="${x >= 0 ? "good" : "bad"}">(${x >= 0 ? "+" : "−"}${f(Math.abs(x))})</small>`; };
     const keepNews = news.filter(x => x.p === true || x.p === null || x.p === undefined).slice(-40);
-    const pending = !!(G.pendingCivil || G.pendingMerge || G.over);
+    const pending = !!(G.pendingCivil || G.pendingMerge || G.pendingAge || G.over);
     showModal(`<div class="mi">📜</div><h2>${start.date} → ${dateTxt()}</h2>${stopped ? `<p class="note warn">${esc(stopped)}</p>` : `<p class="small">Ten years have passed under your governor.</p>`}
       <div class="card">${line("People", d(start.pop, popOf(n), fmtP))}${line("Settlements", d(start.sets, setsOf(n).length, x => x))}${line("Territories", d(start.terr, terrCount(n), x => x))}${line("Technologies", d(start.techs, n.techs.length, x => x))}${line("Age", ERAS[n.era])}${line("Regiments", d(start.army, n.army, x => x))}${line("Gold", d(start.gold, n.gold))}${line("Public trust", d(start.trust, n.trust == null ? 100 : n.trust, x => Math.round(x)))}</div>
       ${keepNews.length ? `<details><summary class="small"><b>What happened (${keepNews.length})</b></summary><div class="news">${keepNews.map(x => `<div class="nw"><span>${x.i}</span><p>${esc(x.t)}</p></div>`).join("")}</div></details>` : ""}
       <div class="row">${pending ? "" : `<button class="btn ghost" data-m="again">⏩ 10 more years</button>`}<button class="btn" data-m="ok">Continue</button></div>`, a => {
         if (curPanel) refresh();
         if (G.over) return showEnd();
-        if (G.pendingCivil || G.pendingMerge || G.event || G.pendingNaming || (G.pendingUnlocks && G.pendingUnlocks.length)) { G.lastReport = []; return afterTurnFlow(); }
+        if (G.pendingCivil || G.pendingMerge || G.pendingAge || G.event || G.pendingNaming || (G.pendingUnlocks && G.pendingUnlocks.length)) { G.lastReport = []; return afterTurnFlow(); }
         if (G.pendingUnlocks && G.pendingUnlocks.length && a !== "again") return showUnlocks();
         if (a === "again") runSim(o);
       });
@@ -5311,6 +5329,7 @@ function runSim(o, resume) {
       if (G.pendingPeace) { const pp = G.pendingPeace, f = G.nations[pp.from]; G.pendingPeace = null; if (f && f.alive && atWar(P().id, f.id)) { makePeace(P(), f, pp.tribute, G.nations[pp.payer] || null); news.push({ i: "🕊️", t: `Your governor accepted peace with the ${nm(f)}.`, p: true }); } }
       if (G.pendingCivil) { stopped = "Civil war broke out. You must choose a side."; paused = true; return finish(); }
       if (G.pendingMerge) { const f = G.nations[G.pendingMerge.from]; stopped = `The ${f ? nm(f) : "neighbors"} ask to join your people. Your answer is needed.`; paused = true; return finish(); }
+      if (G.pendingAge) { stopped = `Your people are ready to enter the ${ERAS[P().era + 1]}. Your answer is needed.`; paused = true; return finish(); }
       const nw = G.nations.find(x => x.alive && atWar(P().id, x.id) && !before.has(x.id));
       if (nw && o.pauseWar) { stopped = `The ${nm(nw)} declared war on you.`; paused = true; return finish(); }
     } catch (err) { stopped = "The simulation hit a problem and stopped."; console.error(err); return finish(); }
@@ -5372,6 +5391,18 @@ function afterTurnFlow() {
         saveSoon(); hud(); dirty = true; if (curPanel) refresh(); next(); });
     return true;
   };
+  /* ready for a new age: go on, or stay and master this one */
+  const askAge = next => {
+    const pa = G.pendingAge, n = P(); if (!pa) return false; G.pendingAge = null; if (!n.alive || n.stay !== n.era) return false;
+    const nx = ERAS[n.era + 1], keep = Math.round((n.prest || 0) / 2);
+    showModal(`<div class="mi">🌅</div><h2>The ${nx} awaits</h2><p>Your people have learned all they need to enter the ${nx}. You can go on now, or stay in the ${ERAS[n.era]} and master it.</p>
+      <div class="card">${line("Prestige", `${Math.round(n.prest || 0)} / ${PREST_FULL}`)}${line("Skill from prestige", `warriors +${Math.round(50 * skillOf(n))}%, food and materials +${Math.round(15 * skillOf(n))}%`)}</div>
+      <div class="choices"><button class="choice" data-m="go"><b>Enter the ${nx}</b><small>${n.prest ? `Half your prestige carries over (${keep}).` : "New knowledge and new ways."}</small></button>
+      <button class="choice" data-m="stay"><b>Stay and master the ${ERAS[n.era]}</b><small>Each year adds prestige: better warriors, hunters, farmers and craftsmen. Peoples who move on will gain what the new age brings. You can enter the ${nx} whenever you choose.</small></button></div>`, a => {
+        if (a === "go") advanceNow(n); else hist(n, "🏺", `We chose to stay in the ${ERAS[n.era]} and master its ways.`);
+        saveSoon(); hud(); dirty = true; if (curPanel) refresh(); next(); });
+    return true;
+  };
   const askNaming = () => {
     if (!G.pendingNaming) return false; G.pendingNaming = false;
     const n = P(), lg = langOf(n), sug = [placeName(lg), placeName(lg), placeName(lg)];
@@ -5384,6 +5415,7 @@ function afterTurnFlow() {
   const showEvent = (skipCivil) => {
     if (skipCivil !== true && (askCivil() || askNaming())) return;
     if (askMerge(() => showEvent(true))) return;
+    if (askAge(() => showEvent(true))) return;
     if (!G.event) return askMastery() || askBudget() || finishFlow();
     const e = EVENTS.find(x => x.id === G.event.id), n = P();
     showModal(`<div class="mi">${e.icon}</div><h2>${e.title}</h2><p>${esc(G.event.text)}</p><div class="choices">${e.ch.map((c, i) => `<button class="choice" data-m="c${i}"><b>${esc(c.t)}</b><small>${esc(c.d(n))}</small></button>`).join("")}</div>`, a => {
