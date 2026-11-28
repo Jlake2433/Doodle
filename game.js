@@ -1474,6 +1474,7 @@ function unitPower(n) {
   if (has(n, "combustion") && secUnlocked(n, "oil")) m *= .85 + .15 * Math.min(1, secF(n, "oil"));
   if (n.ai) m *= [0.85, 1, 1.15][G.diff];
   { const fx = founderFx(n); if (fx && fx.pow) m *= fx.pow; }
+  m *= 1 + .5 * americasSkill(n); /* skilled warriors of the Americas */
   return gearOf(n) * m;
 }
 // ---- mercenaries: a one-time fee buys fighters on a fixed contract; they leave when it runs out ----
@@ -1886,7 +1887,8 @@ function econ0(n) {
   // how well each sector is supplied shapes the economy
   food *= (1 + thinkB(n, "food")) * (tribal(n) ? 1 : 1); mat *= 1 + thinkB(n, "crafts"); sci *= 1 + thinkB(n, "lore") * .6; tax *= 1 + thinkB(n, "trade");
   { const w = WORK_OUT[(n.cus || {}).work] || 1; food *= w; mat *= w; tax *= w; sci *= w; }
-  { const fx = founderFx(n); if (fx) { sci *= 1 + (fx.sci || 0); food *= 1 + (fx.food || 0); } } /* a founder at work */ /* more hands at work: more output (and fewer children) */
+  { const fx = founderFx(n); if (fx) { sci *= 1 + (fx.sci || 0); food *= 1 + (fx.food || 0); } } /* a founder at work */
+  food *= 1 + .15 * americasSkill(n); /* skilled hunters and farmers of the Americas */ /* more hands at work: more output (and fewer children) */
   food *= secMult(n, "agri"); tax *= secMult(n, "constr") * (1 + .05 * (secF(n, "mach") - 1)); mat *= secMult(n, "mining") * secMult(n, "mach") * secMult(n, "oil"); sci *= secMult(n, "elec");
   for (const k in n.fields || {}) if (FIELDS[k]) bUp += fieldUp(FIELDS[k]) * n.fields[k];
   // academies cost a lot to run, and every scientist and officer draws a salary
@@ -2468,6 +2470,8 @@ const DISEASE = Object.fromEntries(DISEASES.map(d => [d.k, d]));
 const isAmericas = x => W.regions[x.r].lon < -30;
 /* the Americas stay tribal and in the Stone Age until the first newcomers arrive from across the ocean */
 const colonized = () => !!(G.dz && G.dz.smallpoxam);
+/* held to tribal ways, the American peoples grew very skilled instead: the more of the Stone Age they master, the better their warriors, hunters and farmers */
+const americasSkill = n => { if (!tribal(n)) return 0; const c = capSet(n) || setsOf(n)[0]; if (!c || !isAmericas(c)) return 0; return eraTechs(0).filter(t => has(n, t.id)).length / Math.max(1, eraTechs(0).length); };
 const americasHeld = n => n.ai && !colonized() && (() => { const c = capSet(n) || setsOf(n)[0]; return !!c && isAmericas(c); })();
 const immune = (x, dz) => dz ? !!(x.immD && x.immD[dz.k] > G.year) : x.imm > G.year;
 function diseaseArrives(n, x, dz) { if (!n || n.ai || n.id !== G.player) return; const seen = n.dzSeen || (n.dzSeen = {}), w = dz.k + ":" + Math.floor(G.year / 10);

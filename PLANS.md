@@ -303,3 +303,5 @@ What changed:
 - AI peoples in the Americas (west of 30°W) stay tribes in the Stone Age until colonization: the first contact between an American people and one from across the ocean (the same moment smallpox arrives).
 - Until then they can still settle Stone Age matters (fire, tools, pottery, and farming in the real homelands of Mexico, the Andes and the Midwest), but they never enter the Bronze Age or grow into nations.
 - After contact they advance normally.
+- Held to tribal ways, they grow very skilled instead: as they master the Stone Age their warriors become up to 50% stronger and their hunting and farming up to 15% more productive. They keep this edge after contact.
+- Contact brings smallpox: about half of those it reaches die in the first wave, and it returns every 30 years (roughly a 75–80% decline over a century and a half). They meet the newcomers capable but few.
