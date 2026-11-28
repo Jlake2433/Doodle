@@ -785,7 +785,7 @@ function stepPeoples(n) { const E = n.eth; if (!E || !E.length) return; const po
     if (g.assim >= 95 || g.share < .0005) { E.splice(i, 1); for (const x of ss) if (x.eth) delete x.eth[g.k];
       if (!n.ai && g.share >= .001) { const t = `The ${g.name} who settled among you are now simply ${demonym(n)}. Their grandchildren know no other people.`;
         if (g.share >= .01) (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🫂", title: "One people", text: t }); else log(t, "🫂"); } } } }
-function homeShares(n) { let p = 0, s = 0, z = 0; for (const x of setsOf(n)) { const need = Math.max(0, x.pop - builtAt(x, "hut")), k = Math.min(x.shk || 0, need); p += x.pop; s += k; z += Math.max(0, need - k); }
+function homeShares(n) { if (n.simple) { const L = lifeOf(n); return { shk: .3 * (1 - L), none: .1 * (1 - L), nShk: 0, nNone: 0 }; } let p = 0, s = 0, z = 0; for (const x of setsOf(n)) { const need = Math.max(0, x.pop - builtAt(x, "hut")), k = Math.min(x.shk || 0, need); p += x.pop; s += k; z += Math.max(0, need - k); }
   return { shk: s / Math.max(1, p), none: z / Math.max(1, p), nShk: s, nNone: z }; }
 /* traits: a spectrum for each, drifting over generations with how your people live and feel */
 const TRAITS = {
@@ -1113,6 +1113,7 @@ function newGame(opts) {
       addTribe(reg.i, { x, y }); const q = [x, y]; (occ.get(key(x, y)) || occ.set(key(x, y), []).get(key(x, y))).push(q);
     }
   }
+  for (const n of G.nations) if (n.ai && !scripted(n)) { n.simple = true; n.L = .98; } /* peoples start simple; those around you switch to full detail on the first turn */
   G.exp = new Array(NR).fill(0); G.fog = [];
   for (let i = 0; i < 4; i++) growBorders();
   updateContacts(); updateExplore();
@@ -1535,10 +1536,10 @@ const crewFor = n => { const p = popOf(n); return { build: clamp(Math.round((4 +
 /* toolmakers and healers: each tribe needs a few, more as it grows */
 const pct5 = v => Math.max(5, Math.round(v * 20) * 5);
 const toolNeed = n => .04 + Math.min(.06, popOf(n) / 2500);
-const toolCov = n => turnCache("tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) * (has(n, "glue") ? 1.1 : 1) / toolNeed(n)));
+const toolCov = n => n.simple ? lifeOf(n) * ((n.aiSkill == null ? 1 : n.aiSkill) < .7 ? .5 : 1.15) : turnCache( /* measured: poorly led tribes keep half the tools they need, well-led ones a little more than enough */"tc" + n.id, () => Math.min(1.2, timeShare(n, "tools") * (1 + .2 * structCov(n, "knap")) * (has(n, "stonetools") ? 1.15 : 1) * (has(n, "glue") ? 1.1 : 1) / toolNeed(n)));
 const toolF = (n, k = .2) => tribal(n) ? 1 - k + k * toolCov(n) / 1 : 1; /* 1 - k with no tools, up to 1 + .2k with plenty */
 const healNeed = n => .03 + Math.min(.04, popOf(n) / 3000);
-const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) * (1 + 2 * thinkB(n, "health")) / healNeed(n)));
+const healCov = n => !tribal(n) || !roleOpen(n, "healer") ? 0 : n.simple ? (has(n, "herbs") ? .95 : .4) * lifeOf(n) : turnCache("hc" + n.id, () => Math.min(1, timeShare(n, "healer") * (1 + .2 * structCov(n, "lodge")) * (has(n, "herbs") ? 1.25 : 1) * (1 + 2 * thinkB(n, "health")) / healNeed(n)));
 const fishable = n => turnCache("fi" + n.id, () => fishable0(n));
 const fishable0 = n => { let f = 0, P0 = 0; for (const x of setsOf(n)) { const R = W.regions[x.r]; f += (R.c || RIVERS.has(R.n) ? 1 : 0) * x.pop; P0 += x.pop; } return P0 ? f / P0 : 0; };
 const firewoodNeed = n => { const c = coldNation(n); return c < .15 ? 0 : .07 * c * (1 + .8 * Math.max(0, 1 - roomOf(n))); }; /* share of families needed to keep the fires lit */
@@ -1723,25 +1724,25 @@ function carrierHaul(n) { const k = G.turn + ":" + G.sv + ":" + (timeOf(n).water
   n._wh = { k, m }; return m; }
 function waterSupply(n, x) { sb(x); return waterInfra(x) + (tribal(n) ? carrierHaul(n).get(x.id) || 0 : 0); } /* nature and what you've built, plus what your carriers bring */
 function carriersNeeded(n) { let d = 0, P0 = 0; for (const x of setsOf(n)) { sb(x); d += Math.max(0, x.pop * 1.08 - waterInfra(x, true)); P0 += x.pop; } /* enough for the driest season and a little growth */ return P0 ? clamp(Math.ceil(d / 6 / P0 * 20) * 5, 0, 60) : 0; } /* share, with room for a dry summer */
-const waterAt = (n, x) => x.pop > 0 ? Math.min(1, waterSupply(n, x) / x.pop) : 1;
-function waterOf(n) { if (!tribal(n)) return 1; let w = 0, P0 = 0; for (const x of setsOf(n)) { w += waterAt(n, x) * x.pop; P0 += x.pop; } return P0 ? w / P0 : 1; }
+const waterAt = (n, x) => n.simple ? .6 + .4 * lifeOf(n) : x.pop > 0 ? Math.min(1, waterSupply(n, x) / x.pop) : 1;
+function waterOf(n) { if (!tribal(n)) return 1; if (n.simple) return .6 + .4 * lifeOf(n); let w = 0, P0 = 0; for (const x of setsOf(n)) { w += waterAt(n, x) * x.pop; P0 += x.pop; } return P0 ? w / P0 : 1; }
 /* how cold a place gets: by latitude, with mountains and tundra colder and jungles never cold */
 function coldOf(x) { const R = W.regions[x.r]; if (!R) return .5; if (R.t === "tundra") return 1; if (R.t === "jungle") return 0;
   return clamp((Math.abs(R.lat) - 25) / 30 + (R.t === "mountain" ? .2 : 0) + (R.t === "desert" ? -.1 : 0), 0, 1); }
 function coldNation(n) { return turnCache("cn" + n.id, () => coldNation0(n)); }
 function coldNation0(n) { let c = 0, P0 = 0; for (const x of setsOf(n)) { c += coldOf(x) * x.pop; P0 += x.pop; } return P0 ? c / P0 : .5; }
 function covAt(n, x, k) { const it = itemOf(k); if (!it || !itemOpen(n, it)) return null; const d = needAt(n, x, k); return d > 0 ? Math.min(1, builtAt(x, k) / d) : null; }
-function amenAt(n, x) { sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
+function amenAt(n, x) { if (n.simple) { const L = lifeOf(n); return { warmth: L, health: L, joy: L, all: L }; } sb(x); const r = {}; let t = 0, c = 0; const warm = coldOf(x) >= .15;
   for (const a in AMEN) { if (a === "warmth" && !warm) { r[a] = 1; continue; } /* a hot land needs no warmth */
     const v = AMEN[a].k.map(k => covAt(n, x, k)).filter(v => v != null); r[a] = v.length ? v.reduce((p, q) => p + q, 0) / v.length : 1; if (a === "warmth") r[a] = Math.min(1, r[a] + .2 * (covAt(n, x, "loom") || 0) + (has(n, "sewing") ? .1 : 0)) * (.3 + .7 * fireCov(n)); /* no wood, no fire; woven cloth helps */
       if (a === "health") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "bath") || 0)); if (a === "joy") r[a] = Math.min(1, r[a] + .15 * (covAt(n, x, "art") || 0) + (has(n, "drums") ? .05 : 0)); t += r[a]; c++; }
   r.all = c ? t / c : 1; return r; }
-function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
+function amenOf(n) { if (!tribal(n)) return { warmth: 1, health: 1, joy: 1, all: 1 }; if (n.simple) { const L = lifeOf(n); return { warmth: L, health: L, joy: L, all: L }; } const r = { warmth: 0, health: 0, joy: 0, all: 0 }; let P0 = 0;
   for (const x of setsOf(n)) { const a = amenAt(n, x); for (const k in r) r[k] += a[k] * x.pop; P0 += x.pop; } for (const k in r) r[k] = P0 ? r[k] / P0 : 1; return r; }
 function structDemand(n, k) { let d = 0; for (const x of setsOf(n)) d += needAt(n, x, k); return d; }
 let tcT = -1, tcS = -1, tcB = -1, tcMap = new Map(); /* per-turn cache for values that loop over every settlement */
 function turnCache(id, f) { if (tcT !== G.turn || tcS !== G.sv || tcB !== (G.bv || 0)) { tcT = G.turn; tcS = G.sv; tcB = G.bv || 0; tcMap = new Map(); } let v = tcMap.get(id); if (v === undefined) { v = f(); tcMap.set(id, v); } return v; }
-function structCov(n, k) { if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
+function structCov(n, k) { if (n && n.simple && tribal(n)) return k === "hut" ? lifeOf(n) : itemOpen(n, itemOf(k)) ? lifeOf(n) * ((n.aiSkill == null ? 1 : n.aiSkill) < .7 ? .7 : 1) : 0; /* what a people can build, it mostly has; what it can't yet, it lacks */ if (n && tribal(n)) return turnCache("sc" + n.id + k, () => structCov0(n, k)); return 1; }
 function structCov0(n, k) { if (!n || !tribal(n)) return 1; let d = 0, h = 0; for (const x of setsOf(n)) { const nd = needAt(n, x, k); d += nd; h += Math.min(nd, builtAt(x, k)); } return d > 0 ? h / d : 1; }
 const builderHoursAt = (n, x) => x.pop * (tribal(n) ? timeShare(n, "build") : 0) * BUILDER_HOURS * (builtAt(x, "knap") ? 1.1 : 1) * toolF(n, .25) * (has(n, "rope") ? 1.05 : 1) * (has(n, "sledges") ? 1.05 : 1) * (1 + thinkB(n, "build"));
 const builderHours = n => setsOf(n).reduce((a, x) => a + builderHoursAt(n, x), 0);
@@ -2502,6 +2503,23 @@ const DANGERS = {
 };
 function checkDangers(n) { if (!n || n.ai || n.id !== G.player) return; const seen = n.dangerSeen || (n.dangerSeen = Object.fromEntries(Object.keys(DANGERS).filter(k => has(n, k)).map(k => [k, 1])));
   for (const k in DANGERS) if (has(n, k) && !seen[k]) { seen[k] = 1; const [icon, title, text] = DANGERS[k]; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon, title, text }); } }
+/* ================= SIMPLE PEOPLES =================
+   Peoples beyond your surroundings don't run the full machinery (who does what, hut-by-hut building, upkeep, comforts in every village).
+   One number, their living standard (0-1), stands for their homes, water, healers, tools and comforts. It rises with what they know and good
+   years, and falls with hunger, hard times and war. Their population, busts, knowledge, wars, diplomacy and settlements run as for everyone.
+   Peoples around you (met, or at war with you) and the old cultures get full detail, switching over as they come into your surroundings */
+const lifeOf = n => n.L == null ? .5 : n.L;
+/* measured on fully run AI tribes: they keep about 98% of what they need covered (huts, water, tools, comforts); hunger, hard times and war cut into it */
+function lifeTarget(n) { let t = .98; if (n.hungry) t -= .2; if (n.hard) t -= .15; t -= .08 * Math.min(3, warsOf(n).length); return clamp(t, .1, 1); }
+function stepLife(n) { n.L = lifeOf(n) + (lifeTarget(n) - lifeOf(n)) * stepF(.06); }
+/* who runs in full detail: you, the old cultures and their heirs, and the AI peoples around you */
+const wantsDetail = n => window.__allDetail || !n.ai || scripted(n) || dipR(n.id, G.player).met || atWar(n.id, G.player);
+function toSimple(n) { if (n.simple) return; const a = amenOf(n), hut = structCov(n, "hut"); n.L = clamp(.5 * a.all + .3 * hut + .2 * waterOf(n), .1, 1); n.simple = true; G.sv++; }
+function toDetailed(n) { if (!n.simple) return; const L = lifeOf(n); n.simple = false;
+  for (const x of setsOf(n)) { sb(x); x.b = x.b || {}; x.pq = []; x.qp = 0; x.cond = 100; x.shk = 0;
+    for (const k in STRUCTS) { const it = itemOf(k); if (!it || !itemOpenAt(n, x, it)) continue; const need = needAt(n, x, k); if (need > 0) x.b[k] = Math.max(x.b[k] || 0, Math.round(need * (k === "hut" ? .7 + .3 * L : L))); } }
+  G.sv++; G.bv = (G.bv || 0) + 1; }
+function sortDetail() { for (const n of G.nations) { if (!n.alive) continue; const want = wantsDetail(n); if (want && n.simple) toDetailed(n); else if (!want && !n.simple) toSimple(n); } }
 /* births and deaths balance once a people's land is full */
 /* the player's year in numbers: births, everyday deaths, crisis deaths, families who left and families who arrived */
 function tally(n, k, v, why) { if (!n || n.ai || n.id !== G.player || !(v > 0)) return; const y = n.yr || (n.yr = { b: 0, d: 0, c: 0, l: 0, a: 0 }); y[k] = (y[k] || 0) + v; if (why) { const c = k === "d" ? (y.dc || (y.dc = {})) : (y.cc || (y.cc = {})); c[why] = (c[why] || 0) + v; } }
@@ -2618,7 +2636,7 @@ function collapseTribe(n, why) { const fam = popOf(n), c0 = capSet(n) || setsOf(
 function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
-  workProjects(n);
+  if (n.simple) stepLife(n); else workProjects(n);
   if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
@@ -2682,7 +2700,7 @@ function processNation(n) {
   const sets = setsOf(n), FERT = fertility(n, E); n.fert = FERT.mult;
   // families without a hut throw up shacks of their own: they get through most winters, barely, and they resent it
   let H = 0;
-  if (tribal(n)) { let left = 0, died = 0, dS = 0; const winter = Math.floor((G.month || 0) / 3) === 0, cold0 = 1.25 - .75 * trv(n, "res") / 100;
+  if (tribal(n) && !n.simple) { let left = 0, died = 0, dS = 0; const winter = Math.floor((G.month || 0) / 3) === 0, cold0 = 1.25 - .75 * trv(n, "res") / 100;
     let sick = 0, coldH = 0, thirstL = 0;
     for (const x of sets) { sb(x); const am = amenAt(n, x), cf = coldOf(x), cold = cold0 * (1.4 - .6 * am.warmth) * (.15 + .85 * cf); /* winters are mild in hot lands */
       /* without fire and clothes, even families in huts suffer in winter; without clean ways, sickness spreads where people crowd */
@@ -2709,14 +2727,14 @@ function processNation(n) {
     if (!n.ai && n.lostD + n.lostL >= 1) { const D = Math.floor(n.lostD), Lf = Math.floor(n.lostL + (n.lostD - D)), inShacks = n.lostS >= n.lostD / 2; n.lostD = 0; n.lostL = 0; n.lostS = 0;
       alertLoss(n, D + Lf, D >= Lf ? "🥶" : "🚶", D >= Lf ? "Deaths in the cold" : "Families leave",
         `${D ? `${D} famil${D === 1 ? "y" : "ies"} ${inShacks ? "in makeshift shacks" : "with no shelter"} died in the winter cold. ` : ""}${Lf ? `${Lf} famil${Lf === 1 ? "y" : "ies"} fed up with rough living left to find a better life elsewhere. ` : ""}Build more huts (Production) to stop it.`); } }
-  if (tribal(n)) retireRoles(n, E);
+  if (tribal(n) && !n.simple) retireRoles(n, E);
   if (tribal(n)) stepHardYear(n, E);
   if (n.ai && tribal(n)) { const p0 = popOf(n); n.peak = Math.max(n.peak || 0, p0); n.lowT = p0 < .45 * n.peak ? (n.lowT || 0) + STEP : 0;
     if (p0 < 12 || n.lowT > 6 * TPY) { collapseTribe(n); return; } } /* dwindled to a remnant: too few left to carry on */
   stepThinkers(n);
   if (rankOf(n) >= 3 && !n.empireSeen && G.nations.filter(o => o.alive).every(o => o === n || setsOf(o).length <= setsOf(n).length)) { n.empireSeen = true; famous(n, "founder", "First emperor", `founded the ${nm(n)}, the greatest realm in the world`, "👑"); } /* only the greatest empire's founder */
   n.hungry = sr < 0; n._fedE = sr; n.hungryT = sr < 0 ? (n.hungryT || 0) + STEP : 0; H += (sr < 0 ? .6 * Math.min(1, -sr) : 0) + .1 * Math.min(3, warsOf(n).length);
-  stepTraits(n, E, H); stepPeoples(n);
+  if (!n.simple || Math.floor((G.month || 0) / 3) === 0) { const st0 = STEP; if (n.simple) STEP = TPY; stepTraits(n, E, H); stepPeoples(n); STEP = st0; } /* simple peoples: their character and peoples shift once a year */
   /* births and everyday deaths, counted per real year. Children are born to every people; infancy, illness and age take many of them back.
      A thriving people gains a little each year, a poor one loses; crises (cold, sickness, thirst, hunger, hard years, war) come on top */
   const yrs = STEP / TPY, era = Math.min(7, n.era), TB = tribal(n);
@@ -3153,6 +3171,7 @@ function aiTurn(n) {
   const E = econ(n), sets = setsOf(n);
   const wars = warsOf(n), short = scarcity(n);
   if (seekMerge(n)) return;
+  if (!n.simple || Math.floor((G.month || 0) / 3) === 0) { /* simple peoples manage their affairs once a year, without hut-by-hut building plans */
   // laws & government (the old cultures keep their own ways)
   if (!scripted(n)) { if (n.gold < 0 || E.goldNet < -1) n.laws.tax = "high"; else if (n.stab < 35) n.laws.tax = "low"; else n.laws.tax = "normal";
   if (has(n, "currency") && n.pers === "trader") n.laws.trade = "free";
@@ -3163,7 +3182,7 @@ function aiTurn(n) {
   else if (n.pers === "trader" && has(n, "currency")) n.laws.focus = "com";
   else if (n.laws.focus === "grow" && n.era > 0) n.laws.focus = "bal"; }
   if (tribal(n)) { const P0 = prodState(n);
-    if (rnd() < n.aiSkill) for (const x of setsOf(n)) { if ((G.turn + x.id) % 2) continue; /* each village plans every other season */ sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 2.4 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
+    if (!n.simple && rnd() < n.aiSkill) for (const x of setsOf(n)) { if ((G.turn + x.id) % 2) continue; /* each village plans every other season */ sb(x); const cap = Math.max(1, builderHoursAt(n, x) * 2.4 * n.aiSkill); let qd = x.pq.reduce((a, id) => a + ((itemOf(id) || {}).hours || 0), 0) - (x.qp || 0);
      if (qd > cap * .5) continue; /* plenty still queued */
      for (let tries = 0; tries < 6 && qd < cap; tries++) { let best = null, bs = 0;
       for (const k in STRUCTS) { const it = itemOf(k); if (!itemOpenAt(n, x, it)) continue; const d = needAt(n, x, k); if (!d) continue; const sh = (1 - (builtAt(x, k) + x.pq.filter(q => q === k).length) / d) * (STRUCTS[k].opt ? .35 : 1); if (sh > bs) { bs = sh; best = k; } } /* needs before nice-to-haves */
@@ -3260,6 +3279,7 @@ function aiTurn(n) {
     const f = opts.sort((a, b) => score(a) - score(b))[0], c = fieldCost(n, f), reserve = saving ? villageCost(n).g + 5 : 5;
     if (n.gold > c.g + reserve && n.mat > c.m && E.goldNet - fieldUp(f) > -1) { expandField(n, f); builds++; } else break;
   }
+  } /* end of the full management */
   // diplomacy
   for (const o of metOf(n)) {
     const d = dip(n.id, o.id);
@@ -3535,10 +3555,10 @@ function rollEvent() {
 // ================= END TURN =================
 /* level of detail: a faraway people you've never met, at peace and outside the old cultures' history, is updated every few turns in one bigger step.
    Turns rotate through the seasons, so over time each season is covered fairly. Anyone you know, anyone at war, and the old cultures update every turn */
-const LOD = 5; /* not a multiple of 4, so each people's updates rotate through the seasons */
+const LOD = 4; /* simple peoples at peace update once a year, a quarter of them each season */ /* not a multiple of 4, so each people's updates rotate through the seasons */
 let lqT = -1, lqM = new Map();
-const lodQuiet = n => { if (lqT !== G.turn || lqM.G !== G) { lqT = G.turn; lqM = new Map(); lqM.G = G; } let q = lqM.get(n.id); if (q === undefined) { q = !!(n.ai && n.alive && !scripted(n) && !dipR(n.id, G.player).met && !warsOf(n).length); lqM.set(n.id, q); } return q; }; /* worked out once a turn; the old cultures and their heirs update every turn */
-function lod(n, fn) { if (!lodQuiet(n)) { fn(n); return; } if ((G.turn + n.id) % LOD !== 0) return;
+const lodQuiet = n => { if (lqT !== G.turn || lqM.G !== G) { lqT = G.turn; lqM = new Map(); lqM.G = G; } let q = lqM.get(n.id); if (q === undefined) { q = !!(n.simple && n.alive && !warsOf(n).length); lqM.set(n.id, q); } return q; }; /* worked out once a turn; the old cultures and their heirs update every turn */
+function lod(n, fn) { if (LOD === 1 || !lodQuiet(n)) { fn(n); return; } if ((G.turn + n.id) % LOD !== 0) return;
   const td0 = TD; STEP = LOD; TD = td0 * LOD; try { fn(n); } finally { TD = td0; STEP = 1; } }
 function endTurn() {
   if (G.over) return;
@@ -3548,6 +3568,7 @@ function endTurn() {
   if (G.year > -1400) faithFounders();
   for (const n of G.nations) if (n.ai) lod(n, aiTurn);
   for (const n of G.nations) lod(n, processNation);
+  if (Math.floor((G.month || 0) / 3) === 0 || G.turn <= 2) sortDetail(); /* who's around you is reviewed once a year */
   stepBusts();
   for (const x of G.sets) if (!(x.pop >= 0) || !isFinite(x.pop)) x.pop = 2; /* safety net: a broken number must never spread */
   for (const n of G.nations) if (n.anc) stepAncient(n); else if (n.ancCap && n.alive) capHome(n);
@@ -5320,7 +5341,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { structCov: (n, k) => structCov(n, k), healCov: n => healCov(n), toolCov: n => toolCov(n), lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();

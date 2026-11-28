@@ -276,3 +276,14 @@ What changed:
 - New villages only check the land corridors of peoples living nearby (this caused an 8-second freeze).
 - Territory counts are worked out once for everyone.
 - Autosave at most once a minute, when the phone is idle; always when you leave or switch apps.
+
+## Simple peoples (built)
+
+- AI peoples beyond your surroundings run a simple model instead of the full machinery. They don't track who does what quarter by quarter, hut-by-hut building, upkeep and decay, or comforts in every village.
+- One number, their living standard, stands in for homes, water, tools, healers and comforts. It sits near what fully run AI tribes actually keep (about 98% of needs covered), falls with hunger (−20%), hard years (−15%) and war (−8% per war), and recovers over a few years.
+- Buildings they can build count as mostly covered; ones they can't build yet count as missing, as for real tribes. Poorly led peoples keep half the tools they need and build new things more slowly, as measured on fully run tribes.
+- They still run everything else: births, deaths, busts, leaving, knowledge and farming, wars and diplomacy, merges and collapse, settlements and borders. They manage their affairs once a year (roles, laws, government), and if at peace they update once a year in one step, a quarter of them each season.
+- Full detail: you, the ancient cultures and their heirs, and every AI people you've met or are at war with. Who's around you is reviewed once a year. A people that enters your surroundings gets its villages filled in with buildings matching what it can build; one that leaves is summed back into a living standard.
+- New games start every AI people simple; your first neighbors switch to full detail on the first turn.
+- Checked against a run with every people in full detail: falls, tribe populations and the world total match within normal variation.
+- Speed (CPU slowed 4× for a phone): about 0.2–0.4 s a turn at the start; about 2 s at 2500 BCE, with a slower turn once a year when the land-contact map is rebuilt. As the world consolidates into fewer, bigger countries, more of them can run in full detail.
