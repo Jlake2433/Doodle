@@ -1603,7 +1603,7 @@ function migrateStone(n) { if (n.stoneV) return; n.stoneV = 1;
 function elderTalks(n) {
   migrateStone(n); let guard = 0;
   while (!n.resOpen && guard++ < 6) {
-    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed()) { /* enough of the old questions settled: a new age */
+    if (eraTechs(0).filter(t => has(n, t.id)).length >= stoneNeed() && !americasHeld(n)) { /* enough of the old questions settled: a new age (not in the Americas before contact) */
       n.resOpen = true; if (n.era < 1) n.era = 1; n.research = n.autoResearch || n.ai ? chooseResearch(n) : null;
       hist(n, "🌅", `Your people entered the ${ERAS[1]}.`); firstAge(n);
       if (!n.ai) { log(`Your people enter the ${ERAS[1]}! Knowledge can be kept, shared and built upon: your people begin to study the world.`, "🌅"); (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "🌅", title: `The ${ERAS[1]}`, text: "The elders have settled most of the old questions. Your people enter a new age: knowledge can now be kept, shared and built upon, and true research begins (Research tab)." }); }
@@ -2466,6 +2466,9 @@ const DISEASES = [
 ];
 const DISEASE = Object.fromEntries(DISEASES.map(d => [d.k, d]));
 const isAmericas = x => W.regions[x.r].lon < -30;
+/* the Americas stay tribal and in the Stone Age until the first newcomers arrive from across the ocean */
+const colonized = () => !!(G.dz && G.dz.smallpoxam);
+const americasHeld = n => n.ai && !colonized() && (() => { const c = capSet(n) || setsOf(n)[0]; return !!c && isAmericas(c); })();
 const immune = (x, dz) => dz ? !!(x.immD && x.immD[dz.k] > G.year) : x.imm > G.year;
 function diseaseArrives(n, x, dz) { if (!n || n.ai || n.id !== G.player) return; const seen = n.dzSeen || (n.dzSeen = {}), w = dz.k + ":" + Math.floor(G.year / 10);
   if (seen[w]) return; seen[w] = 1; (G.pendingUnlocks || (G.pendingUnlocks = [])).push({ icon: "☠️", title: `${dz.name[0].toUpperCase() + dz.name.slice(1)} reaches ${x.name}`, text: `${dz.note} Physicians, hospitals, quarantine and clean water save lives.` }); hist(n, "☠️", `${dz.name[0].toUpperCase() + dz.name.slice(1)} reached ${x.name}.`); }
@@ -2641,7 +2644,7 @@ function processNation(n) {
   if (!n.alive) return;
   if (!n.ai && n.id === G.player && !n.namedNation && rankOf(n) >= 1) { n.namedNation = true; G.pendingNaming = true; }
   if (n.simple) stepLife(n); else workProjects(n);
-  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
+  if (!n.stateUp && (popOf(n) >= STATE_POP || n.era >= 2) && !americasHeld(n)) { n.stateUp = true; hist(n, "🏛️", "The tribe grew into a nation, with work, trades and government."); bud(n).init = true; } // too many mouths: people take up trades, and the state begins
   checkUnlocks(n);
   const E = econ(n);
   n.gold += E.goldNet * TD; n.mat += E.mat * TD;

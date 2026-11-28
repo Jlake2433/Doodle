@@ -297,3 +297,9 @@ What changed:
 - The old cultures' towns start with their land already claimed, so a culture shows as one territory instead of a web of corridors.
 - At ordinary zoom an old culture names only its real historical sites; the other towns get names when you zoom in.
 - A people's fallen capital is world news once in ten years; the stand-in capitals that fall after it don't repeat the headline.
+
+## The Americas before contact (built)
+
+- AI peoples in the Americas (west of 30°W) stay tribes in the Stone Age until colonization: the first contact between an American people and one from across the ocean (the same moment smallpox arrives).
+- Until then they can still settle Stone Age matters (fire, tools, pottery, and farming in the real homelands of Mexico, the Andes and the Midwest), but they never enter the Bronze Age or grow into nations.
+- After contact they advance normally.
