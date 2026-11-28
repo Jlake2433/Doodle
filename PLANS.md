@@ -309,7 +309,10 @@ What changed:
 
 ## Territory plots (built)
 
-Replaces Expand. The land is cut into invisible hex plots; you choose which to claim, the way the United States grew state by state.
+Replaces Expand. The land is cut into invisible plots, each with its own shape; you choose which to claim, the way the United States grew state by state.
+
+- Plot shapes: each plot grows out from a point scattered unevenly over the land until it meets its neighbours, so no two are alike and edges wobble. Where the land changes (desert to grass, plains to mountains) edges bend along that line. Plots stop at coasts. A people's land is drawn as one shape with one outline.
+- Straight borders come later: a people that knows the Enlightenment surveys new land, claiming square-cut blocks (about 250 km) whose edges are straight lines, like the western US states.
 
 - A plot is about 30 km across, roughly one band's hunting range. Each first village owns its plot and the ring around it (its home range).
 - Claim size grows with the age: one plot in the Stone Age, a whole region of about 100 km in the Bronze and Classical Ages, about 250 km from the Middle Ages on.

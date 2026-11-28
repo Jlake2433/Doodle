@@ -1142,19 +1142,70 @@ const scoutSight = n => (.8 + .4 * n.era + (has(n, "sailing") ? .3 : 0) + (has(n
 const villageReach = n => clamp(scoutSight(n) * 1.1, .7, 2.2); /* how far families will walk to found a new village */
 let placeMode = null; /* choosing where a new village goes */
 /* ================= LAND PLOTS =================
-   The land is divided into invisible plots: a hex grid about 100 km across. Every people owns the plots its villages stand in and claims
-   more next to its land. In the Stone Age a claim is one plot; from the Bronze Age on it takes the whole state-sized group (about 250 km) */
+   The land is divided into invisible plots, each with its own shape. Every plot grows out from a point scattered unevenly over the land
+   until it meets its neighbours; its edges wobble, and where the land changes (desert to grass, plains to mountains) they bend along that line.
+   Every people owns the plots its villages stand in and claims more next to its land. In the Stone Age a claim is one plot (about 30 km);
+   later a claim takes a whole irregular region (about 100 km, then about 250 km). Peoples who know surveying (the Enlightenment) claim
+   square-cut blocks with straight borders instead. */
 const PLOT_R = .8, S3 = Math.sqrt(3), PLOT_AREA = 1.5 * S3 * PLOT_R * PLOT_R; /* a plot is about 30 km across: a band's hunting range */
 const claimLevel = n => n.era < 1 ? 0 : n.era < 3 ? 1 : 2, CLAIM_R = [0, PLOT_R * 3.2, PLOT_R * 8], CLAIM_KM = ["30", "100", "250"]; /* claims grow with the age: a plot, then a region of about 100 km, then about 250 km */
 function hexRound(q, r) { const x = q, z = r, y = -x - z; let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z); const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
   if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry; return [rx, rz]; }
 const pkey = (q, r) => (q + 5000) * 10000 + (r + 5000), pkQ = k => Math.floor(k / 10000) - 5000, pkR = k => k % 10000 - 5000;
-function plotAt(x, y, R = PLOT_R) { const [q, r] = hexRound((S3 / 3 * x - y / 3) / R, (2 / 3 * y) / R); return pkey(q, r); }
-function plotXY(k, R = PLOT_R) { const q = pkQ(k), r = pkR(k); return [R * S3 * (q + r / 2), R * 1.5 * r]; }
-const PLOT_NB = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+const PLOT_NB = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]], RING2 = [];
+for (let a = -2; a <= 2; a++) for (let b = -2; b <= 2; b++) if (Math.max(Math.abs(a), Math.abs(b), Math.abs(a + b)) <= 2) RING2.push([a, b]);
+function hash2(a, b, s) { let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(s | 0, 1442695041); h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+/* which land (terrain) a point lies in, from a raster of the regions: plot edges bend along these lines */
+let terrMask = null;
+function terrAt(x, y) {
+  if (!terrMask) { const S = 2, c = document.createElement("canvas"); c.width = Math.ceil(W.w * S); c.height = Math.ceil(W.h * S); const g = c.getContext("2d"); g.scale(S, S);
+    for (const s of W.regions) { g.fillStyle = `rgb(${s.i + 1},0,0)`; g.fill(s.path, "evenodd"); }
+    const d = g.getImageData(0, 0, c.width, c.height).data, m = new Int8Array(c.width * c.height).fill(-1);
+    for (let i = 0; i < m.length; i++) if (d[i * 4 + 3] === 255 && d[i * 4] > 0) { const s = W.regions[d[i * 4] - 1]; if (s) m[i] = s.t; }
+    terrMask = { w: c.width, h: c.height, S, m }; }
+  const xi = (x * terrMask.S) | 0, yi = (y * terrMask.S) | 0; if (xi < 0 || yi < 0 || xi >= terrMask.w || yi >= terrMask.h) return -1;
+  return terrMask.m[yi * terrMask.w + xi];
+}
+/* each plot's seed: a point jittered off a regular lattice, with its own wobble */
+const seedCache = new Map();
+function seedOf(k, R = PLOT_R) { const tg = Math.round(R * 100); let C = seedCache.get(tg); if (!C) seedCache.set(tg, C = new Map()); let s = C.get(k); if (s) return s;
+  const q = pkQ(k), r = pkR(k), cx = R * S3 * (q + r / 2), cy = R * 1.5 * r, a = hash2(q, r, tg) * 6.2832, d = Math.sqrt(hash2(r, q, tg + 7)) * .5 * R;
+  const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d, f1 = 2.1 / R, f2 = 3.6 / R, d1 = hash2(q, r, tg + 11) * 6.2832, d2 = hash2(q, r, tg + 13) * 6.2832;
+  s = { x, y, t: terrAt(x, y), a1: Math.cos(d1) * f1, b1: Math.sin(d1) * f1, p1: hash2(q, r, tg + 17) * 6.2832, a2: Math.cos(d2) * f2, b2: Math.sin(d2) * f2, p2: hash2(q, r, tg + 19) * 6.2832, k };
+  C.set(k, s); return s; }
+/* how far a point is from a seed, bent by the seed's wobble and by changes in the land */
+function cellD(s, x, y, tp) { const dx = x - s.x, dy = y - s.y; let d = Math.sqrt(dx * dx + dy * dy) * (1 + .3 * (.6 * Math.sin(s.a1 * x + s.b1 * y + s.p1) + .4 * Math.sin(s.a2 * x + s.b2 * y + s.p2)));
+  if (tp >= 0 && s.t >= 0 && tp !== s.t) d *= 1.6; return d; }
+/* surveyed blocks: square-cut land with straight borders */
+const SVY_B = CLAIM_R[2] * 2, svyBox = (x, y) => Math.floor(x / SVY_B) * 100000 + Math.floor(y / SVY_B);
+let svySet = null; const svyOn = () => { if (!svySet || svySet.G !== G) { svySet = new Set(G.svy || []); svySet.G = G; } return svySet; };
+function plotAt(x, y, R = PLOT_R) { const [q, r] = hexRound((S3 / 3 * x - y / 3) / R, (2 / 3 * y) / R), tp = terrAt(x, y);
+  const sv = R === PLOT_R && G && G.svy && G.svy.length ? svyOn() : null, pb = sv ? (sv.has(svyBox(x, y)) ? svyBox(x, y) : -1) : -1;
+  let best = -1, bd = 1e18, any = -1, ad = 1e18;
+  for (const [a, b] of RING2) { const s = seedOf(pkey(q + a, r + b), R), d = cellD(s, x, y, tp);
+    if (d < ad) { ad = d; any = s.k; }
+    if (sv) { const sb = svyBox(s.x, s.y); if ((sv.has(sb) ? sb : -1) !== pb) continue; }
+    if (d < bd) { bd = d; best = s.k; } }
+  return best >= 0 ? best : any; }
+function plotXY(k, R = PLOT_R) { const s = seedOf(k, R); return [s.x, s.y]; }
 const plotNbrs = k => { const q = pkQ(k), r = pkR(k); return PLOT_NB.map(([a, b]) => pkey(q + a, r + b)); };
 const plotGroup = (k, R) => { const [x, y] = plotXY(k); return plotAt(x, y, R); };
-const plotLand = k => { const [x, y] = plotXY(k); return onLand(x, y); };
+const plotLand = k => { const [x, y] = plotXY(k); if (onLand(x, y)) return true; for (let i = 0; i < 6; i++) if (onLand(x + Math.cos(i) * PLOT_R * .55, y + Math.sin(i) * PLOT_R * .55)) return true; return false; };
+/* a plot's outline, found by walking out from its seed until the land belongs to another plot. Worked out once and kept */
+const polyCache = [new Map(), new Map()]; let polyBudget = 0, polyShort = false;
+function cellPoly(k, fine) { const C = polyCache[fine ? 1 : 0]; let P = C.get(k); if (P) return P;
+  if (polyBudget <= 0) { polyShort = true; return null; } polyBudget--;
+  const s = seedOf(k), q0 = pkQ(k), r0 = pkR(k), cand = [], sv = G.svy && G.svy.length ? svyOn() : null;
+  for (let a = -3; a <= 3; a++) for (let b = -3; b <= 3; b++) if (Math.max(Math.abs(a), Math.abs(b), Math.abs(a + b)) <= 3 && (a || b)) { const c = seedOf(pkey(q0 + a, r0 + b)); c.bx = sv && sv.has(svyBox(c.x, c.y)) ? svyBox(c.x, c.y) : -1; cand.push(c); }
+  const sb = sv && sv.has(svyBox(s.x, s.y)) ? svyBox(s.x, s.y) : -1;
+  const mine = (x, y) => { const tp = terrAt(x, y), pb = sv && sv.has(svyBox(x, y)) ? svyBox(x, y) : -1; if (sb !== pb) return false; const d = cellD(s, x, y, tp); for (const c of cand) if ((!sv || c.bx === pb) && cellD(c, x, y, tp) < d) return false; return true; }; /* same test as plotAt, against the seeds around this one */
+  const N = fine ? 15 : 8, out = new Float32Array(N * 2), st = PLOT_R * (fine ? .25 : .35);
+  for (let i = 0; i < N; i++) { const a = i * 2 * Math.PI / N + .13, ux = Math.cos(a), uy = Math.sin(a); let lo = 0;
+    while (lo < 3 * PLOT_R && mine(s.x + ux * (lo + st), s.y + uy * (lo + st))) lo += st;
+    let hi = lo + st; for (let j = 0; j < (fine ? 5 : 3); j++) { const m = (lo + hi) / 2; if (mine(s.x + ux * m, s.y + uy * m)) lo = m; else hi = m; }
+    const t = (lo + hi) / 2 + PLOT_R * (fine ? .14 : .28); out[i * 2] = s.x + ux * t; out[i * 2 + 1] = s.y + uy * t; }
+  C.set(k, out); return out; }
+function polyTo(p, P) { p.moveTo(P[0], P[1]); for (let i = 2; i < P.length; i += 2) p.lineTo(P[i], P[i + 1]); p.closePath(); }
 const plotsMap = () => G.plots || (G.plots = {});
 const plotOwner = k => { const o = plotsMap()[k]; return o == null ? -1 : o; };
 let poIx = null, poK = -1;
@@ -1165,13 +1216,18 @@ function plotsOf(n) { if (!poIx || poK !== (G.pv || 0) || poIx.G !== G) { poIx =
 /* free land next to a people's plots */
 function claimable(n) { const own = plotsOf(n), out = new Set(); for (const k of own) for (const j of plotNbrs(k)) if (plotOwner(j) < 0 && plotLand(j)) out.add(j); return [...out]; }
 /* what one claim takes: a plot in the Stone Age, the whole free part of its state-sized group after */
-function claimSet(n, k) { const lv = claimLevel(n); if (!lv) return [k]; const R = CLAIM_R[lv], g = plotGroup(k, R), seen = new Set([k]), q = [k], out = [];
+const surveys = n => has(n, "enlightenment"); /* surveyors cut new land into square blocks */
+function claimSet(n, k) { const lv = claimLevel(n);
+  if (surveys(n)) { const [x, y] = plotXY(k), bx = svyBox(x, y), seen = new Set([k]), q = [k], out = []; while (q.length) { const c = q.pop(); out.push(c); for (const j of plotNbrs(c)) { if (seen.has(j)) continue; seen.add(j); const [jx, jy] = plotXY(j); if (svyBox(jx, jy) === bx && plotOwner(j) < 0 && plotLand(j)) q.push(j); } } return out; }
+  if (!lv) return [k]; const R = CLAIM_R[lv], g = plotGroup(k, R), seen = new Set([k]), q = [k], out = [];
   while (q.length) { const c = q.pop(); out.push(c); for (const j of plotNbrs(c)) if (!seen.has(j) && plotGroup(j, R) === g && plotOwner(j) < 0 && plotLand(j)) { seen.add(j); q.push(j); } } return out; }
 function claimCost(n, k) { const c = claimSet(n, k).length, more = 1 + plotsOf(n).length / 150; return tribal(n) ? { m: Math.ceil(1 * c * more), g: 0 } : { m: 0, g: Math.ceil(1.5 * c * more * (1 + .3 * n.era)) }; }
 function claimPlot(n, k) { if (plotOwner(k) >= 0 || !plotLand(k)) return { why: "That land isn't free." };
   if (!claimable(n).includes(k)) return { why: "You can only claim land next to your own." };
   const c = claimCost(n, k); if (n.mat < c.m || n.gold < c.g) return { why: `Claiming that takes ${c.m ? c.m + " materials" : c.g + " gold"}.` };
-  n.mat -= c.m; n.gold -= c.g; const ks = claimSet(n, k); for (const j of ks) setPlot(j, n.id); G.sv++; return { ok: true, n: ks.length }; }
+  n.mat -= c.m; n.gold -= c.g; const ks = claimSet(n, k);
+  if (surveys(n)) { const [x, y] = plotXY(k), b = svyBox(x, y); if (!(G.svy || (G.svy = [])).includes(b)) { G.svy.push(b); svySet = null; polyCache[0].clear(); polyCache[1].clear(); } } /* the block's edges become straight survey lines */
+  for (const j of ks) setPlot(j, n.id); G.sv++; return { ok: true, n: ks.length }; }
 /* AI peoples claim land when theirs gets tight, choosing the richest free land beside them */
 function aiClaim(n) { const cand = claimable(n); if (!cand.length) return; const pop = popOf(n), have = plotsOf(n).length * PLOT_AREA;
   const tight = !has(n, "agriculture") && tribal(n) ? pop / Math.max(1, have * 5.5) > .45 : roomOf(n) < 1.1 || pop / Math.max(1, have * 15) > .5;
@@ -3815,18 +3871,32 @@ function inForeignCorridor(x, y, owner) { /* only peoples with villages nearby c
     for (const c of corrYear(n)) if (x > c.bb[0] && x < c.bb[2] && y > c.bb[1] && y < c.bb[3] && sampler.isPointInPath(c.path, x, y)) return true; }
   return false;
 }
+let plotKey = null, plotPaths = new Map(), plotPend = [], plotCirc = null, plotTier = 0;
 function drawBorders(k, me) {
   const key = G.sv + ":" + G.turn + ":" + (G.pv || 0);
   if (bordKey !== key) { bordKey = key; bordPaths = new Map();
     for (const s of G.sets) { const p = bordPaths.get(s.o) || (bordPaths.set(s.o, new Path2D()), bordPaths.get(s.o)); smoothPoly(p, s.exp && s.expDir != null ? blobPts(s.x, s.y, s.h || .05, s.id).map(([px, py]) => { const l = lobe(s, Math.atan2(py - s.y, px - s.x)); return [s.x + (px - s.x) * l, s.y + (py - s.y) * l]; }) : blobPts(s.x, s.y, s.h || .05, s.id)); }
     for (const n of G.nations) { if (!n.alive) continue; const p = bordPaths.get(n.id); if (!p) continue; for (const c of corridors(n)) p.addPath(c.path); }
-    const M = plotsMap(); for (const k in M) { const o = M[k]; const p = bordPaths.get(o) || (bordPaths.set(o, new Path2D()), bordPaths.get(o)); const [px, py] = plotXY(+k); p.moveTo(px + PLOT_R * 1.04 * Math.cos(Math.PI / 6), py + PLOT_R * 1.04 * Math.sin(Math.PI / 6)); for (let i = 1; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3; p.lineTo(px + PLOT_R * 1.04 * Math.cos(a), py + PLOT_R * 1.04 * Math.sin(a)); } p.closePath(); } } /* claimed land */
+  }
+  /* claimed land: each plot's own shape. Zoomed out, a rough outline (or a dot) is enough; shapes are worked out a few at a time */
+  const tier = k < 6 ? 0 : k < 14 ? 1 : 2, x0 = -view.x / k - 4, y0 = -view.y / k - 4, x1 = (cw - view.x) / k + 4, y1 = (ch - view.y) / k + 4, cell = tier ? Math.max(cw, ch) / k / 3 : 1e9;
+  const pk = key + ":" + tier + ":" + (tier ? Math.floor(x0 / cell) + "," + Math.floor(y0 / cell) : "");
+  const addTo = (m, o) => m.get(o) || (m.set(o, new Path2D()), m.get(o));
+  if (plotKey !== pk) { plotKey = pk; plotPaths = new Map(); plotPend = [];
+    const M = plotsMap(), X0 = x0 - cell, Y0 = y0 - cell, X1 = x1 + cell, Y1 = y1 + cell;
+    for (const kk in M) { const o = M[kk], [px, py] = plotXY(+kk); if (tier && (px < X0 || px > X1 || py < Y0 || py > Y1)) continue; plotPend.push(+kk, o); } plotTier = tier; }
+  if (plotPend.length) { /* shapes are worked out a batch per frame; plots still waiting show as rough dots */
+    polyBudget = plotTier === 2 ? 40 : 80; polyShort = false; const left = [], circ = new Map();
+    for (let i = 0; i < plotPend.length; i += 2) { const kk = plotPend[i], o = plotPend[i + 1], P = plotTier ? cellPoly(kk, plotTier === 2) : null;
+      if (P) polyTo(addTo(plotPaths, o), P); else if (!plotTier) { const [px, py] = plotXY(kk), p = addTo(plotPaths, o); p.moveTo(px + PLOT_R * 1.1, py); p.arc(px, py, PLOT_R * 1.1, 0, Math.PI * 2); }
+      else { left.push(kk, o); const [px, py] = plotXY(kk), p = addTo(circ, o); p.moveTo(px + PLOT_R * 1.1, py); p.arc(px, py, PLOT_R * 1.1, 0, Math.PI * 2); } }
+    plotPend = left; plotCirc = circ; if (left.length) dirty = true; } else plotCirc = null;
   ctx.save(); ctx.clip(getLandPath(), "evenodd");
   const bw = Math.max(.004, 1.8 / k);
-  for (const [o, p] of bordPaths) { const n = G.nations[o]; if (!n || !n.alive) continue; const war = atWar(me, o);
-    // outline trick: stroke every square thick and dark, then fill the union so only the outer edge shows
-    ctx.lineJoin = "round"; ctx.lineWidth = bw * (war ? 3 : 2); ctx.strokeStyle = war ? "#b3261e" : shade(n.color, -.42); ctx.stroke(p);
-    ctx.fillStyle = shade(n.color, .25); ctx.fill(p); }
+  for (const o of new Set([...bordPaths.keys(), ...plotPaths.keys(), ...(plotCirc ? plotCirc.keys() : [])])) { const n = G.nations[o]; if (!n || !n.alive) continue; const war = atWar(me, o), p = bordPaths.get(o), q = plotPaths.get(o), c = plotCirc && plotCirc.get(o);
+    // outline trick: stroke every shape thick and dark, then fill the union so only the outer edge shows
+    ctx.lineJoin = "round"; ctx.lineWidth = bw * (war ? 3 : 2); ctx.strokeStyle = war ? "#b3261e" : shade(n.color, -.42); if (p) ctx.stroke(p); if (c) ctx.stroke(c); if (q) { ctx.lineWidth = bw * (war ? 4.5 : 3.5); ctx.stroke(q); }
+    ctx.fillStyle = shade(n.color, .25); if (p) ctx.fill(p); if (c) ctx.fill(c); if (q) { ctx.fill(q); ctx.lineWidth = bw * 1.5; ctx.strokeStyle = ctx.fillStyle; ctx.stroke(q); } } /* the light stroke closes hairline gaps between a people's own plots */
   ctx.restore();
 }
 let fogCanvas = null;
@@ -3925,7 +3995,7 @@ function draw() {
   // settlements: drawn at true map scale, so you zoom in to see their shapes
   drawSettlements(k, me);
   if (claimMode) { ctx.save(); ctx.lineWidth = 2.2 / k; ctx.setLineDash([5 / k, 4 / k]); ctx.strokeStyle = "#ff7a3d"; ctx.fillStyle = "rgba(255,122,61,.14)";
-    for (const c of claimable(P())) { const [px, py] = plotXY(c); ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + i * Math.PI / 3, X = px + PLOT_R * .96 * Math.cos(a), Y = py + PLOT_R * .96 * Math.sin(a); if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y); } ctx.closePath(); ctx.fill(); ctx.stroke(); } ctx.restore(); }
+    polyBudget = 200; for (const c of claimable(P())) { const P2 = cellPoly(c, true); if (!P2) { dirty = true; continue; } ctx.beginPath(); ctx.moveTo(P2[0], P2[1]); for (let i = 2; i < P2.length; i += 2) ctx.lineTo(P2[i], P2[i + 1]); ctx.closePath(); ctx.fill(); ctx.stroke(); } ctx.restore(); }
   if (placeMode) { const d = setById(placeMode.from); if (d) { const R = villageReach(P()); ctx.save(); ctx.lineWidth = 2.5 / k; ctx.setLineDash([6 / k, 5 / k]); ctx.strokeStyle = "#ff7a3d"; ctx.fillStyle = "rgba(255,122,61,.10)";
     ctx.beginPath(); ctx.arc(d.x, d.y, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore(); } }
   if (k < 3.2 && seeAll()) {
@@ -5441,7 +5511,7 @@ function start(data) {
   if (data && data.G && data.G.v === 2) { G = data.G; reachCache.clear(); restoreCells(); if (!G.exp) { G.exp = new Array(NR).fill(0); updateExplore(); } startPlaying(); } else showTitle();
   requestAnimationFrame(loop);
 }
-window.__c2c = { claimPt: () => { const n = P(), r = cv.getBoundingClientRect(), sc = k => { const [x, y] = plotXY(k); return [r.left + view.x + x * view.k, r.top + view.y + y * view.k]; }, ks = claimable(n).sort((a, b) => { const A = sc(a), B = sc(b); return Math.hypot(A[0] - cw / 2, A[1] - ch * .42) - Math.hypot(B[0] - cw / 2, B[1] - ch * .42); }); return ks.length ? sc(ks[0]) : [0, 0]; }, structCov: (n, k) => structCov(n, k), healCov: n => healCov(n), toolCov: n => toolCov(n), lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
+window.__c2c = { startClaim: () => startClaim(), claimPt: () => { const n = P(), r = cv.getBoundingClientRect(), sc = k => { const [x, y] = plotXY(k); return [r.left + view.x + x * view.k, r.top + view.y + y * view.k]; }, ks = claimable(n).sort((a, b) => { const A = sc(a), B = sc(b); return Math.hypot(A[0] - cw / 2, A[1] - ch * .42) - Math.hypot(B[0] - cw / 2, B[1] - ch * .42); }); return ks.length ? sc(ks[0]) : [0, 0]; }, structCov: (n, k) => structCov(n, k), healCov: n => healCov(n), toolCov: n => toolCov(n), lodQuiet: n => lodQuiet(n), deathRates: n => deathRates(n), contactDisease: (a, b) => contactDisease(a, b), healthOf: n => healthOf(n), birthWork: n => birthWork(n), birthSchool: n => birthSchool(n), eduOf: n => eduOf(n), dump: () => JSON.stringify(G), draw: () => { const t0 = performance.now(); draw(); return performance.now() - t0; }, view: () => view, setView: (k, x, y) => { view.k = k; if (x != null) centerOn(x, y, k); dirty = true; }, mergeInto: (a, b) => mergeInto(a, b), seekMerge: n => seekMerge(n), scarcity: n => scarcity(n), winChance: (n, s, k) => winChance(n, s, k), tapWorld: (x, y) => { if (!placeMode) return null; const r = foundAt(P(), setById(placeMode.from), x, y); if (r.ok) endPlace(); return r; }, carriersNeeded: n => carriersNeeded(n), waterInfra: (x, w) => waterInfra(x, w), amenOf: n => amenOf(n), waterOf: n => waterOf(n), fertility: (n) => fertility(n, econ(n)), expelGroup, addGroup, addPeople, homeShares, compatOf,  get G() { return G; }, dbg: n => ({ eraTechs: eraTechs(n.era).map(t => t.id + (has(n, t.id) ? "+" : "-")), need: eraNeed(n.era), missing: fieldsMissing(n).map(c => c.k + " " + chainHave(n, c) + "/" + chainNeed(n, c)), research: n.research, sciPts: Math.round(n.sciPts) }), load: g => { G = g; reachCache.clear(); emphCache = new Map(); }, bordersTouch, focus: (x, y, k) => centerOn(x, y, k), newGame, endTurn, aiTurn, econ, P, setsOf, terrCount, popOf, TECHS, score, ranking, dip, aiAccept, makePeace, atWar, foundCheck, foundVillage, townCheck, cityCheck, upgrade, bestVillageSpot, placeName, personName, langOfRegion, hubsOf, cityRank, cityInds, tradeReach, tradeTrust, tradeOpen, relOK, loseUnits };
 const hot = window.claude?.hot;
 hot?.ready ? hot.ready(start) : start(hot?.data ?? {});
 })();
